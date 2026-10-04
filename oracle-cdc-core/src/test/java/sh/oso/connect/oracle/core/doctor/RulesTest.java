@@ -1,0 +1,238 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package sh.oso.connect.oracle.core.doctor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import sh.oso.connect.oracle.core.config.CoreConfig;
+import sh.oso.connect.oracle.core.topology.ArchiveDestination;
+import sh.oso.connect.oracle.core.topology.DatabaseInfo;
+
+class RulesTest {
+
+  private static CoreConfig config(Map<String, String> extra) {
+    Map<String, String> p =
+        new java.util.HashMap<>(
+            Map.of(
+                CoreConfig.DATABASE_HOST,
+                "h",
+                CoreConfig.DATABASE_SERVICE,
+                "FREE",
+                CoreConfig.DATABASE_USER,
+                "C##CDC",
+                CoreConfig.DATABASE_PASSWORD,
+                "x",
+                CoreConfig.DATABASE_PDBS,
+                "FREEPDB1"));
+    p.putAll(extra);
+    return new CoreConfig(p);
+  }
+
+  private static CapturedTable table(
+      String name, boolean allCols, boolean pk, List<CapturedTable.Column> cols) {
+    return new CapturedTable(
+        "FREEPDB1", "APP", name, cols, allCols, !allCols, pk, false, false, false);
+  }
+
+  private static final CapturedTable.Column ID = new CapturedTable.Column("ID", "NUMBER", false);
+
+  private DoctorContext ctx(FakeDoctorCatalog cat, String keyMissing) {
+    return new DoctorContext(
+        config(Map.of()),
+        cat,
+        List.of("FREEPDB1\\.APP\\..*"),
+        List.of("FREEPDB1\\.APP\\.SKIP.*"),
+        keyMissing);
+  }
+
+  @Test
+  void aCleanDatabaseHasNoFindings() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.tables.add(table("ORDERS", true, true, List.of(ID)));
+    cat.tables.add(table("SKIPPED", false, false, List.of(ID)));
+    Report r = new Doctor(Rules.fastMode()).run(ctx(cat, "fail"));
+    assertThat(r.findings()).isEmpty();
+    assertThat(r.exitCode()).isEqualTo(Report.EXIT_OK);
+    assertThat(r.toMarkdown()).contains("No findings");
+  }
+
+  @Test
+  void everyRuleFiresOnItsFixture() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.base.database =
+        new DatabaseInfo(
+            1,
+            "FREE",
+            true,
+            "NOARCHIVELOG",
+            "READ WRITE",
+            "PRIMARY",
+            "18.0.0.0.0",
+            1,
+            false,
+            "Linux");
+    cat.base.destinations.clear();
+    cat.base.destinations.add(
+        new ArchiveDestination(1, "LOG_ARCHIVE_DEST_1", "/a", "ERROR", "LOCAL", "PRIMARY"));
+    cat.privileges.remove("LOGMINING");
+    cat.inaccessible.add("V$LOGMNR_CONTENTS");
+    cat.containerDataAll = false;
+    cat.tables.add(table("NOLOG", false, true, List.of(ID)));
+    cat.tables.add(
+        new CapturedTable(
+            "FREEPDB1",
+            "APP",
+            "IDENT",
+            List.of(new CapturedTable.Column("ID", "NUMBER", true)),
+            true,
+            false,
+            true,
+            false,
+            false,
+            false));
+    cat.tables.add(
+        table("BOOL", true, true, List.of(ID, new CapturedTable.Column("FLAG", "BOOLEAN", false))));
+    cat.tables.add(table("A_VERY_LONG_TABLE_NAME_OVER_THIRTY_CHARS", true, true, List.of(ID)));
+    cat.tables.add(table("NOKEY", true, false, List.of(ID)));
+    Report r = new Doctor(Rules.fastMode()).run(ctx(cat, "fail"));
+    assertThat(r.findings())
+        .extracting(Finding::rule)
+        .contains(
+            "DOC-1", "DOC-2", "DOC-3", "DOC-4", "DOC-5", "DOC-6", "DOC-7", "DOC-12", "DOC-15");
+    assertThat(r.findings())
+        .filteredOn(f -> f.rule().equals("DOC-4"))
+        .extracting(Finding::message)
+        .anyMatch(m -> m.contains("LOGMINING"))
+        .anyMatch(m -> m.contains("V$LOGMNR_CONTENTS"))
+        .anyMatch(m -> m.contains("CONTAINER_DATA"));
+    assertThat(r.findings())
+        .filteredOn(f -> f.rule().equals("DOC-5"))
+        .extracting(Finding::message)
+        .anyMatch(m -> m.contains("identity"))
+        .anyMatch(m -> m.contains("BOOLEAN"));
+    assertThat(r.exitCode()).isEqualTo(Report.EXIT_BLOCKING);
+    assertThat(r.toMarkdown()).contains("## SQL to run").contains("ALTER DATABASE ARCHIVELOG");
+    assertThat(r.toJson()).startsWith("{\"exitCode\":1").contains("\"rule\":\"DOC-1\"");
+    assertThat(r.toJUnitXml()).contains("<failure");
+  }
+
+  @Test
+  void primaryKeyOnlyLoggingAndRowidKeysAreWarnings() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.tables.add(table("PKONLY", false, true, List.of(ID)));
+    cat.tables.add(
+        new CapturedTable(
+            "FREEPDB1", "APP", "MOVER", List.of(ID), true, false, false, false, true, false));
+    Report r = new Doctor(Rules.fastMode()).run(ctx(cat, "rowid"));
+    assertThat(r.findings()).extracting(Finding::severity).containsOnly(Severity.WARNING);
+    assertThat(r.exitCode()).isEqualTo(Report.EXIT_WARNINGS);
+    Report none = new Doctor(Rules.fastMode()).run(ctx(cat, "none"));
+    assertThat(none.findings())
+        .filteredOn(f -> f.rule().equals("DOC-7"))
+        .extracting(Finding::severity)
+        .containsOnly(Severity.INFO);
+  }
+
+  @Test
+  void standbyNeedsArchiveOnlyMode() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.base.database =
+        new DatabaseInfo(
+            1,
+            "FREE",
+            true,
+            "ARCHIVELOG",
+            "MOUNTED",
+            "PHYSICAL STANDBY",
+            "19.0.0.0.0",
+            1,
+            true,
+            "Linux");
+    Report online = new Doctor(List.of(Rules.roleAndOpenMode())).run(ctx(cat, "fail"));
+    assertThat(online.findings()).extracting(Finding::rule).containsExactly("DOC-14");
+    DoctorContext archiveOnly =
+        new DoctorContext(
+            config(Map.of(CoreConfig.CAPTURE_MODE, "archive_only")),
+            cat,
+            List.of(".*"),
+            List.of(),
+            "fail");
+    assertThat(new Doctor(List.of(Rules.roleAndOpenMode())).run(archiveOnly).findings()).isEmpty();
+  }
+
+  @Test
+  void aRuleThatThrowsBecomesABlockingFinding() {
+    Rule broken =
+        new Rule() {
+          public String id() {
+            return "DOC-X";
+          }
+
+          public List<Finding> evaluate(DoctorContext ctx) {
+            throw new IllegalStateException("boom");
+          }
+        };
+    Report r = new Doctor(List.of(broken)).run(ctx(new FakeDoctorCatalog(), "fail"));
+    assertThat(r.findings())
+        .singleElement()
+        .satisfies(
+            f -> {
+              assertThat(f.rule()).isEqualTo("DOC-X");
+              assertThat(f.severity()).isEqualTo(Severity.BLOCKING);
+              assertThat(f.message()).contains("boom");
+            });
+  }
+
+  @Test
+  void setupSqlProfiles() {
+    String lab =
+        SetupSql.generate(
+            "c##cdc",
+            "cdc",
+            true,
+            SetupSql.Profile.LAB,
+            SetupSql.Platform.ONPREM,
+            List.of("FREEPDB1", "FREEPDB2"));
+    assertThat(lab)
+        .contains("CREATE USER c##cdc IDENTIFIED BY \"cdc\" CONTAINER=ALL;")
+        .contains("SET CONTAINER_DATA=ALL")
+        .contains("GRANT ALTER SYSTEM")
+        .contains("ALTER SESSION SET CONTAINER = FREEPDB2;");
+    String prod =
+        SetupSql.generate(
+            "c##cdc",
+            "secret",
+            true,
+            SetupSql.Profile.PRODUCTION,
+            SetupSql.Platform.ONPREM,
+            List.of());
+    assertThat(prod)
+        .doesNotContain("ALTER SYSTEM")
+        .doesNotContain("workload")
+        .contains("SUPPLEMENTAL LOG DATA (ALL) COLUMNS");
+    String nonCdb =
+        SetupSql.generate(
+            "cdc", "x", false, SetupSql.Profile.PRODUCTION, SetupSql.Platform.ONPREM, List.of());
+    assertThat(nonCdb).doesNotContain("CONTAINER").doesNotContain("SET CONTAINER");
+    assertThat(
+            SetupSql.generate(
+                "u", "p", true, SetupSql.Profile.PRODUCTION, SetupSql.Platform.RDS, List.of()))
+        .contains("not available yet");
+  }
+}
