@@ -107,7 +107,17 @@ public class OracleCdcSourceTask extends SourceTask {
       DebeziumEnvelope envelope = new DebeziumEnvelope(config, router, session.databaseName());
       sink =
           new RecordQueueSink(
-              envelope, session.schemas(), position, Math.max(1000, config.pollMaxRecords() * 4));
+              envelope,
+              session.schemas(),
+              position,
+              Math.max(1000, config.pollMaxRecords() * 4),
+              new sh.oso.connect.oracle.heartbeat.HeartbeatEmitter(
+                  config.heartbeatTopic(), config.topicPrefix(), envelope.partition()),
+              config.heartbeatIntervalMs(),
+              System::currentTimeMillis);
+      // SRC-HB-1: the start position becomes durable with the first offset flush, before any
+      // change record; a task killed before that would otherwise restart from a later SCN
+      sink.heartbeatAtStart();
       CaptureEngine engine = session.engine(position, sink);
       lifecycle =
           new EngineLifecycle(

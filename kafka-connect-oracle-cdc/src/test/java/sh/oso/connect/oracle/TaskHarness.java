@@ -80,6 +80,10 @@ final class TaskHarness implements AutoCloseable {
   final FakeLogMiner fake = new FakeLogMiner().startAt(1000);
   final FakeCatalog catalog = new FakeCatalog().archivedRun(1, 1, 50, 1000, 100);
   long safeEnd = 1000;
+
+  /** What the fake database reports as its current SCN when a task starts without an offset. */
+  long currentScn = 1000;
+
   final Map<String, String> props = new HashMap<>(OracleCdcSourceConnectorConfigTest.minimal());
   private final Map<Map<String, Object>, Map<String, Object>> committedOffsets = new HashMap<>();
   private OracleCdcSourceTask task;
@@ -125,7 +129,7 @@ final class TaskHarness implements AutoCloseable {
           }
 
           public long currentScn() {
-            return 1000;
+            return currentScn;
           }
 
           public boolean cdb() {
@@ -198,14 +202,25 @@ final class TaskHarness implements AutoCloseable {
     return task;
   }
 
-  /** Polls until {@code n} records or the deadline; nothing is acknowledged yet. */
+  /**
+   * Polls until {@code n} change records or the deadline; heartbeats are dropped from the result.
+   */
   List<SourceRecord> pollUntil(int n, long timeoutMillis) throws InterruptedException {
+    return pollUntil(n, timeoutMillis, false);
+  }
+
+  List<SourceRecord> pollUntil(int n, long timeoutMillis, boolean keepHeartbeats)
+      throws InterruptedException {
     List<SourceRecord> out = new ArrayList<>();
     long deadline = System.currentTimeMillis() + timeoutMillis;
     while (out.size() < n && System.currentTimeMillis() < deadline) {
       List<SourceRecord> batch = task.poll();
       if (batch != null) {
-        out.addAll(batch);
+        for (SourceRecord r : batch) {
+          if (keepHeartbeats || !isHeartbeat(r)) {
+            out.add(r);
+          }
+        }
       }
     }
     return out;
@@ -234,7 +249,14 @@ final class TaskHarness implements AutoCloseable {
     return task;
   }
 
+  static boolean isHeartbeat(SourceRecord r) {
+    return r.topic().endsWith(".cdc.heartbeat");
+  }
+
   static String sql(SourceRecord r) {
+    if (isHeartbeat(r)) {
+      return "<heartbeat>";
+    }
     org.apache.kafka.connect.data.Struct v = (org.apache.kafka.connect.data.Struct) r.value();
     if (v == null) {
       return "<tombstone>";

@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceRecord;
 import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
@@ -32,12 +33,15 @@ import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.envelope.DebeziumEnvelope;
+import sh.oso.connect.oracle.heartbeat.HeartbeatEmitter;
 
 /**
  * The engine's sink on the Connect side: committed transactions become records on a bounded queue
  * that poll() drains. Each record carries the position a restart may use once it is acknowledged:
  * the transaction's resume candidate, its commit and the index after this event (CORE-POS-3). The
- * queue bound applies back-pressure to the engine thread.
+ * queue bound applies back-pressure to the engine thread. Heartbeats make the position durable at
+ * start and on quiet periods (SRC-HB-1); their position names the last emitted commit so a restart
+ * from a heartbeat offset skips nothing and repeats nothing.
  */
 public final class RecordQueueSink implements EventSink {
 
@@ -45,19 +49,43 @@ public final class RecordQueueSink implements EventSink {
   private final SchemaRegistry schemas;
   private final Position base;
   private final BlockingQueue<SourceRecord> queue;
+  private final HeartbeatEmitter heartbeats;
+  private final long heartbeatIntervalMs;
+  private final LongSupplier clock;
   private volatile long lastMinedTo;
   private volatile long lastResumeCandidate;
+  private long lastQueuedAt;
+  private long lastHeartbeatAt;
+  private Position lastEmittedCommit;
+  private long heartbeatsSent;
 
   public RecordQueueSink(
-      DebeziumEnvelope envelope, SchemaRegistry schemas, Position base, int capacity) {
+      DebeziumEnvelope envelope,
+      SchemaRegistry schemas,
+      Position base,
+      int capacity,
+      HeartbeatEmitter heartbeats,
+      long heartbeatIntervalMs,
+      LongSupplier clock) {
     this.envelope = envelope;
     this.schemas = schemas;
     this.base = base;
     this.queue = new LinkedBlockingQueue<>(capacity);
+    this.heartbeats = heartbeats;
+    this.heartbeatIntervalMs = heartbeatIntervalMs;
+    this.clock = clock;
+    this.lastEmittedCommit = base;
+    this.lastResumeCandidate = base.resumeScn();
+    this.lastMinedTo = base.resumeScn();
+  }
+
+  /** The start heartbeat: makes the start position durable before any change record. */
+  public void heartbeatAtStart() {
+    heartbeat(base, null, "start");
   }
 
   @Override
-  public void committed(CommittedTransaction tx, int skipped, long resumeCandidate) {
+  public synchronized void committed(CommittedTransaction tx, int skipped, long resumeCandidate) {
     Map<TableId, Long> perTable = new HashMap<>();
     for (int i = 0; i < tx.size(); i++) {
       RowChange c = tx.events().get(i);
@@ -77,11 +105,14 @@ public final class RecordQueueSink implements EventSink {
           i + 1 < tx.size() ? Math.min(resumeCandidate, tx.firstCaptured().scn()) : resumeCandidate;
       Position offset =
           base.withCommit(tx.commitScn(), tx.thread(), tx.key(), i + 1).withResumeScn(resume);
-      List<SourceRecord> records = envelope.records(tx, i, order, schema, offset);
-      for (SourceRecord r : records) {
+      for (SourceRecord r : envelope.records(tx, i, order, schema, offset)) {
         put(r);
       }
+      lastQueuedAt = clock.getAsLong();
     }
+    lastEmittedCommit =
+        base.withCommit(tx.commitScn(), tx.thread(), tx.key(), tx.size())
+            .withResumeScn(resumeCandidate);
   }
 
   private void put(SourceRecord r) {
@@ -94,9 +125,31 @@ public final class RecordQueueSink implements EventSink {
   }
 
   @Override
-  public void stepApplied(long minedToScn, long resumeCandidate) {
+  public void idle(long minedToScn, long resumeCandidate) {
+    stepApplied(minedToScn, resumeCandidate);
+  }
+
+  @Override
+  public synchronized void stepApplied(long minedToScn, long resumeCandidate) {
     lastMinedTo = minedToScn;
     lastResumeCandidate = resumeCandidate;
+    if (heartbeatIntervalMs <= 0) {
+      return;
+    }
+    long now = clock.getAsLong();
+    boolean quiet = now - lastQueuedAt >= heartbeatIntervalMs;
+    if (quiet && now - lastHeartbeatAt >= heartbeatIntervalMs) {
+      // every emitted record precedes this heartbeat in the queue, so Connect commits this offset
+      // only after those records; resume never passes an open transaction (the candidate)
+      heartbeat(lastEmittedCommit.withResumeScn(resumeCandidate), minedToScn, "quiet");
+    }
+  }
+
+  private synchronized void heartbeat(Position position, Long minedTo, String reason) {
+    long now = clock.getAsLong();
+    put(heartbeats.record(position, minedTo, reason, now));
+    lastHeartbeatAt = now;
+    heartbeatsSent++;
   }
 
   /** Drains up to {@code max} records, waiting up to {@code lingerMs} for the first. */
@@ -121,5 +174,9 @@ public final class RecordQueueSink implements EventSink {
 
   public long lastResumeCandidate() {
     return lastResumeCandidate;
+  }
+
+  public synchronized long heartbeatsSent() {
+    return heartbeatsSent;
   }
 }

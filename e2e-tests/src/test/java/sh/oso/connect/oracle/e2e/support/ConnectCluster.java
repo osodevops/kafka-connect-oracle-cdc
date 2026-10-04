@@ -208,6 +208,29 @@ public final class ConnectCluster implements AutoCloseable {
     throw new AssertionError("connector " + name + " not RUNNING: " + last);
   }
 
+  /** Polls GET /connectors/{name}/offsets until an offset for the connector's partition exists. */
+  public JsonNode awaitOffsets(String name, Duration timeout) throws Exception {
+    long deadline = System.currentTimeMillis() + timeout.toMillis();
+    JsonNode last = null;
+    while (System.currentTimeMillis() < deadline) {
+      HttpResponse<String> r =
+          http.send(
+              HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name + "/offsets"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString());
+      if (r.statusCode() == 200) {
+        last = MAPPER.readTree(r.body());
+        if (last.path("offsets").size() > 0) {
+          return last;
+        }
+      }
+      Thread.sleep(500);
+    }
+    throw new AssertionError(
+        "no committed offset for " + name + " within " + timeout + ": " + last);
+  }
+
   public KafkaConsumer<String, String> consumer(String group, String... topics) {
     Properties p = new Properties();
     p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());

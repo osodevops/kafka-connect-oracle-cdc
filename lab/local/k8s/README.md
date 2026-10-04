@@ -41,3 +41,11 @@ so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.
 - The single-replica Strimzi operator lost its leader lease on a busy laptop and exited with
   "Stopped being a leader => exiting" every few minutes; `make operator` now sets
   `STRIMZI_LEADER_ELECTION_ENABLED=false` (one replica needs no election).
+- `minikube image load` of an existing tag never reaches the pods: the node keeps its copy of
+  `oracle-cdc-connect:dev`. `make connect-image` now builds a uniquely tagged image, loads it and
+  patches the `KafkaConnect` spec so Strimzi rolls both workers onto it (`:dev` is only the first
+  apply's value). A worker killed before that fix came back on the old plugin.
+- `edge-cases.sh` now runs a seeded bench workload (`WORKLOAD_SECONDS`, default 30) through
+  every fault over a port-forward to the Oracle pod and then requires every committed ledger
+  transaction to be in the workload topics (read_committed), reporting duplicated transactions.
+  It needs `bench/target/bench-*-cli.jar` (`mvn -pl bench package`).

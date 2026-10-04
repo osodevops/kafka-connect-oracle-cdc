@@ -41,6 +41,12 @@ public interface EventSink {
    */
   void stepApplied(long minedToScn, long resumeCandidate);
 
+  /**
+   * Nothing to mine: the cursor is at the safe end. Reported so the owner can heartbeat the
+   * position on a quiet database (CORE-POS-5); {@code resumeCandidate} as for {@link #stepApplied}.
+   */
+  default void idle(long minedToScn, long resumeCandidate) {}
+
   /** A DDL on a captured owner was mined; informational until PRD-03 lands. */
   default void ddl(MiningEvent.Ddl ddl) {}
 

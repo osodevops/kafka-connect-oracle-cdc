@@ -35,6 +35,10 @@ Points worth knowing before the first run:
   above one is accepted with a warning and ignored.
 - Passwords are Connect `PASSWORD` types and never appear in logs. Use a config provider as
   shown rather than a literal.
+- The connector writes a heartbeat record to `cdc.cdc.heartbeat` (the prefix plus
+  `.cdc.heartbeat`) at start and every ten seconds of quiet. Its offset is the position, so the
+  start SCN is durable before the first change and offsets advance on a quiet database without
+  writing to the source.
 
 The full property list is generated from the code into the
 [configuration reference](../reference/configuration/index.md).

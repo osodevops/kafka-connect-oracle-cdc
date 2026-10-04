@@ -30,8 +30,9 @@ so nothing is pushed to a registry.
 recovers: worker `SIGKILL`, Strimzi manual rolling update, rollout restart, two-worker
 rebalance, broker restart, Oracle pod restart from its volume, a NetworkPolicy partition
 between Connect and Oracle, a connector config update, an operator restart during a change,
-an OOM kill under a low memory limit, and the connector offsets listing. Data verification
-plugs into the correctness oracle once the capture engine delivers records.
+an OOM kill under a low memory limit, and the connector offsets listing. Each case runs a seeded
+workload from the bench tool through the fault and then checks that every committed transaction
+in the workload ledger reached Kafka, reporting any duplicated transactions.
 
 ## Lessons the manifests encode
 
@@ -44,3 +45,5 @@ plugs into the correctness oracle once the capture engine delivers records.
   faststart keeps datafiles inside the image where a mounted volume hides them.
 - A single-replica operator on a busy laptop can lose its leader lease and exit; the lab
   disables leader election.
+- Loading a new image under an existing tag does not reach running pods; the lab tags every
+  Connect image build uniquely and patches the `KafkaConnect` spec so Strimzi rolls onto it.

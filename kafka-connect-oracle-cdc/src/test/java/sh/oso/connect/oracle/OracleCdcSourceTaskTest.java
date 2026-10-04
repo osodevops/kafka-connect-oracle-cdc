@@ -197,6 +197,58 @@ class OracleCdcSourceTaskTest {
   }
 
   @Test
+  void startHeartbeatMakesTheStartScnDurableBeforeAnyChange() throws Exception {
+    // the Strimzi worker-kill case: a task killed before its first offset flush restarted from a
+    // later current SCN and skipped every transaction committed in between
+    try (TaskHarness h = new TaskHarness()) {
+      h.start();
+      List<SourceRecord> first = h.pollUntil(1, 5000, true);
+      assertThat(first).hasSize(1);
+      SourceRecord hb = first.get(0);
+      assertThat(hb.topic()).isEqualTo("cdc.cdc.heartbeat");
+      assertThat(((org.apache.kafka.connect.data.Struct) hb.value()).getString("reason"))
+          .isEqualTo("start");
+      assertThat(PositionCodec.read(hb.sourceOffset()).resumeScn()).isEqualTo(1000);
+      h.acknowledge(first);
+      // the database moves on while the task is down; changes land at 1001..1003
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a);
+      h.currentScn = 5000;
+      h.safeEnd = 5000;
+      h.restart();
+      assertThat(h.task().startPosition().resumeScn())
+          .as("resumes at the durable start SCN")
+          .isEqualTo(1000);
+      assertThat(TaskHarness.sqls(h.pollUntil(1, 5000))).containsExactly("c:a1");
+    }
+  }
+
+  @Test
+  void quietDatabaseHeartbeatsAdvanceThePositionWithoutRepeatingCommits() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.HEARTBEAT_INTERVAL_MS, "200");
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a);
+      h.safeEnd = h.fake.nextScn() + 500;
+      h.start();
+      List<SourceRecord> all = h.pollUntil(3, 3000, true);
+      List<SourceRecord> heartbeats = all.stream().filter(TaskHarness::isHeartbeat).toList();
+      assertThat(heartbeats.size()).isGreaterThanOrEqualTo(2);
+      SourceRecord quiet = heartbeats.get(heartbeats.size() - 1);
+      assertThat(((org.apache.kafka.connect.data.Struct) quiet.value()).getString("reason"))
+          .isEqualTo("quiet");
+      Position p = PositionCodec.read(quiet.sourceOffset());
+      assertThat(p.resumeScn())
+          .as("advanced to the mined end on a quiet database")
+          .isEqualTo(h.safeEnd);
+      assertThat(p.lastCommitKey()).as("names the last emitted commit").isEqualTo(a);
+      h.acknowledge(all);
+      h.restart();
+      assertThat(h.pollUntil(1, 500)).as("nothing repeats after a quiet heartbeat").isEmpty();
+    }
+  }
+
+  @Test
   void connectorReturnsOneTaskConfigAndTheComposedDefinition() {
     OracleCdcSourceConnector c = new OracleCdcSourceConnector();
     c.start(OracleCdcSourceConnectorConfigTest.minimal());

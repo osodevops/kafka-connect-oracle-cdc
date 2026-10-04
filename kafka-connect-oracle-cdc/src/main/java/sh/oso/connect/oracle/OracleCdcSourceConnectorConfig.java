@@ -60,6 +60,10 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public static final String DECIMAL_MODE = "cdc.decimal.mode";
   public static final String TEMPORAL_MODE = "cdc.temporal.mode";
 
+  // heartbeats (SRC-HB-1, CORE-POS-5)
+  public static final String HEARTBEAT_INTERVAL_MS = "cdc.heartbeat.interval.ms";
+  public static final String HEARTBEAT_TOPIC = "cdc.heartbeat.topic";
+
   // task (SRC-LC)
   public static final String POLL_MAX_RECORDS = "cdc.poll.max.records";
   public static final String POLL_LINGER_MS = "cdc.poll.linger.ms";
@@ -164,6 +168,15 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
   public TemporalMode temporalMode() {
     return TemporalMode.valueOf(getString(TEMPORAL_MODE).toUpperCase(Locale.ROOT));
+  }
+
+  public long heartbeatIntervalMs() {
+    return getLong(HEARTBEAT_INTERVAL_MS);
+  }
+
+  /** The heartbeat topic; {@code ${prefix}} expands to the topic prefix. */
+  public String heartbeatTopic() {
+    return getString(HEARTBEAT_TOPIC).replace("${prefix}", topicPrefix());
   }
 
   public int pollMaxRecords() {
@@ -329,6 +342,30 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++f,
         Width.SHORT,
         "Temporal mode");
+    def.define(
+        HEARTBEAT_INTERVAL_MS,
+        Type.LONG,
+        10_000L,
+        ConfigDef.Range.between(0L, 3_600_000L),
+        Importance.MEDIUM,
+        "How often a heartbeat record carrying the current position is written when no change"
+            + " records flow, so Connect commits offsets on a quiet database and the start position"
+            + " of a new connector becomes durable at once. 0 disables periodic heartbeats; the"
+            + " start heartbeat is always written.",
+        GROUP_TOPICS,
+        ++o,
+        Width.SHORT,
+        "Heartbeat interval");
+    def.define(
+        HEARTBEAT_TOPIC,
+        Type.STRING,
+        "${prefix}.cdc.heartbeat",
+        Importance.LOW,
+        "Topic for heartbeat records; ${prefix} expands to the topic prefix.",
+        GROUP_TOPICS,
+        ++o,
+        Width.MEDIUM,
+        "Heartbeat topic");
     int t = 0;
     def.define(
         POLL_MAX_RECORDS,

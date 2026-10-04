@@ -138,6 +138,7 @@ public final class CaptureEngine {
     metrics.safeEndScn.set(end);
     if (end <= cursor.scn()) {
       metrics.idlePolls.incrementAndGet();
+      sink.idle(cursor.scn(), ResumeCalculator.resumeScn(cursor.scn(), oldestOpen()));
       return Progress.IDLE;
     }
     if (recycler.due()) {

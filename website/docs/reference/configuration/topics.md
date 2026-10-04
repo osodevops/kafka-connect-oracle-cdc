@@ -19,3 +19,5 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | `cdc.key.missing` | string | `fail` | medium | What to do with a captured table that has neither a primary key nor a NOT NULL unique index: fail (at validation), rowid (key records by ROWID; a moved row changes its key) or none (no key). |
 | `cdc.key.columns` | string | empty | low | Per-table key override as SCHEMA.TABLE:COL1,COL2;SCHEMA.OTHER:COL, taking precedence over the primary key. |
 | `cdc.tombstones.on.delete` | boolean | `true` | medium | Emit a null-valued record after every delete so compacted topics drop the key. |
+| `cdc.heartbeat.interval.ms` | long | `10000` | medium | How often a heartbeat record carrying the current position is written when no change records flow, so Connect commits offsets on a quiet database and the start position of a new connector becomes durable at once. 0 disables periodic heartbeats; the start heartbeat is always written. |
+| `cdc.heartbeat.topic` | string | `${prefix}.cdc.heartbeat` | low | Topic for heartbeat records; $\{prefix\} expands to the topic prefix. |

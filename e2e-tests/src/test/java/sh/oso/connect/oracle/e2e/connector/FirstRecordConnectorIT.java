@@ -103,7 +103,10 @@ class FirstRecordConnectorIT {
   void insertUpdateDeleteReachKafkaAsDebeziumEnvelopes() throws Exception {
     cluster.register("oracle-cdc", config("FREEPDB1\\." + schema + "\\.ORDERS"));
     cluster.awaitRunning("oracle-cdc", Duration.ofMinutes(2));
-    Thread.sleep(2000); // let the task take its start SCN before the first change
+    // the start heartbeat must make the start SCN durable before any change (SRC-HB-1)
+    JsonNode offsets = cluster.awaitOffsets("oracle-cdc", Duration.ofSeconds(60));
+    assertThat(offsets.path("offsets").get(0).path("offset").path("resume_scn").asLong())
+        .isPositive();
     try (Connection w = db.connect(OracleTestDatabase.PDB1, schema, schema)) {
       w.setAutoCommit(false);
       try (Statement s = w.createStatement()) {

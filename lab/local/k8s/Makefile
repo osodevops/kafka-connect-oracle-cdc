@@ -36,12 +36,17 @@ oracle-image: ## build the derived Oracle image and load it into minikube
 	docker build --build-arg BASE_TAG=$(ORACLE_BASE_TAG) -t oracle-cdc-test-db:$(ORACLE_BASE_TAG) $(REPO_ROOT)/docker/test-oracle
 	minikube -p $(MINIKUBE_PROFILE) image load oracle-cdc-test-db:$(ORACLE_BASE_TAG)
 
-connect-image: ## package the connector, build the Strimzi Connect image with the plugin, load it
+connect-image: ## package the connector, build the Strimzi Connect image with the plugin, load it, roll Connect onto it
 	cd $(REPO_ROOT) && mvn -q package -DskipTests -DskipE2E --batch-mode --no-transfer-progress
 	@test -n "$(PLUGIN_DIR)" || { echo "plugin dir missing"; exit 1; }
 	rm -rf connect-image/plugin && cp -R "$(PLUGIN_DIR)" connect-image/plugin
-	docker build --build-arg STRIMZI_VERSION=$(STRIMZI_VERSION) --build-arg KAFKA_VERSION=$(KAFKA_VERSION) -t oracle-cdc-connect:dev connect-image
-	minikube -p $(MINIKUBE_PROFILE) image load oracle-cdc-connect:dev
+	@# a unique tag per build: minikube keeps an existing tag, so re-loading :dev never reaches the pods
+	$(eval CONNECT_TAG := dev-$(shell date +%Y%m%d%H%M%S))
+	docker build --build-arg STRIMZI_VERSION=$(STRIMZI_VERSION) --build-arg KAFKA_VERSION=$(KAFKA_VERSION) -t oracle-cdc-connect:$(CONNECT_TAG) -t oracle-cdc-connect:dev connect-image
+	minikube -p $(MINIKUBE_PROFILE) image load oracle-cdc-connect:$(CONNECT_TAG)
+	@# patch the running KafkaConnect when it exists so Strimzi rolls the workers onto the new image
+	-$(KUBECTL) get kafkaconnect connect >/dev/null 2>&1 && $(KUBECTL) patch kafkaconnect connect --type merge -p '{"spec":{"image":"oracle-cdc-connect:$(CONNECT_TAG)"}}'
+	@echo "connect image oracle-cdc-connect:$(CONNECT_TAG) loaded"
 
 images: oracle-image connect-image
 	$(KUBECTL) apply -f oracle.yaml
@@ -62,7 +67,7 @@ status:
 	$(KUBECTL) get kafka,kafkanodepool,kafkaconnect,kafkaconnector,pods,pvc
 
 plugins: ## the plugin must be listed exactly once
-	$(KUBECTL) exec deploy/connect-connect -- curl -s localhost:8083/connector-plugins | python3 -c 'import sys,json; [print(p["class"], p["version"]) for p in json.load(sys.stdin)]'
+	$(KUBECTL) exec $$($(KUBECTL) get pod -l strimzi.io/name=connect-connect -o jsonpath='{.items[0].metadata.name}') -- curl -s localhost:8083/connector-plugins | python3 -c 'import sys,json; [print(p["class"], p["version"]) for p in json.load(sys.stdin)]'
 
 consume: ## TOPIC=cdc.FREEPDB1.WORKLOAD.ORDERS make consume (read_committed)
 	$(KUBECTL) exec lab-dual-0 -- bin/kafka-console-consumer.sh --bootstrap-server lab-kafka-bootstrap:9092 \

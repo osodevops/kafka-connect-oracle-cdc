@@ -23,7 +23,6 @@ import java.sql.Connection;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -91,6 +90,7 @@ class RestartNoLossConnectorIT {
                 }
               });
       Thread.sleep(8000);
+      String killedAt = java.time.LocalTime.now(java.time.ZoneOffset.UTC).toString();
       cluster.killAndRestartWorker();
       cluster.awaitRunning("oracle-cdc", Duration.ofMinutes(3));
       WorkloadResult r = workload.get();
@@ -115,26 +115,66 @@ class RestartNoLossConnectorIT {
       }
       Set<String> seen = new HashSet<>();
       Map<String, Integer> copies = new HashMap<>();
+      // consume until every expected transaction has been seen, or nothing new has arrived for a
+      // generous idle period: the restarted task may still be catching up on the backlog
       try (KafkaConsumer<String, String> consumer = cluster.consumer("restart-no-loss", topics)) {
-        List<ConsumerRecord<String, String>> records =
-            ConnectCluster.consume(
-                consumer, expected.size(), Duration.ofMinutes(4), Duration.ofSeconds(8));
-        for (ConsumerRecord<String, String> rec : records) {
-          if (rec.value() == null) {
-            continue; // tombstone
+        long deadline = System.currentTimeMillis() + Duration.ofMinutes(5).toMillis();
+        long lastNew = System.currentTimeMillis();
+        while (System.currentTimeMillis() < deadline && !seen.containsAll(expected)) {
+          var batch = consumer.poll(Duration.ofMillis(500));
+          if (batch.isEmpty()) {
+            if (System.currentTimeMillis() - lastNew > Duration.ofSeconds(45).toMillis()) {
+              break;
+            }
+            continue;
           }
-          JsonNode v = ConnectCluster.json(rec.value());
-          String xid = v.path("source").path("txId").asText();
-          String idx =
-              new String(
-                  rec.headers().lastHeader("cdc.event_index").value(), StandardCharsets.UTF_8);
-          seen.add(xid);
-          copies.merge(xid + "#" + idx, 1, Integer::sum);
+          lastNew = System.currentTimeMillis();
+          for (ConsumerRecord<String, String> rec : batch) {
+            if (rec.value() == null) {
+              continue; // tombstone
+            }
+            JsonNode v = ConnectCluster.json(rec.value());
+            String xid = v.path("source").path("txId").asText();
+            String idx =
+                new String(
+                    rec.headers().lastHeader("cdc.event_index").value(), StandardCharsets.UTF_8);
+            seen.add(xid);
+            copies.merge(xid + "#" + idx, 1, Integer::sum);
+          }
         }
       }
       Set<String> missing = new HashSet<>(expected);
       missing.removeAll(seen);
-      assertThat(missing).as("committed transactions missing from Kafka").isEmpty();
+      if (!missing.isEmpty()) {
+        StringBuilder when = new StringBuilder();
+        try (var ps =
+            w.prepareStatement(
+                "SELECT xid, seq, session_id, TO_CHAR(SYS_EXTRACT_UTC(committed_at),"
+                    + " 'HH24:MI:SS.FF3') FROM "
+                    + schema
+                    + "."
+                    + spec.ledgerTable
+                    + " WHERE xid = ?")) {
+          for (String xid : missing.stream().limit(5).toList()) {
+            ps.setString(1, xid);
+            try (var rs = ps.executeQuery()) {
+              while (rs.next()) {
+                when.append(rs.getString(1))
+                    .append(" seq=")
+                    .append(rs.getInt(2))
+                    .append(" session=")
+                    .append(rs.getInt(3))
+                    .append(" committed=")
+                    .append(rs.getString(4))
+                    .append("; ");
+              }
+            }
+          }
+        }
+        assertThat(missing)
+            .as("committed transactions missing from Kafka (kill at %s UTC): %s", killedAt, when)
+            .isEmpty();
+      }
       assertThat(seen).as("only committed transactions reach Kafka").allMatch(ledger::contains);
       long duplicatedTransactions =
           copies.entrySet().stream()
