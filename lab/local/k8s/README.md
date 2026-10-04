@@ -21,3 +21,15 @@ and Strimzi connector offsets ConfigMap list, alter and reset. Verification uses
 oracle in `bench` and `read_committed` consumers.
 
 Single-node Kafka cannot show ISR or coordinator failover; use a three-node pool for those cases.
+
+Verified 4 October 2026 on an Apple Silicon workstation with Strimzi 1.2.0 and Kafka 4.3.1:
+operator, Kafka and two Connect workers Ready; the plugin listed once by the workers; the
+`KafkaConnector` and its task RUNNING; the Oracle StatefulSet restarted from its volume in about
+15 seconds with ARCHIVELOG, supplemental logging and both PDBs intact.
+
+Lessons baked into the manifests: Strimzi 1.x serves only `kafka.strimzi.io/v1` and wants
+`groupId` and the storage topics as top-level `spec` fields; kubectl's discovery cache must be
+purged after the CRDs are installed; the Oracle base must be the regular (not faststart) image
+because faststart keeps the datafiles inside the image where a volume would hide them; the slim
+image has neither `hostname` nor `rman`; a pod keeps its IPC namespace across container restarts,
+so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.

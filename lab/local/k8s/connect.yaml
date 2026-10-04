@@ -9,12 +9,12 @@ spec:
   version: 4.3.1
   replicas: 2
   bootstrapServers: lab-kafka-bootstrap:9092
+  groupId: oracle-cdc-lab
+  configStorageTopic: _connect_configs
+  offsetStorageTopic: _connect_offsets
+  statusStorageTopic: _connect_status
   image: oracle-cdc-connect:dev
   config:
-    group.id: oracle-cdc-lab
-    config.storage.topic: _connect_configs
-    offset.storage.topic: _connect_offsets
-    status.storage.topic: _connect_status
     config.storage.replication.factor: 1
     offset.storage.replication.factor: 1
     status.storage.replication.factor: 1
