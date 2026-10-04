@@ -158,6 +158,11 @@ public final class OracleTestDatabase {
     return DriverManager.getConnection(jdbcUrl(service), CAPTURE_USER, CAPTURE_PASSWORD);
   }
 
+  /** Connection as an arbitrary user, for workload sessions inside a PDB. */
+  public Connection connect(String service, String user, String password) throws SQLException {
+    return DriverManager.getConnection(jdbcUrl(service), user, password);
+  }
+
   /** SYSDBA connection for test setup, teardown and fault injection. Never used by the engine. */
   public Connection sysdba(String service) throws SQLException {
     Properties p = new Properties();

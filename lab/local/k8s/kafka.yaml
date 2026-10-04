@@ -1,6 +1,6 @@
 # Single-node KRaft Kafka for the lab. Not a model of production: one broker cannot show ISR or
 # coordinator failover behaviour; the three-node profile in kafka-3node.yaml covers those cases.
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: dual
@@ -15,14 +15,11 @@ spec:
     size: 20Gi
     deleteClaim: true
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: lab
   namespace: cdc
-  annotations:
-    strimzi.io/node-pools: enabled
-    strimzi.io/kraft: enabled
 spec:
   kafka:
     version: 4.3.1
