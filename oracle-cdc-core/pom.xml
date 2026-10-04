@@ -73,6 +73,8 @@
                 <exclude>sh/oso/connect/oracle/core/topology/JdbcCatalogSource*</exclude>
                 <exclude>sh/oso/connect/oracle/core/logs/LogSetProbe*</exclude>
                 <exclude>sh/oso/connect/oracle/core/doctor/JdbcDoctorCatalog*</exclude>
+                <exclude>sh/oso/connect/oracle/core/mining/JdbcLogMinerSession*</exclude>
+                <exclude>sh/oso/connect/oracle/core/mining/JdbcObjectCatalog*</exclude>
               </excludes>
               <rules>
                 <rule>
