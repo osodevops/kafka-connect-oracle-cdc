@@ -38,8 +38,8 @@ public final class OraErrorClassifier {
   /** Connection and instance availability failures: retry with backoff. */
   static final Set<Integer> TRANSIENT =
       Set.of(
-          3113, 3114, 3135, 12170, 12541, 12514, 12516, 12528, 12537, 12543, 1033, 1034, 1089, 1090,
-          1092, 1109, 17002, 17008, 17410, 25408, 4068);
+          28, 31, 3113, 3114, 3135, 12170, 12541, 12514, 12516, 12528, 12537, 12543, 1033, 1034,
+          1089, 1090, 1092, 1109, 17002, 17008, 17410, 17800, 25408, 4068);
 
   /** Online log reuse or a log not yet visible: discard the step and mine the same range again. */
   static final Set<Integer> STEP_RETRY = Set.of(310, 334, 1289, 1291, 1013);
@@ -77,6 +77,12 @@ public final class OraErrorClassifier {
   }
 
   public ErrorCode classify(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof java.sql.SQLRecoverableException
+          || c instanceof java.sql.SQLTransientException) {
+        return ErrorCode.TRANSIENT_DATABASE; // the driver itself says the connection is gone
+      }
+    }
     int code = oraCode(t);
     if (code > 0) {
       if (PRIVILEGE.contains(code)) {
@@ -109,13 +115,33 @@ public final class OraErrorClassifier {
    * Wraps a failure in the typed exception for its class, or returns null when it is not ours to
    * classify.
    */
+  /**
+   * The typed exception for a database error, never null when {@code t} has an SQLException in its
+   * cause chain (an unknown ORA code stops the task typed); null only for non-database throwables,
+   * which callers rethrow unchanged.
+   */
   public OracleCdcException toException(Throwable t, String context) {
     ErrorCode code = classify(t);
     int ora = oraCode(t);
     String what =
         context + (ora > 0 ? " failed with ORA-" + String.format("%05d", ora) : " failed") + ".";
     if (code == null) {
-      return null;
+      boolean sql = false;
+      for (Throwable c = t; c != null; c = c.getCause()) {
+        sql |= c instanceof java.sql.SQLException;
+      }
+      if (!sql) {
+        return null; // not a database error: the caller rethrows the original as it is
+      }
+      // an ORA code the connector does not know: stop with a typed error rather than guess
+      return new OracleCdcException(
+          ErrorCode.TRANSIENT_DATABASE,
+          what + " The connector does not classify this error.",
+          "The task stopped and restarts under the Connect restart policy. Report ORA-"
+              + (ora > 0 ? String.format("%05d", ora) : "?")
+              + " so it can be classified, or add it to cdc.retry.extra.error.codes if it is"
+              + " transient in your environment.",
+          t);
     }
     return switch (code) {
       case TRANSIENT_DATABASE ->

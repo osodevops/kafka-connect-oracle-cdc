@@ -302,6 +302,9 @@ class EngineCorrectnessEngineIT {
                 source.update(refreshed, refreshed.filter(Set.of(), 1000));
                 return refreshed.owners();
               },
+              cause -> {
+                throw new java.sql.SQLException("this suite expects no reconnect", cause);
+              },
               Instant::now);
       for (int i = 0; i < 1000; i++) {
         if (engine.runOnce() == CaptureEngine.Progress.IDLE) {

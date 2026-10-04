@@ -164,6 +164,11 @@ final class TaskHarness implements AutoCloseable {
                 new OraErrorClassifier(),
                 Set.of("APP"),
                 () -> Set.of("APP"),
+                cause ->
+                    new CaptureEngine.Sources(
+                        fake,
+                        new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
+                        () -> safeEnd),
                 Instant::now);
           }
 

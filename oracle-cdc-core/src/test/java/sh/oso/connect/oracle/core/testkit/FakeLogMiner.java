@@ -46,6 +46,14 @@ public final class FakeLogMiner implements EventSource {
   private long rba = 1;
   public int opened;
   public boolean closed;
+  public int recycled;
+  private SQLException openFault;
+
+  /** The next {@link #open} throws {@code e} once, like a mining connection that was dropped. */
+  public FakeLogMiner failNextOpen(SQLException e) {
+    this.openFault = e;
+    return this;
+  }
 
   public FakeLogMiner startAt(long scn) {
     this.nextScn = scn;
@@ -195,8 +203,18 @@ public final class FakeLogMiner implements EventSource {
   }
 
   @Override
-  public EventCursor open(long startScn, long endScn) {
+  public void recycle() {
+    recycled++;
+  }
+
+  @Override
+  public EventCursor open(long startScn, long endScn) throws SQLException {
     opened++;
+    if (openFault != null) {
+      SQLException e = openFault;
+      openFault = null;
+      throw e;
+    }
     return new EventCursor() {
       private int i = -1;
       private MiningEvent current;

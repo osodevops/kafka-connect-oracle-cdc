@@ -30,10 +30,19 @@ import sh.oso.connect.oracle.core.model.TableId;
  */
 public final class JdbcDictionaryReader implements DictionaryReader {
 
-  private final Connection c;
+  private final java.util.function.Supplier<Connection> conn;
 
   public JdbcDictionaryReader(Connection metadataConnection) {
-    this.c = metadataConnection;
+    this(() -> metadataConnection);
+  }
+
+  /** Reads the connection on every call so the owner can reconnect underneath (CORE-CONN-6). */
+  public JdbcDictionaryReader(java.util.function.Supplier<Connection> metadataConnection) {
+    this.conn = metadataConnection;
+  }
+
+  private Connection c() {
+    return conn.get();
   }
 
   private int conId(TableId t) throws SQLException {
@@ -41,7 +50,7 @@ public final class JdbcDictionaryReader implements DictionaryReader {
       return 0;
     }
     try (PreparedStatement ps =
-        c.prepareStatement("SELECT con_id FROM v$containers WHERE UPPER(name) = UPPER(?)")) {
+        c().prepareStatement("SELECT con_id FROM v$containers WHERE UPPER(name) = UPPER(?)")) {
       ps.setString(1, t.pdb());
       try (ResultSet rs = ps.executeQuery()) {
         if (!rs.next()) {
@@ -57,10 +66,10 @@ public final class JdbcDictionaryReader implements DictionaryReader {
     int con = conId(t);
     List<ColumnSpec> cols = new ArrayList<>();
     try (PreparedStatement ps =
-        c.prepareStatement(
-            "SELECT column_name, column_id, data_type, data_length, data_precision, data_scale,"
-                + " nullable FROM cdb_tab_cols WHERE con_id = ? AND owner = ? AND table_name = ?"
-                + " AND hidden_column = 'NO' AND virtual_column = 'NO' ORDER BY column_id")) {
+        c().prepareStatement(
+                "SELECT column_name, column_id, data_type, data_length, data_precision, data_scale,"
+                    + " nullable FROM cdb_tab_cols WHERE con_id = ? AND owner = ? AND table_name ="
+                    + " ? AND hidden_column = 'NO' AND virtual_column = 'NO' ORDER BY column_id")) {
       ps.setInt(1, con);
       ps.setString(2, t.schema());
       ps.setString(3, t.table());
@@ -90,9 +99,9 @@ public final class JdbcDictionaryReader implements DictionaryReader {
 
   private boolean hasLogGroup(int con, TableId t, String type) throws SQLException {
     try (PreparedStatement ps =
-        c.prepareStatement(
-            "SELECT COUNT(*) FROM cdb_log_groups WHERE con_id = ? AND owner = ? AND table_name = ?"
-                + " AND log_group_type = ?")) {
+        c().prepareStatement(
+                "SELECT COUNT(*) FROM cdb_log_groups WHERE con_id = ? AND owner = ? AND table_name"
+                    + " = ? AND log_group_type = ?")) {
       ps.setInt(1, con);
       ps.setString(2, t.schema());
       ps.setString(3, t.table());
@@ -108,11 +117,12 @@ public final class JdbcDictionaryReader implements DictionaryReader {
     int con = conId(t);
     List<String> pk = new ArrayList<>();
     try (PreparedStatement ps =
-        c.prepareStatement(
-            "SELECT cc.column_name FROM cdb_constraints k JOIN cdb_cons_columns cc ON cc.con_id ="
-                + " k.con_id AND cc.owner = k.owner AND cc.constraint_name = k.constraint_name"
-                + " WHERE k.con_id = ? AND k.owner = ? AND k.table_name = ? AND k.constraint_type"
-                + " = 'P' AND k.status = 'ENABLED' ORDER BY cc.position")) {
+        c().prepareStatement(
+                "SELECT cc.column_name FROM cdb_constraints k JOIN cdb_cons_columns cc ON cc.con_id"
+                    + " = k.con_id AND cc.owner = k.owner AND cc.constraint_name ="
+                    + " k.constraint_name WHERE k.con_id = ? AND k.owner = ? AND k.table_name = ?"
+                    + " AND k.constraint_type = 'P' AND k.status = 'ENABLED' ORDER BY"
+                    + " cc.position")) {
       ps.setInt(1, con);
       ps.setString(2, t.schema());
       ps.setString(3, t.table());
@@ -124,16 +134,16 @@ public final class JdbcDictionaryReader implements DictionaryReader {
     }
     List<List<String>> uniques = new ArrayList<>();
     try (PreparedStatement ps =
-        c.prepareStatement(
-            "SELECT i.index_name, ic.column_name FROM cdb_indexes i JOIN cdb_ind_columns ic ON"
-                + " ic.con_id = i.con_id AND ic.index_owner = i.owner AND ic.index_name ="
-                + " i.index_name WHERE i.con_id = ? AND i.table_owner = ? AND i.table_name = ? AND"
-                + " i.uniqueness = 'UNIQUE' AND i.status = 'VALID' AND NOT EXISTS (SELECT 1 FROM"
-                + " cdb_ind_columns x JOIN cdb_tab_cols tc ON tc.con_id = x.con_id AND tc.owner ="
-                + " x.table_owner AND tc.table_name = x.table_name AND tc.column_name ="
-                + " x.column_name WHERE x.con_id = i.con_id AND x.index_owner = i.owner AND"
-                + " x.index_name = i.index_name AND tc.nullable = 'Y') ORDER BY i.index_name,"
-                + " ic.column_position")) {
+        c().prepareStatement(
+                "SELECT i.index_name, ic.column_name FROM cdb_indexes i JOIN cdb_ind_columns ic ON"
+                    + " ic.con_id = i.con_id AND ic.index_owner = i.owner AND ic.index_name ="
+                    + " i.index_name WHERE i.con_id = ? AND i.table_owner = ? AND i.table_name = ?"
+                    + " AND i.uniqueness = 'UNIQUE' AND i.status = 'VALID' AND NOT EXISTS (SELECT 1"
+                    + " FROM cdb_ind_columns x JOIN cdb_tab_cols tc ON tc.con_id = x.con_id AND"
+                    + " tc.owner = x.table_owner AND tc.table_name = x.table_name AND"
+                    + " tc.column_name = x.column_name WHERE x.con_id = i.con_id AND x.index_owner"
+                    + " = i.owner AND x.index_name = i.index_name AND tc.nullable = 'Y') ORDER BY"
+                    + " i.index_name, ic.column_position")) {
       ps.setInt(1, con);
       ps.setString(2, t.schema());
       ps.setString(3, t.table());

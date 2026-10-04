@@ -65,10 +65,10 @@ public final class JdbcEngineFactory implements EngineFactory {
             OracleConnectionSpec.from(core),
             new RetryPolicy(Duration.ofMillis(core.getLong(CoreConfig.RETRY_MAX_TIME_MS))),
             classifier);
-    Connection meta = connections.open(ConnectionRole.METADATA);
-    JdbcCatalogSource catalog = new JdbcCatalogSource(meta);
-    DatabaseInfo info = catalog.database();
-    return new JdbcSession(config, core, classifier, connections, meta, catalog, info);
+    JdbcSession session = new JdbcSession(config, core, classifier, connections);
+    session.meta = connections.open(ConnectionRole.METADATA);
+    session.info = session.catalog.database();
+    return session;
   }
 
   private static final class JdbcSession implements Session {
@@ -76,33 +76,57 @@ public final class JdbcEngineFactory implements EngineFactory {
     private final CoreConfig core;
     private final OraErrorClassifier classifier;
     private final ConnectionFactory connections;
-    private final Connection meta;
+    private volatile Connection meta;
+    private volatile Connection mining;
     private final JdbcCatalogSource catalog;
-    private final DatabaseInfo info;
+    private DatabaseInfo info;
     private final SchemaRegistry schemas;
+    private volatile LogMinerEventSource source;
+    private volatile ResolvedObjects objects;
+    private final Set<String> excludedUsers;
+    private final int inlistMax;
     private final List<AutoCloseable> closeables = new ArrayList<>();
 
     JdbcSession(
         OracleCdcSourceConnectorConfig config,
         CoreConfig core,
         OraErrorClassifier classifier,
-        ConnectionFactory connections,
-        Connection meta,
-        JdbcCatalogSource catalog,
-        DatabaseInfo info) {
+        ConnectionFactory connections) {
       this.config = config;
       this.core = core;
       this.classifier = classifier;
       this.connections = connections;
-      this.meta = meta;
-      this.catalog = catalog;
-      this.info = info;
+      this.excludedUsers = Set.copyOf(config.usersExclude());
+      this.inlistMax = core.getInt(CoreConfig.MINING_INLIST_MAX);
+      // the catalogs read the connection on every call so a reconnect swaps it underneath them
+      this.catalog = new JdbcCatalogSource(() -> meta);
       this.schemas =
           new SchemaRegistry(
               new MapSchemaStore(),
-              new JdbcDictionaryReader(meta),
+              new JdbcDictionaryReader(() -> meta),
               new KeySelector(config.keyOverrides(), config.keyMissing()));
-      closeables.add(meta);
+    }
+
+    private static void closeQuietly(AutoCloseable c) {
+      if (c != null) {
+        try {
+          c.close();
+        } catch (Exception ignore) {
+          // the connection is already gone
+        }
+      }
+    }
+
+    private LogMinerEventSource newSource(LogInventory inventory) {
+      return new LogMinerEventSource(
+          inventory,
+          new JdbcLogMinerSession(
+              mining,
+              core.getInt(CoreConfig.MINING_FETCH_SIZE),
+              Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS))),
+          objects,
+          objects.filter(excludedUsers, inlistMax),
+          DictionaryMode.ONLINE_CATALOG);
     }
 
     @Override
@@ -140,32 +164,19 @@ public final class JdbcEngineFactory implements EngineFactory {
       LogInventory inventory = new LogInventory(catalog, core.captureMode(), destId);
       ObjectIdResolver resolver =
           new ObjectIdResolver(
-              new JdbcObjectCatalog(meta),
+              new JdbcObjectCatalog(() -> meta),
               config.tablesInclude(),
               config.tablesExclude(),
               core.pdbs(),
               config.tablesCaseSensitive());
-      ResolvedObjects objects = resolver.resolve();
+      objects = resolver.resolve();
       LOG.info(
           "Capturing {} tables ({} object ids) for owners {}",
           objects.tables().size(),
           objects.byObjectId().size(),
           objects.owners());
-      Set<String> excludedUsers = Set.copyOf(config.usersExclude());
-      int inlistMax = core.getInt(CoreConfig.MINING_INLIST_MAX);
-      Connection mining = connections.open(ConnectionRole.MINING);
-      closeables.add(mining);
-      LogMinerEventSource source =
-          new LogMinerEventSource(
-              inventory,
-              new JdbcLogMinerSession(
-                  mining,
-                  core.getInt(CoreConfig.MINING_FETCH_SIZE),
-                  Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS))),
-              objects,
-              objects.filter(excludedUsers, inlistMax),
-              DictionaryMode.ONLINE_CATALOG);
-      closeables.add(source);
+      mining = connections.open(ConnectionRole.MINING);
+      source = newSource(inventory);
       java.util.function.Supplier<Long> safeEnd =
           () -> {
             try {
@@ -189,14 +200,26 @@ public final class JdbcEngineFactory implements EngineFactory {
           classifier,
           objects.owners(),
           () -> {
-            ResolvedObjects refreshed = resolver.resolve();
-            source.update(refreshed, refreshed.filter(excludedUsers, inlistMax));
+            objects = resolver.resolve();
+            source.update(objects, objects.filter(excludedUsers, inlistMax));
             LOG.info(
                 "Object ids refreshed after DDL: {} tables ({} ids) for owners {}",
-                refreshed.tables().size(),
-                refreshed.byObjectId().size(),
-                refreshed.owners());
-            return refreshed.owners();
+                objects.tables().size(),
+                objects.byObjectId().size(),
+                objects.owners());
+            return objects.owners();
+          },
+          cause -> {
+            // CORE-CONN-6: drop both sessions, reopen them with the factory's backoff and
+            // continue; the engine re-mines the failed step from the same cursor
+            LOG.warn("Reconnecting to the database after: {}", cause.getMessage());
+            closeQuietly(source);
+            closeQuietly(meta);
+            meta = connections.open(ConnectionRole.METADATA);
+            mining = connections.open(ConnectionRole.MINING);
+            source = newSource(inventory);
+            LOG.info("Reconnected; mining resumes from the last applied step");
+            return new CaptureEngine.Sources(source, inventory, safeEnd);
           },
           Instant::now);
     }
@@ -228,18 +251,11 @@ public final class JdbcEngineFactory implements EngineFactory {
 
     @Override
     public void close() throws Exception {
-      Exception first = null;
-      for (int i = closeables.size() - 1; i >= 0; i--) {
-        try {
-          closeables.get(i).close();
-        } catch (Exception e) {
-          if (first == null) {
-            first = e;
-          }
-        }
-      }
-      if (first != null) {
-        throw first;
+      closeQuietly(source); // ends the LogMiner session and closes the mining connection
+      Connection m = meta;
+      meta = null;
+      if (m != null) {
+        m.close();
       }
     }
   }

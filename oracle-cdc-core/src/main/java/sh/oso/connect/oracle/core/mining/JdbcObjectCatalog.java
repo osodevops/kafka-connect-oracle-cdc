@@ -42,16 +42,25 @@ public final class JdbcObjectCatalog implements ObjectCatalog {
           + " v$containers c ON c.con_id = i.con_id WHERE u.oracle_maintained = 'N' AND"
           + " i.index_type = 'IOT - TOP'";
 
-  private final Connection c;
+  private final java.util.function.Supplier<Connection> conn;
 
   public JdbcObjectCatalog(Connection metadataConnection) {
-    this.c = metadataConnection;
+    this(() -> metadataConnection);
+  }
+
+  /** Reads the connection on every call so the owner can reconnect underneath (CORE-CONN-6). */
+  public JdbcObjectCatalog(java.util.function.Supplier<Connection> metadataConnection) {
+    this.conn = metadataConnection;
+  }
+
+  private Connection c() {
+    return conn.get();
   }
 
   @Override
   public List<CapturedObject> objects() throws SQLException {
     List<CapturedObject> out = new ArrayList<>();
-    try (Statement s = c.createStatement();
+    try (Statement s = c().createStatement();
         ResultSet rs = s.executeQuery(SQL)) {
       while (rs.next()) {
         int conId = rs.getInt(1);

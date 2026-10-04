@@ -29,15 +29,24 @@ import sh.oso.connect.oracle.core.logs.RedoLog;
 /** {@link CatalogSource} over a metadata connection at CDB$ROOT (or the non-CDB root). */
 public final class JdbcCatalogSource implements CatalogSource {
 
-  private final Connection c;
+  private final java.util.function.Supplier<Connection> conn;
 
   public JdbcCatalogSource(Connection metadataConnection) {
-    this.c = metadataConnection;
+    this(() -> metadataConnection);
+  }
+
+  /** Reads the connection on every call so the owner can reconnect underneath (CORE-CONN-6). */
+  public JdbcCatalogSource(java.util.function.Supplier<Connection> metadataConnection) {
+    this.conn = metadataConnection;
+  }
+
+  private Connection c() {
+    return conn.get();
   }
 
   @Override
   public DatabaseInfo database() throws SQLException {
-    try (Statement st = c.createStatement();
+    try (Statement st = c().createStatement();
         ResultSet rs =
             st.executeQuery(
                 "SELECT d.dbid, d.name, d.cdb, d.log_mode, d.open_mode, d.database_role,"
@@ -60,7 +69,7 @@ public final class JdbcCatalogSource implements CatalogSource {
 
   @Override
   public long currentScn() throws SQLException {
-    try (Statement st = c.createStatement();
+    try (Statement st = c().createStatement();
         ResultSet rs = st.executeQuery("SELECT current_scn FROM v$database")) {
       rs.next();
       return rs.getLong(1);
@@ -70,7 +79,7 @@ public final class JdbcCatalogSource implements CatalogSource {
   @Override
   public List<ThreadInfo> threads() throws SQLException {
     List<ThreadInfo> out = new ArrayList<>();
-    try (Statement st = c.createStatement();
+    try (Statement st = c().createStatement();
         ResultSet rs =
             st.executeQuery(
                 "SELECT thread#, enabled, status, sequence# FROM v$thread ORDER BY thread#")) {
@@ -86,7 +95,7 @@ public final class JdbcCatalogSource implements CatalogSource {
   @Override
   public List<PdbInfo> pdbs() throws SQLException {
     List<PdbInfo> out = new ArrayList<>();
-    try (Statement st = c.createStatement();
+    try (Statement st = c().createStatement();
         ResultSet rs =
             st.executeQuery(
                 "SELECT con_id, name, open_mode, dbid FROM v$pdbs WHERE con_id > 2 ORDER BY"
@@ -101,7 +110,7 @@ public final class JdbcCatalogSource implements CatalogSource {
   @Override
   public List<ArchiveDestination> archiveDestinations() throws SQLException {
     List<ArchiveDestination> out = new ArrayList<>();
-    try (Statement st = c.createStatement();
+    try (Statement st = c().createStatement();
         ResultSet rs =
             st.executeQuery(
                 "SELECT dest_id, dest_name, destination, status, type, archived_thread# FROM"
@@ -123,7 +132,7 @@ public final class JdbcCatalogSource implements CatalogSource {
   @Override
   public List<RedoLog> onlineLogs() throws SQLException {
     List<RedoLog> out = new ArrayList<>();
-    try (Statement st = c.createStatement();
+    try (Statement st = c().createStatement();
         ResultSet rs =
             st.executeQuery(
                 "SELECT l.thread#, l.sequence#, l.first_change#, l.next_change#, f.member,"
@@ -163,11 +172,11 @@ public final class JdbcCatalogSource implements CatalogSource {
   public List<RedoLog> archivedLogs(long startScn, long endScn, int destId) throws SQLException {
     List<RedoLog> out = new ArrayList<>();
     try (PreparedStatement ps =
-        c.prepareStatement(
-            "SELECT thread#, sequence#, first_change#, next_change#, name, status, deleted,"
-                + " dest_id, dictionary_begin, dictionary_end FROM v$archived_log WHERE dest_id = ?"
-                + " AND next_change# > ? AND first_change# <= ? AND standby_dest = 'NO' ORDER BY"
-                + " thread#, sequence#")) {
+        c().prepareStatement(
+                "SELECT thread#, sequence#, first_change#, next_change#, name, status, deleted,"
+                    + " dest_id, dictionary_begin, dictionary_end FROM v$archived_log WHERE dest_id"
+                    + " = ? AND next_change# > ? AND first_change# <= ? AND standby_dest = 'NO'"
+                    + " ORDER BY thread#, sequence#")) {
       ps.setInt(1, destId);
       ps.setLong(2, startScn);
       ps.setLong(3, endScn);
@@ -196,10 +205,10 @@ public final class JdbcCatalogSource implements CatalogSource {
   public List<RedoLog> archivedSince(Instant since, int destId) throws SQLException {
     List<RedoLog> out = new ArrayList<>();
     try (PreparedStatement ps =
-        c.prepareStatement(
-            "SELECT thread#, sequence#, first_change#, next_change#, name, status, deleted,"
-                + " dest_id, dictionary_begin, dictionary_end FROM v$archived_log WHERE dest_id = ?"
-                + " AND completion_time >= ? ORDER BY thread#, sequence#")) {
+        c().prepareStatement(
+                "SELECT thread#, sequence#, first_change#, next_change#, name, status, deleted,"
+                    + " dest_id, dictionary_begin, dictionary_end FROM v$archived_log WHERE dest_id"
+                    + " = ? AND completion_time >= ? ORDER BY thread#, sequence#")) {
       ps.setInt(1, destId);
       ps.setTimestamp(2, Timestamp.from(since));
       try (ResultSet rs = ps.executeQuery()) {

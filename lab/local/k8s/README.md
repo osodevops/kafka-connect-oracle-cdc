@@ -49,3 +49,11 @@ so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.
   every fault over a port-forward to the Oracle pod and then requires every committed ledger
   transaction to be in the workload topics (read_committed), reporting duplicated transactions.
   It needs `bench/target/bench-*-cli.jar` (`mvn -pl bench package`).
+- Observed with ledger verification: SIGKILL of a worker, a manual rolling update and a task
+  rebalance (deleting the worker that owns the task) all end with every committed transaction in
+  Kafka and no duplicated transaction. After the rebalance the task resumed only after about
+  four minutes, Connect's default `scheduled.rebalance.max.delay.ms`; lower it on the
+  `KafkaConnect` when faster failover matters more than avoiding needless rebalances.
+- A fault that restarts Oracle also kills the generator's own connections; the harness treats a
+  stopped generator as expected for those cases and still requires every ledger transaction to be
+  in Kafka.

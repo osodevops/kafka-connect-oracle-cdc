@@ -54,8 +54,19 @@ class OraErrorClassifierTest {
   void unknownCodesAreNotClassifiedSoTheyStop() {
     assertThat(classifier.classify(new SQLException("ORA-00001: unique constraint", "23000", 1)))
         .isNull();
-    assertThat(classifier.toException(new SQLException("ORA-00001: x", "23000", 1), "ctx"))
-        .isNull();
+    sh.oso.connect.oracle.core.errors.OracleCdcException typed =
+        classifier.toException(new SQLException("ORA-00001: x", "23000", 1), "ctx");
+    assertThat(typed).as("never null: a null here became a bare NullPointerException").isNotNull();
+    assertThat(typed.code()).isEqualTo(ErrorCode.TRANSIENT_DATABASE);
+    assertThat(typed.getMessage()).contains("does not classify").contains("ORA-00001");
+    assertThat(
+            classifier.classify(
+                new java.sql.SQLRecoverableException("ORA-17800: minus one", "08000", 17800)))
+        .isEqualTo(ErrorCode.TRANSIENT_DATABASE);
+    assertThat(
+            classifier.classify(
+                new SQLException("x", "99999", 0, new java.sql.SQLRecoverableException("gone"))))
+        .isEqualTo(ErrorCode.TRANSIENT_DATABASE);
   }
 
   @Test

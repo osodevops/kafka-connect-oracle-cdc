@@ -148,6 +148,7 @@ class CaptureEngineTest {
     final HeapTransactionBuffer buffer = new HeapTransactionBuffer();
     final FixedClock clock = new FixedClock(0);
     int refreshes;
+    int reconnects;
     long safeEnd = 1000;
 
     CaptureEngine engine(Position start, DecodeErrorAction onError) {
@@ -170,6 +171,11 @@ class CaptureEngineTest {
             refreshes++;
             return Set.of("APP");
           },
+          cause -> {
+            reconnects++;
+            return new CaptureEngine.Sources(
+                fake, new LogInventory(catalog, CaptureMode.ONLINE, 1), () -> safeEnd);
+          },
           () -> Instant.ofEpochMilli(clock.getAsLong()));
     }
 
@@ -177,7 +183,7 @@ class CaptureEngineTest {
       return Position.initial(1000, new DatabaseIdentity(1, 1));
     }
 
-    void runUntilIdle(CaptureEngine e) throws SQLException {
+    void runUntilIdle(CaptureEngine e) throws Exception {
       for (int i = 0; i < 100; i++) {
         if (e.runOnce() == CaptureEngine.Progress.IDLE) {
           return;
@@ -435,6 +441,37 @@ class CaptureEngineTest {
     assertThat(life.failure()).isInstanceOf(DecodeException.class);
     assertThat(failures).hasSize(1);
     assertThat(life.stop(Duration.ofSeconds(1))).isTrue();
+  }
+
+  @Test
+  void transientErrorsReconnectAndContinueFromTheSameCursorUnknownOnesStopTyped() throws Exception {
+    Harness h = new Harness();
+    TxKey a = h.fake.tx(1, 1, 1);
+    h.fake.start(a, "APP").insert(a, T, "a1").commit(a);
+    h.safeEnd = h.fake.nextScn();
+    h.fake.failNextOpen(
+        new java.sql.SQLRecoverableException("ORA-03113: end-of-file", "08006", 3113));
+    CaptureEngine e = h.engine(h.initial(), DecodeErrorAction.FAIL);
+    assertThat(e.runOnce()).isEqualTo(CaptureEngine.Progress.RECONNECTED);
+    assertThat(h.reconnects).isEqualTo(1);
+    assertThat(e.metrics().reconnects.get()).isEqualTo(1);
+    assertThat(h.sink.committed).isEmpty();
+    assertThat(e.cursor().scn()).as("nothing moved").isEqualTo(1000);
+    h.runUntilIdle(e);
+    assertThat(h.sink.sqls()).containsExactly("a1");
+
+    // a code the classifier does not know stops with a typed exception, never a null
+    Harness u = new Harness();
+    u.fake.start(a, "APP").insert(a, T, "a1").commit(a);
+    u.safeEnd = u.fake.nextScn();
+    u.fake.faultAt(
+        0, new SQLException("ORA-00604: error at recursive SQL level 1", "99999", 604), false);
+    CaptureEngine ue = u.engine(u.initial(), DecodeErrorAction.FAIL);
+    assertThatThrownBy(ue::runOnce)
+        .isInstanceOf(sh.oso.connect.oracle.core.errors.OracleCdcException.class)
+        .hasMessageContaining("ORA-00604")
+        .hasMessageContaining("does not classify");
+    assertThat(u.reconnects).isZero();
   }
 
   @Test

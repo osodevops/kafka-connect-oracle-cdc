@@ -31,11 +31,14 @@ verify_platform() { wait_connect_ready && wait_connector_running && wait_oracle_
 # each case is induced; afterwards every committed transaction in the bench ledger must be in Kafka.
 REPO_ROOT="$(cd ../../.. && pwd)"
 BENCH_JAR=$(ls "$REPO_ROOT"/bench/target/bench-*-cli.jar 2>/dev/null | head -1 || true)
-PF_PORT=${PF_PORT:-15210}
+PF_PORT=${PF_PORT:-$((15000 + RANDOM % 1000))}
+# one run at a time: two harnesses would share the Oracle tables and the ledger
+LOCK=/tmp/oracle-cdc-edge-cases.lock
+if ! mkdir "$LOCK" 2>/dev/null; then echo "another edge-cases.sh run holds $LOCK"; exit 2; fi
 WORKLOAD_SECONDS=${WORKLOAD_SECONDS:-30}
 TOPICS="cdc.FREEPDB1.WORKLOAD.WL_T1,cdc.FREEPDB1.WORKLOAD.WL_T2,cdc.FREEPDB1.WORKLOAD.WL_T3"
 pf_pid=""; wl_pid=""
-cleanup() { [ -n "$wl_pid" ] && kill "$wl_pid" 2>/dev/null || true; [ -n "$pf_pid" ] && kill "$pf_pid" 2>/dev/null || true; }
+cleanup() { [ -n "$wl_pid" ] && kill "$wl_pid" 2>/dev/null || true; [ -n "$pf_pid" ] && kill "$pf_pid" 2>/dev/null || true; rmdir "$LOCK" 2>/dev/null || true; }
 trap cleanup EXIT
 
 workload_available() { [ -n "$BENCH_JAR" ] && command -v java >/dev/null; }
@@ -47,8 +50,11 @@ port_forward() {
 # Starts (or restarts) the generator in the background; the first call resets the tables.
 workload_begin() {
   workload_available || { log "verify: bench jar missing, data check skipped (mvn -pl bench package)"; return 0; }
+  if [ -n "$wl_pid" ] && kill -0 "$wl_pid" 2>/dev/null; then kill "$wl_pid" 2>/dev/null || true; wait "$wl_pid" 2>/dev/null || true; fi
   port_forward
-  local reset=""; [ -z "${WORKLOAD_STARTED:-}" ] && reset="--reset" && WORKLOAD_STARTED=1
+  # every case starts from empty tables and an empty ledger: the generator's row ids are
+  # deterministic per session, so a second run on populated tables would collide on the key
+  local reset="--reset"
   cat > /tmp/edge-workload.json <<'JSON'
 {"seed": 31, "sessions": 2, "tables": 3, "transactionsPerSession": 0, "maxRowsPerTransaction": 5,
  "savepointRollbackProbability": 0.1, "fullRollbackProbability": 0.1, "lobWeight": 0, "keyChangeWeight": 0}
@@ -57,7 +63,12 @@ JSON
     --user workload --password workload --spec /tmp/edge-workload.json --duration "$WORKLOAD_SECONDS" $reset \
     > /tmp/edge-workload.out 2>&1 &
   wl_pid=$!
-  log "workload: started for ${WORKLOAD_SECONDS}s (pid $wl_pid${reset:+, tables reset})"
+  log "workload: started for ${WORKLOAD_SECONDS}s (pid $wl_pid, tables reset)"
+  # let the generator reset the tables and commit real work before the fault is induced, so the
+  # case verifies transactions committed before, during and after it
+  sleep "${WORKLOAD_LEAD_SECONDS:-6}"
+  kill -0 "$wl_pid" 2>/dev/null || { log "workload: generator died before the fault"; tail -3 /tmp/edge-workload.out; return 1; }
+  log "workload: $(ledger_xids | wc -l | tr -d ' ') transactions committed before the fault"
 }
 ledger_xids() {
   $K exec oracle-0 -- bash -c "printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nSELECT xid FROM wl_ledger WHERE ops > 0;\n' | sqlplus -s workload/workload@//localhost:1521/FREEPDB1" | tr -d ' \r' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -u
@@ -91,8 +102,20 @@ print("DUPLICATED_TRANSACTIONS=%d" % dups, file=sys.stderr)
 }
 verify_data() {
   workload_available || return 0
-  if [ -n "$wl_pid" ]; then wait "$wl_pid" || { log "workload: generator failed"; cat /tmp/edge-workload.out; return 1; }; wl_pid=""; fi
-  log "workload: $(tail -1 /tmp/edge-workload.out)"
+  if [ -n "$wl_pid" ]; then
+    if ! wait "$wl_pid"; then
+      if [ -n "${WORKLOAD_MAY_FAIL:-}" ]; then
+        # a database fault kills the generator's own connections; the ledger still holds exactly
+        # the transactions Oracle committed before that, and every one of them must be in Kafka
+        log "workload: generator stopped by the fault (expected for this case)"
+      else
+        log "workload: generator failed"; tail -5 /tmp/edge-workload.out; wl_pid=""; return 1
+      fi
+    fi
+    wl_pid=""
+  fi
+  WORKLOAD_MAY_FAIL=""
+  log "workload: $(grep '^{' /tmp/edge-workload.out | tail -1)"
   local attempt missing
   for attempt in $(seq 1 12); do
     ledger_xids > /tmp/edge-ledger.txt
@@ -146,6 +169,7 @@ case_broker_restart() {
 case_oracle_restart() {
   log "case: Oracle pod deleted; must return from the PVC"
   workload_begin
+  WORKLOAD_MAY_FAIL=1
   # never --force a StatefulSet pod: the old instance may still hold the volume when the new one starts
   $K delete pod oracle-0 --grace-period=120 >/dev/null
   verify_platform; verify_data
@@ -153,6 +177,7 @@ case_oracle_restart() {
 case_partition() {
   log "case: network partition Connect -> Oracle for 90 s (needs a policy-enforcing CNI)"
   workload_begin
+  WORKLOAD_MAY_FAIL=1
   $K apply -f chaos/deny-connect-to-oracle.yaml >/dev/null
   sleep 90
   $K delete -f chaos/deny-connect-to-oracle.yaml --ignore-not-found >/dev/null

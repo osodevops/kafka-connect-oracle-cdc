@@ -27,6 +27,7 @@ import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.errors.MiningStepRetryException;
 import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.errors.OracleCdcException;
+import sh.oso.connect.oracle.core.errors.TransientDatabaseException;
 import sh.oso.connect.oracle.core.logs.LogInventory;
 import sh.oso.connect.oracle.core.logs.LogSet;
 import sh.oso.connect.oracle.core.mining.event.EventSource;
@@ -53,15 +54,29 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  */
 public final class CaptureEngine {
 
+  /** The database-bound collaborators a reconnect replaces. */
+  public record Sources(EventSource source, LogInventory inventory, Supplier<Long> safeEndScn) {}
+
+  /**
+   * CORE-CONN-6: on a transient database error the engine asks its owner for fresh connections and
+   * continues from the same cursor; nothing of the failed step was applied. The owner's connection
+   * factory retries with backoff inside the retry budget and throws when it is exhausted.
+   */
+  public interface Reconnector {
+    Sources reconnect(Throwable cause) throws SQLException, InterruptedException;
+  }
+
   /** Called after a DDL step cut so the owner refreshes the pushed-down object ids (ADR-0001). */
   public interface IdRefresher {
     /** Re-resolves the pushed-down ids; returns the captured owners afterwards. */
     java.util.Set<String> refresh() throws SQLException;
   }
 
-  private final EventSource source;
-  private final LogInventory inventory;
-  private final Supplier<Long> safeEnd;
+  private EventSource source;
+  private LogInventory inventory;
+  private Supplier<Long> safeEnd;
+  private final Reconnector reconnector;
+  private boolean pendingRefresh;
   private final MiningScheduler scheduler;
   private StepRunner runner;
   private final OraErrorClassifier classifier;
@@ -92,6 +107,7 @@ public final class CaptureEngine {
       OraErrorClassifier classifier,
       java.util.Set<String> capturedOwners,
       IdRefresher idRefresher,
+      Reconnector reconnector,
       Supplier<Instant> clock) {
     this.start = start;
     this.source = source;
@@ -109,6 +125,7 @@ public final class CaptureEngine {
             classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(capturedOwners));
     this.recycler = new SessionRecycler(settings.sessionMaxAge(), clock);
     this.idRefresher = idRefresher;
+    this.reconnector = reconnector;
     this.clock = clock;
     this.cursor = StepCursor.at(start.resumeScn());
   }
@@ -117,7 +134,8 @@ public final class CaptureEngine {
     STEP_APPLIED,
     STEP_RETRIED,
     STEP_TIMED_OUT,
-    IDLE
+    IDLE,
+    RECONNECTED
   }
 
   public EngineMetrics metrics() {
@@ -132,8 +150,38 @@ public final class CaptureEngine {
     return scheduler;
   }
 
-  /** One step or one idle poll. Throws only {@link OracleCdcException}s, which stop the task. */
-  public Progress runOnce() throws SQLException {
+  /**
+   * One step, one idle poll or one reconnect. Throws only {@link OracleCdcException}s, which stop
+   * the task; a transient database error leads to a reconnect instead (CORE-CONN-6).
+   */
+  public Progress runOnce() throws SQLException, InterruptedException {
+    try {
+      return step();
+    } catch (TransientDatabaseException e) {
+      return reconnect(e);
+    } catch (SQLException e) {
+      OracleCdcException typed = classifier.toException(e, "mining from " + cursor.scn());
+      if (typed instanceof TransientDatabaseException) {
+        return reconnect(typed);
+      }
+      throw typed;
+    }
+  }
+
+  private Progress reconnect(OracleCdcException cause) throws SQLException, InterruptedException {
+    metrics.reconnects.incrementAndGet();
+    Sources fresh = reconnector.reconnect(cause); // retries with backoff; throws when exhausted
+    this.source = fresh.source();
+    this.inventory = fresh.inventory();
+    this.safeEnd = fresh.safeEndScn();
+    recycler.recycled();
+    return Progress.RECONNECTED;
+  }
+
+  private Progress step() throws SQLException {
+    if (pendingRefresh) {
+      refreshIds();
+    }
     long end = safeEnd.get();
     metrics.safeEndScn.set(end);
     if (end <= cursor.scn()) {
@@ -178,6 +226,7 @@ public final class CaptureEngine {
         break;
     }
     consecutiveRetries = 0;
+    warmSchemas(outcome); // every database read happens before the buffer changes
     apply(outcome);
     cursor = outcome.next();
     Duration elapsed = Duration.between(t0, clock.get());
@@ -194,6 +243,22 @@ public final class CaptureEngine {
     }
     sink.stepApplied(cursor.scn(), ResumeCalculator.resumeScn(cursor.scn(), oldestOpen()));
     return Progress.STEP_APPLIED;
+  }
+
+  private void refreshIds() throws SQLException {
+    java.util.Set<String> owners = idRefresher.refresh();
+    runner =
+        new StepRunner(classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(owners));
+    pendingRefresh = false;
+  }
+
+  /** Loads the schema of every table in the step so apply() touches no connection. */
+  private void warmSchemas(StepOutcome outcome) throws SQLException {
+    for (MiningEvent e : outcome.events()) {
+      if (e instanceof MiningEvent.Dml d && !d.undo()) {
+        schemas.current(d.table());
+      }
+    }
   }
 
   private void apply(StepOutcome outcome) throws SQLException {
