@@ -132,6 +132,15 @@ public final class JdbcLogMinerSession implements LogMinerSource {
   }
 
   @Override
+  public void reset() throws SQLException {
+    try {
+      end();
+    } finally {
+      added.clear();
+    }
+  }
+
+  @Override
   public long pgaUsedBytes() throws SQLException {
     try (Statement s = c.createStatement();
         ResultSet rs = s.executeQuery(PGA)) {

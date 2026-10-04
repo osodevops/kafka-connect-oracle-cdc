@@ -13,19 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package sh.oso.connect.oracle.core.mining.event;
+package sh.oso.connect.oracle.core.engine;
 
-import java.sql.SQLException;
+import sh.oso.connect.oracle.core.decode.RowDecoder;
+import sh.oso.connect.oracle.core.mining.event.MiningEvent;
+import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.schema.TableSchema;
 
-/** Opens the events of one SCN range; the real one mines Oracle, the fake replays a script. */
-public interface EventSource extends AutoCloseable {
-  EventCursor open(long startScn, long endScn) throws SQLException;
+/** Decodes one DML event; the default is {@link RowDecoder}, tests may substitute a stub. */
+public interface ChangeDecoder {
+  RowChange decode(MiningEvent.Dml dml, TableSchema schema);
 
-  /**
-   * Releases server-side resources so the next {@link #open} starts a fresh session (CORE-MINE-7).
-   */
-  default void recycle() throws SQLException {}
-
-  @Override
-  void close() throws SQLException;
+  static ChangeDecoder rowDecoder() {
+    return RowDecoder::decode;
+  }
 }

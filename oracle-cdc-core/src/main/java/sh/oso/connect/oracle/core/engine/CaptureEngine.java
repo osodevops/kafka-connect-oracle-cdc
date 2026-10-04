@@ -1,0 +1,260 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package sh.oso.connect.oracle.core.engine;
+
+import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.function.Supplier;
+import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
+import sh.oso.connect.oracle.core.buffer.TransactionBuffer;
+import sh.oso.connect.oracle.core.config.CoreConfig.DecodeErrorAction;
+import sh.oso.connect.oracle.core.errors.DecodeException;
+import sh.oso.connect.oracle.core.errors.MiningStepRetryException;
+import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
+import sh.oso.connect.oracle.core.errors.OracleCdcException;
+import sh.oso.connect.oracle.core.logs.LogInventory;
+import sh.oso.connect.oracle.core.logs.LogSet;
+import sh.oso.connect.oracle.core.mining.event.EventSource;
+import sh.oso.connect.oracle.core.mining.event.MiningEvent;
+import sh.oso.connect.oracle.core.mining.step.MiningScheduler;
+import sh.oso.connect.oracle.core.mining.step.SessionRecycler;
+import sh.oso.connect.oracle.core.mining.step.StepCursor;
+import sh.oso.connect.oracle.core.mining.step.StepOutcome;
+import sh.oso.connect.oracle.core.mining.step.StepPlan;
+import sh.oso.connect.oracle.core.mining.step.StepRunner;
+import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.position.Position;
+import sh.oso.connect.oracle.core.position.ResumeCalculator;
+import sh.oso.connect.oracle.core.position.SkipRule;
+import sh.oso.connect.oracle.core.schema.SchemaRegistry;
+import sh.oso.connect.oracle.core.schema.TableSchema;
+
+/**
+ * The capture loop (PRD-00 section 3): plan a step, run it staged, apply its events to the buffer
+ * in redo order, hand committed transactions to the sink in commit order, report where the position
+ * may advance to. One call to {@link #runOnce()} is one step or one idle poll; {@link
+ * EngineLifecycle} loops it on a thread. Everything here is synchronous and deterministic so the
+ * fake can drive it.
+ */
+public final class CaptureEngine {
+
+  /** Called after a DDL step cut so the owner refreshes the pushed-down object ids (ADR-0001). */
+  public interface IdRefresher {
+    void refresh() throws SQLException;
+  }
+
+  private final EventSource source;
+  private final LogInventory inventory;
+  private final Supplier<Long> safeEnd;
+  private final MiningScheduler scheduler;
+  private final StepRunner runner;
+  private final TransactionBuffer buffer;
+  private final SchemaRegistry schemas;
+  private final ChangeDecoder decoder;
+  private final EventSink sink;
+  private final EngineSettings settings;
+  private final SessionRecycler recycler;
+  private final IdRefresher idRefresher;
+  private final Position start;
+  private final EngineMetrics metrics = new EngineMetrics();
+  private final Supplier<Instant> clock;
+  private StepCursor cursor;
+  private int consecutiveRetries;
+
+  public CaptureEngine(
+      Position start,
+      EventSource source,
+      LogInventory inventory,
+      Supplier<Long> safeEndScn,
+      TransactionBuffer buffer,
+      SchemaRegistry schemas,
+      ChangeDecoder decoder,
+      EventSink sink,
+      EngineSettings settings,
+      OraErrorClassifier classifier,
+      java.util.Set<String> capturedOwners,
+      IdRefresher idRefresher,
+      Supplier<Instant> clock) {
+    this.start = start;
+    this.source = source;
+    this.inventory = inventory;
+    this.safeEnd = safeEndScn;
+    this.buffer = buffer;
+    this.schemas = schemas;
+    this.decoder = decoder;
+    this.sink = sink;
+    this.settings = settings;
+    this.scheduler = new MiningScheduler(settings.targetLatency(), settings.maxLogsPerStep());
+    this.runner =
+        new StepRunner(
+            classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(capturedOwners));
+    this.recycler = new SessionRecycler(settings.sessionMaxAge(), clock);
+    this.idRefresher = idRefresher;
+    this.clock = clock;
+    this.cursor = StepCursor.at(start.resumeScn());
+  }
+
+  public enum Progress {
+    STEP_APPLIED,
+    STEP_RETRIED,
+    STEP_TIMED_OUT,
+    IDLE
+  }
+
+  public EngineMetrics metrics() {
+    return metrics;
+  }
+
+  public StepCursor cursor() {
+    return cursor;
+  }
+
+  public MiningScheduler scheduler() {
+    return scheduler;
+  }
+
+  /** One step or one idle poll. Throws only {@link OracleCdcException}s, which stop the task. */
+  public Progress runOnce() throws SQLException {
+    long end = safeEnd.get();
+    metrics.safeEndScn.set(end);
+    if (end <= cursor.scn()) {
+      metrics.idlePolls.incrementAndGet();
+      return Progress.IDLE;
+    }
+    if (recycler.due()) {
+      source.recycle();
+      recycler.recycled();
+      metrics.sessionRecycles.incrementAndGet();
+    }
+    LogSet logs = inventory.forRange(cursor.scn(), end);
+    StepPlan plan = scheduler.plan(cursor.scn(), end, logs.logs());
+    metrics.windowLogs.set(plan.windowLogs());
+    Instant t0 = clock.get();
+    StepOutcome outcome = runner.run(source, cursor, plan.endScn());
+    metrics.rowsMined.addAndGet(outcome.rowsSeen());
+    switch (outcome.kind()) {
+      case RETRY:
+        metrics.stepRetries.incrementAndGet();
+        if (++consecutiveRetries > settings.maxConsecutiveRetries()) {
+          throw new MiningStepRetryException(
+              "Mining "
+                  + plan.startScn()
+                  + ".."
+                  + plan.endScn()
+                  + " failed "
+                  + consecutiveRetries
+                  + " times in a row with a retriable LogMiner error: "
+                  + outcome.cause().getMessage(),
+              "The redo for this range keeps failing to mine; check the alert log and the archived"
+                  + " logs covering it.",
+              outcome.cause());
+        }
+        return Progress.STEP_RETRIED;
+      case TIMEOUT:
+        metrics.stepTimeouts.incrementAndGet();
+        scheduler.stepTimedOut(plan);
+        return Progress.STEP_TIMED_OUT;
+      default:
+        break;
+    }
+    consecutiveRetries = 0;
+    apply(outcome);
+    cursor = outcome.next();
+    Duration elapsed = Duration.between(t0, clock.get());
+    metrics.lastStepMillis.set(elapsed.toMillis());
+    metrics.steps.incrementAndGet();
+    metrics.minedToScn.set(cursor.scn());
+    if (outcome.kind() == StepOutcome.Kind.CUT) {
+      metrics.stepCuts.incrementAndGet();
+      idRefresher.refresh();
+    } else {
+      scheduler.stepCompleted(elapsed);
+    }
+    long resume = ResumeCalculator.resumeScn(cursor.scn(), buffer.oldestFirstCaptured());
+    sink.stepApplied(cursor.scn(), resume);
+    return Progress.STEP_APPLIED;
+  }
+
+  private void apply(StepOutcome outcome) throws SQLException {
+    for (MiningEvent e : outcome.events()) {
+      metrics.eventsApplied.incrementAndGet();
+      if (e instanceof MiningEvent.TxStart s) {
+        buffer.start(s);
+      } else if (e instanceof MiningEvent.Dml d) {
+        if (d.undo()) {
+          buffer.undo(d.tx(), d.id(), d.rowId());
+        } else {
+          decodeAndBuffer(d);
+        }
+      } else if (e instanceof MiningEvent.Commit c) {
+        Optional<CommittedTransaction> tx = buffer.commit(c);
+        if (tx.isPresent()) {
+          emit(tx.get());
+        }
+      } else if (e instanceof MiningEvent.Rollback r) {
+        buffer.rollback(r);
+      } else if (e instanceof MiningEvent.Ddl d) {
+        if (d.objectName() != null && d.owner() != null) {
+          schemas.invalidate(
+              new sh.oso.connect.oracle.core.model.TableId(d.pdb(), d.owner(), d.objectName()));
+        }
+        sink.ddl(d);
+      } else if (e instanceof MiningEvent.Unsupported u) {
+        if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
+          throw new DecodeException(
+              "LogMiner marked a row of "
+                  + u.table().fqn()
+                  + " UNSUPPORTED at "
+                  + u.id()
+                  + (u.info() == null ? "" : " (" + u.info() + ")"),
+              "The table has a column type LogMiner cannot reconstruct (DOC-5); exclude the table"
+                  + " or set cdc.on.decode.error=dlq.");
+        }
+        metrics.decodeFailures.incrementAndGet();
+        sink.unsupported(u);
+      }
+      // MissingScn never reaches here (the runner stops); Other and LogBoundary are ignored
+    }
+  }
+
+  private void decodeAndBuffer(MiningEvent.Dml d) throws SQLException {
+    TableSchema schema = schemas.current(d.table());
+    RowChange change;
+    try {
+      change = decoder.decode(d, schema);
+    } catch (DecodeException ex) {
+      if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
+        throw ex;
+      }
+      metrics.decodeFailures.incrementAndGet();
+      sink.decodeFailed(d, ex);
+      return;
+    }
+    buffer.add(d.tx(), change);
+  }
+
+  private void emit(CommittedTransaction tx) {
+    int skip = SkipRule.eventsToSkip(start, tx);
+    if (skip >= tx.size()) {
+      metrics.transactionsSkipped.incrementAndGet();
+      return;
+    }
+    metrics.transactionsCommitted.incrementAndGet();
+    sink.committed(tx, skip);
+  }
+}

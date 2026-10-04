@@ -34,6 +34,9 @@ public interface LogMinerSource extends AutoCloseable {
 
   void end() throws SQLException;
 
+  /** END_LOGMNR and forget the added logs, so the next {@link #setLogs} adds them again. */
+  void reset() throws SQLException;
+
   /** PGA bytes of the mining session's server process, or -1 when not readable. */
   long pgaUsedBytes() throws SQLException;
 

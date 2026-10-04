@@ -31,8 +31,8 @@ public final class LogMinerEventSource implements EventSource {
 
   private final LogInventory inventory;
   private final LogMinerSource session;
-  private final MiningFilter filter;
-  private final LogMinerRowAdapter adapter;
+  private volatile MiningFilter filter;
+  private volatile LogMinerRowAdapter adapter;
   private final DictionaryMode mode;
 
   public LogMinerEventSource(
@@ -55,6 +55,17 @@ public final class LogMinerEventSource implements EventSource {
     session.start(startScn, endScn, mode);
     adapter.reset();
     return adapter.adapt(session.query(filter, startScn, endScn));
+  }
+
+  /** Swaps the pushed-down ids after a DDL step cut (ADR-0001). */
+  public void update(ResolvedObjects objects, MiningFilter newFilter) {
+    this.filter = newFilter;
+    this.adapter = new LogMinerRowAdapter(objects.byObjectId());
+  }
+
+  @Override
+  public void recycle() throws SQLException {
+    session.reset();
   }
 
   @Override
