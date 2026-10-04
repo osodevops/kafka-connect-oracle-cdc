@@ -1,0 +1,102 @@
+# Oracle Database Free from docker/test-oracle (loaded with minikube image load). StatefulSet so the
+# datafiles survive pod restarts; deleting the PVC is itself an edge-case test.
+apiVersion: v1
+kind: Service
+metadata:
+  name: oracle
+  namespace: cdc
+spec:
+  clusterIP: None
+  selector:
+    app: oracle
+  ports:
+    - name: listener
+      port: 1521
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oracle-sys
+  namespace: cdc
+type: Opaque
+stringData:
+  ORACLE_PASSWORD: oracle
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: oracle
+  namespace: cdc
+spec:
+  serviceName: oracle
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oracle
+  template:
+    metadata:
+      labels:
+        app: oracle
+    spec:
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: oracle
+          image: oracle-cdc-test-db:23.26.3-slim-faststart
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1521
+              name: listener
+          envFrom:
+            - secretRef:
+                name: oracle-sys
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: data
+              mountPath: /opt/oracle/oradata
+            - name: archive
+              mountPath: /opt/oracle/archive
+            - name: dshm
+              mountPath: /dev/shm
+          startupProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  printf "SELECT 'UP' FROM v\$database WHERE open_mode = 'READ WRITE';\n" \
+                    | sqlplus -s -L c##cdc/cdc@//localhost:1521/FREE | grep -q UP
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - |
+                  printf "SELECT 'UP' FROM v\$pdbs WHERE name = 'FREEPDB1' AND open_mode = 'READ WRITE';\n" \
+                    | sqlplus -s -L c##cdc/cdc@//localhost:1521/FREE | grep -q UP
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
+        - name: archive
+          emptyDir:
+            sizeLimit: 20Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 30Gi

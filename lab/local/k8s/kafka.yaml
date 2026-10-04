@@ -1,0 +1,45 @@
+# Single-node KRaft Kafka for the lab. Not a model of production: one broker cannot show ISR or
+# coordinator failover behaviour; the three-node profile in kafka-3node.yaml covers those cases.
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: dual
+  namespace: cdc
+  labels:
+    strimzi.io/cluster: lab
+spec:
+  replicas: 1
+  roles: [controller, broker]
+  storage:
+    type: persistent-claim
+    size: 20Gi
+    deleteClaim: true
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: lab
+  namespace: cdc
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: 4.3.1
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: true
+      # longest Kafka transaction the connector may open; the split rule keeps it far below this
+      transaction.max.timeout.ms: 900000
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

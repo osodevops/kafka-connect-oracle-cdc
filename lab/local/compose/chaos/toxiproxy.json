@@ -1,0 +1,8 @@
+[
+  {
+    "name": "oracle",
+    "listen": "0.0.0.0:11521",
+    "upstream": "oracle:1521",
+    "enabled": true
+  }
+]

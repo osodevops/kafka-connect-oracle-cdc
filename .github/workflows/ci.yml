@@ -70,3 +70,36 @@ jobs:
             exit 1
           fi
           echo "licence gate correctly rejected the GPL dependency (exit $status)"
+
+  t1-engine:
+    name: T1 engine (Oracle Database Free)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Fork pull requests have no Docker Hub secrets; maintainers re-run after review.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Log in to Docker Hub (avoids anonymous pull limits)
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build modules without tests
+        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+      - name: Oracle-only integration tests
+        run: mvn -pl e2e-tests verify -De2e.groups=engine --batch-mode --no-transfer-progress
+      - name: Upload failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t1-engine-reports
+          path: e2e-tests/target/failsafe-reports/
+          retention-days: 7

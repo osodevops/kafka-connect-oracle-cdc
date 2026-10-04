@@ -1,0 +1,23 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: oracle-cdc
+  namespace: cdc
+  labels:
+    strimzi.io/cluster: connect
+spec:
+  class: sh.oso.connect.oracle.OracleCdcSourceConnector
+  tasksMax: 1
+  state: running
+  autoRestart:
+    enabled: true
+    maxRestarts: 5
+  config:
+    cdc.database.host: oracle
+    cdc.database.port: "1521"
+    cdc.database.service: FREE
+    cdc.database.user: C##CDC
+    cdc.database.password: cdc
+    cdc.database.pdbs: FREEPDB1
+    cdc.topic.prefix: cdc
+    cdc.tables.include: FREEPDB1\.WORKLOAD\..*

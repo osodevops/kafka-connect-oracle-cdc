@@ -1,0 +1,50 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: connect
+  namespace: cdc
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  version: 4.3.1
+  replicas: 2
+  bootstrapServers: lab-kafka-bootstrap:9092
+  image: oracle-cdc-connect:dev
+  template:
+    pod:
+      imagePullPolicy: IfNotPresent
+  config:
+    group.id: oracle-cdc-lab
+    config.storage.topic: _connect_configs
+    offset.storage.topic: _connect_offsets
+    status.storage.topic: _connect_status
+    config.storage.replication.factor: 1
+    offset.storage.replication.factor: 1
+    status.storage.replication.factor: 1
+    key.converter: org.apache.kafka.connect.json.JsonConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+    exactly.once.source.support: enabled
+    connector.client.config.override.policy: All
+    task.shutdown.graceful.timeout.ms: 30000
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  jvmOptions:
+    -Xms: 512m
+    -Xmx: 1536m
+  metricsConfig:
+    type: jmxPrometheusExporter
+    valueFrom:
+      configMapKeyRef:
+        name: connect-metrics
+        key: metrics-config.yml
+  logging:
+    type: inline
+    loggers:
+      rootLogger.level: INFO
+      logger.oso.name: sh.oso.connect.oracle
+      logger.oso.level: INFO

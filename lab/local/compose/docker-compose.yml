@@ -1,0 +1,141 @@
+# Local lab: Oracle Database Free (derived test image), Kafka (KRaft), Kafka Connect with the
+# OSO CDC Connector plugin, and optional observability, chaos and Debezium baseline profiles.
+#
+#   make -C lab/local/compose up           # builds the plugin, copies it into plugins/, starts the stack
+#   make -C lab/local/compose register     # registers examples/connector-freepdb1.json
+#   make -C lab/local/compose topics       # lists topics with kcat
+#   make -C lab/local/compose down
+#
+# Profiles: observability (Prometheus, Grafana), chaos (Toxiproxy between Connect and Oracle),
+# debezium (Debezium 3.7 Connect on the same database, internal comparison only).
+name: oracle-cdc-lab
+
+services:
+  oracle:
+    build:
+      context: ../../../docker/test-oracle
+      args:
+        BASE_TAG: ${ORACLE_BASE_TAG:-23.26.3-slim-faststart}
+    image: oracle-cdc-test-db:${ORACLE_BASE_TAG:-23.26.3-slim-faststart}
+    container_name: oracle-cdc-lab-oracle
+    shm_size: 2g
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-oracle}
+    ports:
+      - "1521:1521"
+    healthcheck:
+      test: ["CMD-SHELL", "sqlplus -s -L c##cdc/cdc@//localhost:1521/FREE <<< 'SELECT 1 FROM dual;' | grep -q 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 60s
+
+  kafka:
+    image: apache/kafka:${KAFKA_VERSION:-3.9.1}
+    container_name: oracle-cdc-lab-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:19092,CONTROLLER://:9093,EXTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Allow the longest Kafka transaction the connector may open (SRC-EOS-4 split rule keeps us well under).
+      KAFKA_TRANSACTION_MAX_TIMEOUT_MS: 900000
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  connect:
+    image: apache/kafka:${KAFKA_VERSION:-3.9.1}
+    container_name: oracle-cdc-lab-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/opt/kafka/bin/connect-distributed.sh", "/connect.properties"]
+    ports:
+      - "8083:8083"
+      - "9404:9404"
+    environment:
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx2g
+    volumes:
+      - ./connect.properties:/connect.properties:ro
+      - ./plugins:/plugins:ro
+    healthcheck:
+      # the apache/kafka image has no curl; probe the REST port with bash
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083 && printf \"GET /connectors HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \" 200 \" <&3'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:latest
+    container_name: oracle-cdc-lab-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../../ops/alerts:/etc/prometheus/rules:ro
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:11.6.0
+    container_name: oracle-cdc-lab-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./observability/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./observability/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ../../../ops/grafana:/var/lib/grafana/dashboards:ro
+
+  toxiproxy:
+    profiles: [chaos]
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    container_name: oracle-cdc-lab-toxiproxy
+    ports:
+      - "8474:8474"
+      - "11521:11521"
+    command: ["-host=0.0.0.0", "-config=/toxiproxy.json"]
+    volumes:
+      - ./chaos/toxiproxy.json:/toxiproxy.json:ro
+
+  debezium:
+    profiles: [debezium]
+    image: quay.io/debezium/connect:3.7
+    container_name: oracle-cdc-lab-debezium
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8084:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:19092
+      GROUP_ID: debezium-baseline
+      CONFIG_STORAGE_TOPIC: _debezium_configs
+      OFFSET_STORAGE_TOPIC: _debezium_offsets
+      STATUS_STORAGE_TOPIC: _debezium_status
+      ENABLE_DEBEZIUM_SCRIPTING: "false"
+
+# Docker Desktop on a busy workstation can run out of default address pools; pin a subnet that
+# nothing else here uses.
+networks:
+  default:
+    name: oracle-cdc-lab
+    ipam:
+      config:
+        - subnet: 10.213.0.0/24

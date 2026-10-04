@@ -7,6 +7,10 @@ WHENEVER SQLERROR EXIT FAILURE
 -- Common user: mines at CDB$ROOT and reads every PDB (PRD-00 CORE-MINE-9).
 CREATE USER c##cdc IDENTIFIED BY "cdc" CONTAINER=ALL;
 ALTER USER c##cdc QUOTA UNLIMITED ON users CONTAINER=ALL;
+-- A common user sees container data objects (V$PDBS, V$SESSION, V$LOGMNR_CONTENTS, CDB_ views)
+-- only for containers in its CONTAINER_DATA set, which defaults to CDB$ROOT alone. Mining at root
+-- for several PDBs needs all of them (doctor rule DOC-4 checks this).
+ALTER USER c##cdc SET CONTAINER_DATA=ALL CONTAINER=CURRENT;
 
 GRANT CREATE SESSION TO c##cdc CONTAINER=ALL;
 GRANT SET CONTAINER TO c##cdc CONTAINER=ALL;

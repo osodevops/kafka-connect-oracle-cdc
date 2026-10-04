@@ -76,7 +76,7 @@ A scheduled job lists new Oracle issues weekly and opens a triage ticket in our 
 | Active Data Guard physical standby (archive-only) | T4 | 2 |
 | Amazon RDS for Oracle 19c non-CDB | T4 | 2 |
 | Autonomous Database, RDS CDB (per-PDB mining) | T4 | 3 |
-| Kafka Connect 3.6, 3.9, 4.x; Confluent Platform 7.6 and later; Strimzi; MSK Connect | T1 (Apache), T4 (others) | 1 and 2 |
+| Kafka Connect 3.6, 3.9, 4.x; Confluent Platform 7.6 and later; Strimzi; MSK Connect | T1 (Apache), T2 (Strimzi on the local minikube lab, `lab/local/k8s`, with the edge-case matrix), T4 (others) | 1 and 2 |
 | Java 17 and 21 | T0, T1 | 1 |
 
 Until Oracle publishes a 26ai Free container image, the second version in the CI matrix is the oldest supported 23ai tag (currently `gvenzl/oracle-free:23.9-faststart`); every "23ai and 26ai" above reads accordingly.

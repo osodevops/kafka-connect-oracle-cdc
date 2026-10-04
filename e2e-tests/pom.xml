@@ -89,11 +89,6 @@
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
       <artifactId>oracle-free</artifactId>
       <scope>test</scope>
     </dependency>
@@ -129,7 +124,9 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
-          <groups>${e2e.groups}</groups>
+          <!-- Tiers are selected by class-name suffix through the e2e-* profiles below
+               (-De2e.groups=engine|connector|nightly selects *EngineIT, *ConnectorIT, *NightlyIT). The surefire
+               <groups> tag filter and directory-based include patterns both made the forked JVM run nothing. -->
           <systemPropertyVariables>
             <project.version>${project.version}</project.version>
             <repo.root>${project.basedir}/..</repo.root>
@@ -165,6 +162,81 @@
             <artifactId>maven-failsafe-plugin</artifactId>
             <configuration>
               <skipITs>true</skipITs>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <!-- T1 engine: Oracle Database Free only -->
+      <id>e2e-engine</id>
+      <activation>
+        <property>
+          <name>e2e.groups</name>
+          <value>engine</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <includes>
+                <!-- the forked JVM re-filters test classes and accepts only the plain suffix form -->
+                <include>**/*EngineIT.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <!-- T1 connector: Oracle plus Kafka plus a real Connect worker -->
+      <id>e2e-connector</id>
+      <activation>
+        <property>
+          <name>e2e.groups</name>
+          <value>connector</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <includes>
+                <!-- the forked JVM re-filters test classes and accepts only the plain suffix form -->
+                <include>**/*ConnectorIT.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <!-- T2 nightly: fault injection and long runs -->
+      <id>e2e-nightly</id>
+      <activation>
+        <property>
+          <name>e2e.groups</name>
+          <value>nightly</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <includes>
+                <!-- the forked JVM re-filters test classes and accepts only the plain suffix form -->
+                <include>**/*NightlyIT.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
             </configuration>
           </plugin>
         </plugins>

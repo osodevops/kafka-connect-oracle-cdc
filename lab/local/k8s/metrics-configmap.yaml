@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connect-metrics
+  namespace: cdc
+data:
+  metrics-config.yml: |
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    rules:
+      - pattern: "kafka.connect<type=connect-worker-metrics>([^:]+):"
+        name: kafka_connect_worker_$1
+      - pattern: "kafka.connect<type=connect-worker-metrics, connector=([^>]+)><>([^:]+)"
+        name: kafka_connect_worker_connector_$2
+        labels:
+          connector: "$1"
+      - pattern: "kafka.connect<type=connector-task-metrics, connector=([^,]+), task=([^>]+)><>([^:]+)"
+        name: kafka_connect_connector_task_$3
+        labels:
+          connector: "$1"
+          task: "$2"
+      - pattern: "kafka.connect<type=source-task-metrics, connector=([^,]+), task=([^>]+)><>([^:]+)"
+        name: kafka_connect_source_task_$3
+        labels:
+          connector: "$1"
+          task: "$2"
+      # OSO CDC Connector engine metrics (PRD-05 section 5); the full ruleset ships in ops/jmx-exporter
+      - pattern: "sh.oso.connect.oracle<type=([^,]+), connector=([^>]+)><>([^:]+)"
+        name: oracle_cdc_$1_$3
+        labels:
+          connector: "$2"

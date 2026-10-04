@@ -1,0 +1,15 @@
+{
+  "name": "oracle-cdc",
+  "config": {
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "oracle",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "FREE",
+    "cdc.database.user": "C##CDC",
+    "cdc.database.password": "cdc",
+    "cdc.database.pdbs": "FREEPDB1",
+    "cdc.topic.prefix": "cdc",
+    "cdc.tables.include": "FREEPDB1\\.WORKLOAD\\..*"
+  }
+}
