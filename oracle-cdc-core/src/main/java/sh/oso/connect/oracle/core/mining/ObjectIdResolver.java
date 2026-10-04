@@ -25,10 +25,10 @@ import java.util.regex.Pattern;
 import sh.oso.connect.oracle.core.model.TableId;
 
 /**
- * Resolves include and exclude patterns to the object ids LogMiner reports as DATA_OBJ#
- * (CORE-MINE-3). Patterns match {@code PDB.SCHEMA.TABLE} (or {@code SCHEMA.TABLE} in a non-CDB),
- * case-insensitively unless asked otherwise. Re-run after any DDL that creates a segment, because a
- * new partition carries an id this resolution has not seen (ADR-0001).
+ * Resolves include and exclude patterns to the container-qualified object ids LogMiner reports as
+ * SRC_CON_ID and DATA_OBJ# (CORE-MINE-3). Patterns match {@code PDB.SCHEMA.TABLE} (or {@code
+ * SCHEMA.TABLE} in a non-CDB), case-insensitively unless asked otherwise. Re-run after any DDL that
+ * creates a segment, because a new partition carries an id this resolution has not seen (ADR-0001).
  */
 public final class ObjectIdResolver {
 
@@ -54,7 +54,7 @@ public final class ObjectIdResolver {
   }
 
   public ResolvedObjects resolve() throws SQLException {
-    Map<Long, TableId> byId = new HashMap<>();
+    Map<ObjectKey, TableId> byId = new HashMap<>();
     Set<TableId> tables = new HashSet<>();
     Set<String> owners = new HashSet<>();
     for (CapturedObject o : catalog.objects()) {
@@ -65,7 +65,7 @@ public final class ObjectIdResolver {
         continue;
       }
       if (matches(t)) {
-        byId.put(o.objectId(), t);
+        byId.put(new ObjectKey(o.conId(), o.objectId()), t);
         tables.add(t);
         owners.add(t.schema());
       }

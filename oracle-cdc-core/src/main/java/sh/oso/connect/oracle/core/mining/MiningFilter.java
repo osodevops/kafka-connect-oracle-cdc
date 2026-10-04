@@ -16,19 +16,31 @@
 package sh.oso.connect.oracle.core.mining;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
- * What the mining query pushes down to the server (CORE-MINE-2, ADR-0001): DML on captured object
- * ids, DDL for captured owners, transaction control rows minus excluded users. Sets are copied and
- * sorted so the generated SQL is deterministic.
+ * What the mining query pushes down to the server (CORE-MINE-2, ADR-0001): row changes on captured
+ * object ids per source container, DDL by non-Oracle owners, transaction control rows minus
+ * excluded users. Object ids are per container, so they are grouped by SRC_CON_ID. Collections are
+ * copied and sorted so the generated SQL is deterministic.
  */
 public record MiningFilter(
-    Set<Long> objectIds, Set<String> ddlOwners, Set<String> excludedUsers, int inlistMax) {
+    Map<Integer, Set<Long>> objectIdsByContainer,
+    Set<String> ddlOwners,
+    Set<String> excludedUsers,
+    int inlistMax) {
 
   public MiningFilter {
-    objectIds = Collections.unmodifiableSet(new TreeSet<>(objectIds));
+    TreeMap<Integer, Set<Long>> sorted = new TreeMap<>();
+    for (Map.Entry<Integer, Set<Long>> e : objectIdsByContainer.entrySet()) {
+      if (!e.getValue().isEmpty()) {
+        sorted.put(e.getKey(), Collections.unmodifiableSet(new TreeSet<>(e.getValue())));
+      }
+    }
+    objectIdsByContainer = Collections.unmodifiableMap(sorted);
     ddlOwners = Collections.unmodifiableSet(new TreeSet<>(ddlOwners));
     excludedUsers = Collections.unmodifiableSet(new TreeSet<>(excludedUsers));
     if (inlistMax < 1 || inlistMax > 1000) {
@@ -36,7 +48,17 @@ public record MiningFilter(
     }
   }
 
-  public static MiningFilter of(Set<Long> objectIds, Set<String> ddlOwners) {
-    return new MiningFilter(objectIds, ddlOwners, Set.of(), 1000);
+  public static MiningFilter of(
+      Map<Integer, Set<Long>> objectIdsByContainer, Set<String> ddlOwners) {
+    return new MiningFilter(objectIdsByContainer, ddlOwners, Set.of(), 1000);
+  }
+
+  /** Convenience for a single container (or a non-CDB with container 0). */
+  public static MiningFilter of(int conId, Set<Long> objectIds, Set<String> ddlOwners) {
+    return of(Map.of(conId, objectIds), ddlOwners);
+  }
+
+  public boolean isEmpty() {
+    return objectIdsByContainer.isEmpty();
   }
 }

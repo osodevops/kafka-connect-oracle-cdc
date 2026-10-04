@@ -22,21 +22,36 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import sh.oso.connect.oracle.core.model.TableId;
 
-/** Outcome of object-id resolution: id to table, the captured tables and their owners. */
+/**
+ * Outcome of object-id resolution: container-qualified id to table, the tables and their owners.
+ */
 public record ResolvedObjects(
-    Map<Long, TableId> byObjectId, Set<TableId> tables, Set<String> owners) {
+    Map<ObjectKey, TableId> byObject, Set<TableId> tables, Set<String> owners) {
 
   public ResolvedObjects {
-    byObjectId = Collections.unmodifiableMap(new TreeMap<>(byObjectId));
+    byObject = Collections.unmodifiableMap(new TreeMap<>(byObject));
     tables = Set.copyOf(tables);
     owners = Collections.unmodifiableSet(new TreeSet<>(owners));
   }
 
+  /** Object ids grouped by source container, the shape the mining query pushes down. */
+  public Map<Integer, Set<Long>> idsByContainer() {
+    TreeMap<Integer, Set<Long>> out = new TreeMap<>();
+    for (ObjectKey k : byObject.keySet()) {
+      out.computeIfAbsent(k.conId(), c -> new TreeSet<>()).add(k.objectId());
+    }
+    return out;
+  }
+
   public MiningFilter filter(Set<String> excludedUsers, int inlistMax) {
-    return new MiningFilter(byObjectId.keySet(), owners, excludedUsers, inlistMax);
+    return new MiningFilter(idsByContainer(), owners, excludedUsers, inlistMax);
+  }
+
+  public int objectCount() {
+    return byObject.size();
   }
 
   public boolean isEmpty() {
-    return byObjectId.isEmpty();
+    return byObject.isEmpty();
   }
 }

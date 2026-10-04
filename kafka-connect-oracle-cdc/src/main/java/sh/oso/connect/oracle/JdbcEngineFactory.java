@@ -173,7 +173,7 @@ public final class JdbcEngineFactory implements EngineFactory {
       LOG.info(
           "Capturing {} tables ({} object ids) for owners {}",
           objects.tables().size(),
-          objects.byObjectId().size(),
+          objects.objectCount(),
           objects.owners());
       mining = connections.open(ConnectionRole.MINING);
       source = newSource(inventory);
@@ -205,7 +205,7 @@ public final class JdbcEngineFactory implements EngineFactory {
             LOG.info(
                 "Object ids refreshed after DDL: {} tables ({} ids) for owners {}",
                 objects.tables().size(),
-                objects.byObjectId().size(),
+                objects.objectCount(),
                 objects.owners());
             return objects.owners();
           },

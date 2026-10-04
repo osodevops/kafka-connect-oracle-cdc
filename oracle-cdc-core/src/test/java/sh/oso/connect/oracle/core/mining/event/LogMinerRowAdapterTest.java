@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.mining.LogMinerRow;
+import sh.oso.connect.oracle.core.mining.ObjectKey;
 import sh.oso.connect.oracle.core.mining.RowCursor;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.TableId;
@@ -73,7 +74,7 @@ class LogMinerRowAdapterTest {
 
   @Test
   void mapsEveryOperationKind() {
-    LogMinerRowAdapter a = new LogMinerRowAdapter(Map.of(1001L, ORDERS));
+    LogMinerRowAdapter a = new LogMinerRowAdapter(Map.of(new ObjectKey(3, 1001L), ORDERS));
     assertThat(a.accept(row(1, 6, false, 0, null, null, false)))
         .isInstanceOfSatisfying(
             MiningEvent.TxStart.class,
@@ -115,11 +116,56 @@ class LogMinerRowAdapterTest {
 
   @Test
   void namesDroppedSegmentsThroughTheResolvedIdMap() {
-    LogMinerRowAdapter a = new LogMinerRowAdapter(Map.of(1001L, ORDERS));
+    LogMinerRowAdapter a = new LogMinerRowAdapter(Map.of(new ObjectKey(3, 1001L), ORDERS));
     MiningEvent.Dml named = (MiningEvent.Dml) a.accept(row(1, 1, false, 1001, null, "x", false));
     assertThat(named.table()).isEqualTo(ORDERS);
     MiningEvent.Dml unnamed = (MiningEvent.Dml) a.accept(row(2, 1, false, 7777, null, "x", false));
     assertThat(unnamed.table()).isEqualTo(new TableId("FREEPDB1", "", "OBJ# 7777"));
+  }
+
+  @Test
+  void theSameObjectIdInAnotherContainerIsNotTheCapturedTable() {
+    LogMinerRowAdapter a = new LogMinerRowAdapter(Map.of(new ObjectKey(3, 1001L), ORDERS));
+    // the row says container 3: resolved
+    assertThat(((MiningEvent.Dml) a.accept(row(1, 1, false, 1001, "ORDERS", "x", false))).table())
+        .isEqualTo(ORDERS);
+    // the same id from the root (an AWR table) must not be named as the PDB table
+    LogMinerRow root =
+        new LogMinerRow(
+            2,
+            900,
+            0,
+            Instant.EPOCH,
+            null,
+            1,
+            new Xid(7, 1, 42),
+            "INSERT",
+            1,
+            false,
+            0,
+            null,
+            "SYS",
+            "WRH$_X",
+            "WRH$_X",
+            "SYS",
+            10,
+            1,
+            null,
+            "AAAR",
+            " 0x01 ",
+            0,
+            false,
+            1001,
+            1001,
+            1,
+            1,
+            "CDB$ROOT",
+            999,
+            1,
+            "insert ...",
+            null);
+    assertThat(((MiningEvent.Dml) a.accept(root)).table())
+        .isEqualTo(new TableId(null, "SYS", "WRH$_X"));
   }
 
   @Test

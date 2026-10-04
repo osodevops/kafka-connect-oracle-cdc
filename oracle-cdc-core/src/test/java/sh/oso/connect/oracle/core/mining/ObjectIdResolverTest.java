@@ -47,13 +47,17 @@ class ObjectIdResolverTest {
             List.of("FREEPDB1"),
             false);
     ResolvedObjects o = r.resolve();
-    assertThat(o.byObjectId().keySet())
+    assertThat(o.idsByContainer()).containsOnlyKeys(3);
+    assertThat(o.idsByContainer().get(3))
         .containsExactlyInAnyOrder(1001L, 1100L, 1101L, 1102L, 1200L, 1201L);
-    assertThat(o.byObjectId().get(1102L)).isEqualTo(new TableId("FREEPDB1", "APP", "EVENTS"));
-    assertThat(o.byObjectId().get(1201L)).isEqualTo(new TableId("FREEPDB1", "APP", "LOOKUP"));
+    assertThat(o.byObject().get(new ObjectKey(3, 1102L)))
+        .isEqualTo(new TableId("FREEPDB1", "APP", "EVENTS"));
+    assertThat(o.byObject().get(new ObjectKey(3, 1201L)))
+        .isEqualTo(new TableId("FREEPDB1", "APP", "LOOKUP"));
     assertThat(o.tables()).hasSize(3);
     assertThat(o.owners()).containsExactly("APP");
-    assertThat(o.filter(Set.of("X"), 1000).objectIds()).hasSize(6);
+    assertThat(o.filter(Set.of("X"), 1000).objectIdsByContainer().get(3)).hasSize(6);
+    assertThat(o.objectCount()).isEqualTo(6);
     assertThat(o.isEmpty()).isFalse();
   }
 
@@ -62,12 +66,14 @@ class ObjectIdResolverTest {
     ResolvedObjects both =
         new ObjectIdResolver(cat, List.of(".*\\.APP\\.ORDERS"), List.of(), List.of(), false)
             .resolve();
-    assertThat(both.byObjectId().keySet()).containsExactlyInAnyOrder(1001L, 3001L);
+    assertThat(both.byObject().keySet())
+        .containsExactlyInAnyOrder(new ObjectKey(3, 1001L), new ObjectKey(4, 3001L));
+    assertThat(both.idsByContainer()).containsOnlyKeys(3, 4);
     ResolvedObjects one =
         new ObjectIdResolver(
                 cat, List.of(".*\\.APP\\.ORDERS"), List.of(), List.of("freepdb2"), false)
             .resolve();
-    assertThat(one.byObjectId().keySet()).containsExactly(3001L);
+    assertThat(one.byObject().keySet()).containsExactly(new ObjectKey(4, 3001L));
     ResolvedObjects cs =
         new ObjectIdResolver(cat, List.of("freepdb1\\.app\\.orders"), List.of(), List.of(), true)
             .resolve();

@@ -17,6 +17,8 @@ package sh.oso.connect.oracle.core.mining;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -110,20 +112,34 @@ public final class LogMinerQuery {
     StringBuilder sb = new StringBuilder("SELECT ");
     sb.append(String.join(", ", COLUMNS));
     sb.append(" FROM V$LOGMNR_CONTENTS WHERE SCN >= ? AND SCN < ? AND (");
-    // 1. row changes on captured objects
+    // 1. row changes on captured objects, per source container: the same DATA_OBJ# names
+    //    different tables in CDB$ROOT and in each PDB
     sb.append("(OPERATION_CODE IN (").append(join(ROW_CODES)).append(") AND ");
-    if (f.objectIds().isEmpty()) {
+    if (f.isEmpty()) {
       sb.append("1 = 0");
     } else {
       sb.append('(');
-      List<Long> ids = new ArrayList<>(new TreeSet<>(f.objectIds()));
-      for (int i = 0; i < ids.size(); i += f.inlistMax()) {
-        if (i > 0) {
+      boolean firstContainer = true;
+      for (Map.Entry<Integer, Set<Long>> e : f.objectIdsByContainer().entrySet()) {
+        if (!firstContainer) {
           sb.append(" OR ");
         }
-        sb.append("DATA_OBJ# IN (")
-            .append(join(ids.subList(i, Math.min(ids.size(), i + f.inlistMax()))))
-            .append(')');
+        firstContainer = false;
+        sb.append('(');
+        if (e.getKey() > 0) {
+          sb.append("SRC_CON_ID = ").append(e.getKey()).append(" AND ");
+        }
+        sb.append('(');
+        List<Long> ids = new ArrayList<>(e.getValue());
+        for (int i = 0; i < ids.size(); i += f.inlistMax()) {
+          if (i > 0) {
+            sb.append(" OR ");
+          }
+          sb.append("DATA_OBJ# IN (")
+              .append(join(ids.subList(i, Math.min(ids.size(), i + f.inlistMax()))))
+              .append(')');
+        }
+        sb.append("))");
       }
       sb.append(')');
     }

@@ -24,19 +24,20 @@ import sh.oso.connect.oracle.core.model.TableId;
 
 /**
  * Maps V$LOGMNR_CONTENTS rows to {@link MiningEvent}s. Joins CSF continuation rows into one event.
- * Names the table by DATA_OBJ# through the resolved id map first, because rows written into a
- * segment that was later dropped carry no name under the online catalog
+ * Names the table by (SRC_CON_ID, DATA_OBJ#) through the resolved id map first, because rows
+ * written into a segment that was later dropped carry no name under the online catalog
  * (reference/object-id-stability.md), and falls back to the row's own SEG_OWNER and TABLE_NAME.
  */
 public final class LogMinerRowAdapter {
 
-  private final Map<Long, TableId> tablesByObjectId;
+  private final Map<sh.oso.connect.oracle.core.mining.ObjectKey, TableId> tablesByObject;
   private LogMinerRow pending;
   private StringBuilder redo;
   private StringBuilder undo;
 
-  public LogMinerRowAdapter(Map<Long, TableId> tablesByObjectId) {
-    this.tablesByObjectId = Map.copyOf(tablesByObjectId);
+  public LogMinerRowAdapter(
+      Map<sh.oso.connect.oracle.core.mining.ObjectKey, TableId> tablesByObject) {
+    this.tablesByObject = Map.copyOf(tablesByObject);
   }
 
   /** Returns the event for this row, or null when the row is a continuation still being joined. */
@@ -171,7 +172,9 @@ public final class LogMinerRowAdapter {
   }
 
   private TableId table(LogMinerRow r) {
-    TableId resolved = tablesByObjectId.get(r.dataObj());
+    TableId resolved =
+        tablesByObject.get(
+            new sh.oso.connect.oracle.core.mining.ObjectKey(r.srcConId(), r.dataObj()));
     if (resolved != null) {
       return resolved;
     }
