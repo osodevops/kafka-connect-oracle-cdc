@@ -124,14 +124,13 @@ class MiningBehavioursRefEngineIT {
                   + " (the catalog does not notice an rm; the doctor must check the file,"
                   + " DOC-12)"));
       // RMAN CROSSCHECK is the supported way to reconcile the catalog with the disk
-      db.container()
-          .execInContainer(
-              "bash",
-              "-lc",
-              "rman target / <<'RMAN'\n"
-                  + "CROSSCHECK ARCHIVELOG ALL;\n"
-                  + "DELETE NOPROMPT EXPIRED ARCHIVELOG ALL;\n"
-                  + "RMAN");
+      org.testcontainers.containers.Container.ExecResult rman =
+          db.container()
+              .execInContainer(
+                  "bash",
+                  "-lc",
+                  "printf 'CROSSCHECK ARCHIVELOG ALL;\\nDELETE NOPROMPT EXPIRED ARCHIVELOG ALL;\\n'"
+                      + " | rman target /");
       String afterCrosscheck =
           scalar(
               root,
@@ -141,7 +140,9 @@ class MiningBehavioursRefEngineIT {
       facts.add(
           List.of(
               "V$ARCHIVED_LOG DELETED/STATUS after RMAN CROSSCHECK and DELETE EXPIRED",
-              afterCrosscheck
+              (rman.getExitCode() == 0 && rman.getStdout().contains("rosschecked")
+                      ? afterCrosscheck
+                      : "RMAN did not run: " + rman.getStderr().trim())
                   + " (the engine treats DELETED = YES or STATUS = D or X as purged, CORE-LOG-4)"));
 
       // 4. mining the current online redo log with the online catalog

@@ -80,7 +80,7 @@ spec:
                 - -c
                 - |
                   printf "SELECT 'UP' FROM v\$database WHERE open_mode = 'READ WRITE';\n" \
-                    | sqlplus -s -L c##cdc/cdc@//$(hostname -f):1521/FREE | grep -q UP
+                    | sqlplus -s -L c##cdc/cdc@//localhost:1521/FREE | grep -q UP
             periodSeconds: 10
             failureThreshold: 90
           readinessProbe:
@@ -90,7 +90,7 @@ spec:
                 - -c
                 - |
                   printf "SELECT 'UP' FROM v\$pdbs WHERE name = 'FREEPDB1' AND open_mode = 'READ WRITE';\n" \
-                    | sqlplus -s -L c##cdc/cdc@//$(hostname -f):1521/FREE | grep -q UP
+                    | sqlplus -s -L c##cdc/cdc@//localhost:1521/FREE | grep -q UP
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 6
