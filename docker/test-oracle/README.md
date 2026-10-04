@@ -26,4 +26,8 @@ benchmark results).
 
 ## Measured first-start overhead
 
-Filled in by plan increment P0-03 as a range, not a benchmark.
+On an Apple Silicon workstation with the base image already pulled, the first start (PDB
+creation, ARCHIVELOG conversion with its restart, redo log resize, user creation) reports
+`DATABASE IS READY TO USE!` well under a minute; a GitHub-hosted amd64 runner is expected to take
+one to three minutes including the base image pull. These are ranges for planning, not benchmark
+results. Re-measure in CI logs when the base tag changes.
