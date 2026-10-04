@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "resume_scn": 500,
+  "last_commit_scn": 600,
+  "last_commit_xid": "3:1.2.3",
+  "last_commit_thread": 2,
+  "event_index": 0,
+  "journal_generation": 0,
+  "schema_epoch": 0,
+  "dbid": 42,
+  "resetlogs_scn": 7,
+  "released_xids": [],
+  "snapshot": {"mode": "chunk", "frontier": "9"},
+  "future_field": "kept by a one-version-older reader"
+}

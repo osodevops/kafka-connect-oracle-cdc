@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "resume_scn": 123456789,
+  "last_commit_scn": 123456800,
+  "last_commit_xid": "3:7.21.1042",
+  "last_commit_thread": 1,
+  "event_index": 2,
+  "journal_generation": 4,
+  "schema_epoch": 1,
+  "dbid": 1234567890,
+  "resetlogs_scn": 1,
+  "released_xids": ["3:9.1.77"],
+  "snapshot": null
+}
