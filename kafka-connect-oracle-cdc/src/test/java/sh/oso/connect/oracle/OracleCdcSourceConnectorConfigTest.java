@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package sh.oso.connect.oracle;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +47,8 @@ class OracleCdcSourceConnectorConfigTest {
 
   @Test
   void everyKeyHasGroupDisplayNameAndDocumentation() {
-    for (ConfigDef.ConfigKey key : OracleCdcSourceConnectorConfig.configDef().configKeys().values()) {
+    for (ConfigDef.ConfigKey key :
+        OracleCdcSourceConnectorConfig.configDef().configKeys().values()) {
       assertThat(key.group).as("%s group", key.name).isNotBlank();
       assertThat(key.displayName).as("%s displayName", key.name).isNotBlank();
       assertThat(key.documentation).as("%s documentation", key.name).isNotBlank();
@@ -86,7 +102,9 @@ class OracleCdcSourceConnectorConfigTest {
     r.remove(OracleCdcSourceConnectorConfig.DATABASE_HOST);
     r.remove(OracleCdcSourceConnectorConfig.DATABASE_SERVICE);
     r.put(OracleCdcSourceConnectorConfig.DATABASE_URL, "jdbc:oracle:thin:@//oracle:1521/FREE");
-    assertThat(new OracleCdcSourceConnectorConfig(r).getString(OracleCdcSourceConnectorConfig.DATABASE_URL))
+    assertThat(
+            new OracleCdcSourceConnectorConfig(r)
+                .getString(OracleCdcSourceConnectorConfig.DATABASE_URL))
         .isNotBlank();
   }
 

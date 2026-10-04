@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package sh.oso.connect.oracle.doctor.cli;
 
 import java.util.concurrent.Callable;
@@ -14,7 +29,8 @@ import picocli.CommandLine.Option;
     name = "oracle-cdc-doctor",
     mixinStandardHelpOptions = true,
     versionProvider = DoctorMain.VersionProvider.class,
-    description = "Preflight checker and operations CLI for the OSO CDC Connector for Oracle Database.",
+    description =
+        "Preflight checker and operations CLI for the OSO CDC Connector for Oracle Database.",
     subcommands = {DoctorMain.Check.class, DoctorMain.SetupSql.class})
 public final class DoctorMain implements Callable<Integer> {
 
@@ -38,9 +54,15 @@ public final class DoctorMain implements Callable<Integer> {
     return CommandLine.ExitCode.USAGE;
   }
 
-  @Command(name = "check", description = "Run every preflight rule against the database and Kafka named in the connector config.")
+  @Command(
+      name = "check",
+      description =
+          "Run every preflight rule against the database and Kafka named in the connector config.")
   static final class Check implements Callable<Integer> {
-    @Option(names = "--config", required = true, description = "Connector config JSON (REST envelope or bare config).")
+    @Option(
+        names = "--config",
+        required = true,
+        description = "Connector config JSON (REST envelope or bare config).")
     String config;
 
     @Option(names = "--format", defaultValue = "markdown", description = "markdown, json or junit.")
@@ -53,7 +75,9 @@ public final class DoctorMain implements Callable<Integer> {
     }
   }
 
-  @Command(name = "setup-sql", description = "Generate the commented SQL script a DBA runs to prepare the database.")
+  @Command(
+      name = "setup-sql",
+      description = "Generate the commented SQL script a DBA runs to prepare the database.")
   static final class SetupSql implements Callable<Integer> {
     @Option(names = "--config", required = true, description = "Connector config JSON.")
     String config;
@@ -61,12 +85,16 @@ public final class DoctorMain implements Callable<Integer> {
     @Option(names = "--profile", defaultValue = "production", description = "production or lab.")
     String profile;
 
-    @Option(names = "--platform", defaultValue = "onprem", description = "onprem, rds or autonomous.")
+    @Option(
+        names = "--platform",
+        defaultValue = "onprem",
+        description = "onprem, rds or autonomous.")
     String platform;
 
     @Override
     public Integer call() {
-      System.err.println("oracle-cdc-doctor setup-sql: not implemented yet (plan increment P0-12).");
+      System.err.println(
+          "oracle-cdc-doctor setup-sql: not implemented yet (plan increment P0-12).");
       return EXIT_NOT_IMPLEMENTED;
     }
   }

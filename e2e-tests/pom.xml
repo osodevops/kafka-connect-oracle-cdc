@@ -20,7 +20,7 @@
     <!-- Docker 25+ rejects the docker-java default API version -->
     <docker.api.version>1.44</docker.api.version>
     <oracle.image.tag>23.26.3-slim-faststart</oracle.image.tag>
-    <e2e.groups></e2e.groups>
+    <e2e.groups/>
   </properties>
 
   <dependencies>
@@ -128,14 +128,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
-        <executions>
-          <execution>
-            <goals>
-              <goal>integration-test</goal>
-              <goal>verify</goal>
-            </goals>
-          </execution>
-        </executions>
         <configuration>
           <groups>${e2e.groups}</groups>
           <systemPropertyVariables>
@@ -145,6 +137,14 @@
             <oracle.image.tag>${oracle.image.tag}</oracle.image.tag>
           </systemPropertyVariables>
         </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

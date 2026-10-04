@@ -60,10 +60,10 @@
         <executions>
           <execution>
             <id>connect-plugin-zip</id>
-            <phase>package</phase>
             <goals>
               <goal>single</goal>
             </goals>
+            <phase>package</phase>
             <configuration>
               <descriptors>
                 <descriptor>src/assembly/plugin.xml</descriptor>

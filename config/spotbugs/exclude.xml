@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+  <!-- CT_CONSTRUCTOR_THROW fires on every constructor that validates its arguments; the "finalizer
+       attack" it guards against needs a subclass with a finalizer, which this codebase never writes. -->
+  <Match>
+    <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+  </Match>
+  <!-- picocli populates @Option fields reflectively -->
+  <Match>
+    <Bug pattern="UWF_UNWRITTEN_FIELD,UWF_UNWRITTEN_PUBLIC_OR_PROTECTED_FIELD,URF_UNREAD_FIELD,NP_UNWRITTEN_FIELD"/>
+    <Or>
+      <Class name="~sh\.oso\.connect\.oracle\.doctor\.cli\..*"/>
+      <Class name="~sh\.oso\.connect\.oracle\.bench\..*Main.*"/>
+    </Or>
+  </Match>
+  <!-- CLI entry points print to stdout and stderr by design -->
+  <Match>
+    <Bug pattern="DM_DEFAULT_ENCODING"/>
+    <Or>
+      <Class name="~sh\.oso\.connect\.oracle\.doctor\.cli\..*"/>
+      <Class name="~sh\.oso\.connect\.oracle\.bench\..*"/>
+    </Or>
+  </Match>
+  <!-- test support code -->
+  <Match>
+    <Class name="~sh\.oso\.connect\.oracle\.core\.testkit\..*"/>
+  </Match>
+</FindBugsFilter>

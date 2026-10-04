@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package sh.oso.connect.oracle.e2e.docs;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,7 +63,8 @@ class PluginZipLayoutTest {
     assertThat(names).anyMatch(n -> n.startsWith(base + "lib/kafka-connect-oracle-cdc-" + version));
     assertThat(names).anyMatch(n -> n.startsWith(base + "lib/oracle-cdc-core-" + version));
     assertThat(names).anyMatch(n -> n.matches(base + "lib/ojdbc11-.*\\.jar"));
-    assertThat(names).contains(base + "doc/LICENSE", base + "doc/NOTICE", base + "doc/licenses/ojdbc-FUTC.txt");
+    assertThat(names)
+        .contains(base + "doc/LICENSE", base + "doc/NOTICE", base + "doc/licenses/ojdbc-FUTC.txt");
     assertThat(names).contains(base + "etc/connector-example.json");
     assertThat(names)
         .as("jars the Connect worker already provides must not be bundled")

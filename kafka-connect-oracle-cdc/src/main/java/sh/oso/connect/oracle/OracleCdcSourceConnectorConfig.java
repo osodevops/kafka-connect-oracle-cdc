@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package sh.oso.connect.oracle;
 
 import java.util.List;
@@ -43,7 +58,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   private void validateConnection() {
     boolean hasUrl = getString(DATABASE_URL) != null && !getString(DATABASE_URL).isBlank();
     boolean hasHost = getString(DATABASE_HOST) != null && !getString(DATABASE_HOST).isBlank();
-    boolean hasService = getString(DATABASE_SERVICE) != null && !getString(DATABASE_SERVICE).isBlank();
+    boolean hasService =
+        getString(DATABASE_SERVICE) != null && !getString(DATABASE_SERVICE).isBlank();
     boolean hasSid = getString(DATABASE_SID) != null && !getString(DATABASE_SID).isBlank();
     if (!hasUrl && !hasHost) {
       throw new ConfigException(
@@ -53,7 +69,13 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
       throw new ConfigException(
           DATABASE_SERVICE,
           null,
-          "Set " + DATABASE_SERVICE + " or " + DATABASE_SID + " together with " + DATABASE_HOST + ".");
+          "Set "
+              + DATABASE_SERVICE
+              + " or "
+              + DATABASE_SID
+              + " together with "
+              + DATABASE_HOST
+              + ".");
     }
   }
 
@@ -122,7 +144,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.STRING,
         null,
         Importance.MEDIUM,
-        "Full JDBC URL (TNS descriptor, LDAP naming or wallet). Overrides host, port, service and SID.",
+        "Full JDBC URL (TNS descriptor, LDAP naming or wallet). Overrides host, port, service and"
+            + " SID.",
         GROUP_DATABASE,
         ++order,
         Width.LONG,
@@ -132,7 +155,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.STRING,
         ConfigDef.NO_DEFAULT_VALUE,
         Importance.HIGH,
-        "Mining user. In a CDB this must be a common user (C## prefix) with the grants from oracle-cdc-doctor setup-sql.",
+        "Mining user. In a CDB this must be a common user (C## prefix) with the grants from"
+            + " oracle-cdc-doctor setup-sql.",
         GROUP_DATABASE,
         ++order,
         Width.MEDIUM,
@@ -163,7 +187,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.LIST,
         ConfigDef.NO_DEFAULT_VALUE,
         Importance.HIGH,
-        "Comma-separated regular expressions over PDB.SCHEMA.TABLE (CDB) or SCHEMA.TABLE (non-CDB) selecting the tables to capture.",
+        "Comma-separated regular expressions over PDB.SCHEMA.TABLE (CDB) or SCHEMA.TABLE (non-CDB)"
+            + " selecting the tables to capture.",
         GROUP_CAPTURE,
         ++order,
         Width.LONG,
@@ -185,7 +210,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ConfigDef.NO_DEFAULT_VALUE,
         new ConfigDef.NonEmptyString(),
         Importance.HIGH,
-        "Logical name of this connector and prefix of every topic it writes, including the internal schema, journal, ops, heartbeat and signal topics.",
+        "Logical name of this connector and prefix of every topic it writes, including the internal"
+            + " schema, journal, ops, heartbeat and signal topics.",
         GROUP_TOPICS,
         ++order,
         Width.MEDIUM,

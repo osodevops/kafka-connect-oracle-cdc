@@ -47,3 +47,26 @@ jobs:
           name: oracle-cdc-doctor-cli
           path: oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar
           retention-days: 14
+
+  license-gate-selftest:
+    name: licence gate rejects a GPL dependency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Build must fail when a GPL artefact is added
+        run: |
+          set +e
+          mvn -q -pl bench -am -Plicense-selftest validate --batch-mode --no-transfer-progress
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::the licence gate let a GPL dependency through"
+            exit 1
+          fi
+          echo "licence gate correctly rejected the GPL dependency (exit $status)"

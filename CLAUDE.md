@@ -36,6 +36,10 @@ mvn clean package -DskipTests                     # plugin ZIP in kafka-connect-
 mvn spotless:apply                                # format before committing
 ```
 
+Build on JDK 17 or 21. `.mvn/jvm.config` adds the `jdk.compiler` exports that google-java-format
+needs on JDK 17; the pinned formatter version must stay the newest Spotless allows on JDK 17
+(1.28.0 at the time of writing; newer builds target Java 21).
+
 Test tiers (docs/testing_strategy.md): `*Test` under surefire in every module (FakeLogMiner, no
 Docker); `*IT` under failsafe only in `e2e-tests`, tagged `engine`, `connector` or `nightly`.
 One Oracle container per JVM; tests isolate by schema, never by restarting the database.

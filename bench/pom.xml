@@ -56,4 +56,19 @@
       <artifactId>assertj-core</artifactId>
     </dependency>
   </dependencies>
+
+  <profiles>
+    <profile>
+      <!-- Negative self-test of the licence gate: adds a GPL-licensed artefact so the build must fail.
+           CI runs `mvn -pl bench -Plicense-selftest validate` and asserts a non-zero exit. -->
+      <id>license-selftest</id>
+      <dependencies>
+        <dependency>
+          <groupId>com.mysql</groupId>
+          <artifactId>mysql-connector-j</artifactId>
+          <version>9.3.0</version>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 </project>

@@ -29,18 +29,6 @@
     </developer>
   </developers>
 
-  <scm>
-    <connection>scm:git:git://github.com/osodevops/kafka-connect-oracle-cdc.git</connection>
-    <developerConnection>scm:git:ssh://github.com:osodevops/kafka-connect-oracle-cdc.git</developerConnection>
-    <url>https://github.com/osodevops/kafka-connect-oracle-cdc</url>
-    <tag>HEAD</tag>
-  </scm>
-
-  <issueManagement>
-    <system>GitHub Issues</system>
-    <url>https://github.com/osodevops/kafka-connect-oracle-cdc/issues</url>
-  </issueManagement>
-
   <modules>
     <module>oracle-cdc-core</module>
     <module>kafka-connect-oracle-cdc</module>
@@ -48,6 +36,18 @@
     <module>bench</module>
     <module>e2e-tests</module>
   </modules>
+
+  <scm>
+    <connection>scm:git:git://github.com/osodevops/kafka-connect-oracle-cdc.git</connection>
+    <developerConnection>scm:git:ssh://github.com:osodevops/kafka-connect-oracle-cdc.git</developerConnection>
+    <tag>HEAD</tag>
+    <url>https://github.com/osodevops/kafka-connect-oracle-cdc</url>
+  </scm>
+
+  <issueManagement>
+    <system>GitHub Issues</system>
+    <url>https://github.com/osodevops/kafka-connect-oracle-cdc/issues</url>
+  </issueManagement>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -225,14 +225,221 @@
           <version>0.11.0</version>
           <extensions>true</extensions>
         </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>3.6.3</version>
+        </plugin>
+        <plugin>
+          <groupId>com.diffplug.spotless</groupId>
+          <artifactId>spotless-maven-plugin</artifactId>
+          <version>3.10.3</version>
+        </plugin>
+        <plugin>
+          <groupId>com.github.spotbugs</groupId>
+          <artifactId>spotbugs-maven-plugin</artifactId>
+          <version>4.10.4.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>0.8.15</version>
+        </plugin>
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>license-maven-plugin</artifactId>
+          <version>2.7.1</version>
+        </plugin>
       </plugins>
     </pluginManagement>
+
+    <plugins>
+      <!-- Quality gates, in the order they were introduced (docs/06_repo_scaffolding_spec.md section 3) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.9,)</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>[17,)</version>
+                </requireJavaVersion>
+                <dependencyConvergence/>
+                <banDuplicatePomDependencyVersions/>
+                <requireUpperBoundDeps/>
+                <bannedDependencies>
+                  <message>GPL and AGPL licensed dependencies are not allowed (CONTRIBUTING.md). JMH is GPL-2.0 with Classpath Exception; use a plain timed loop in bench.</message>
+                  <excludes>
+                    <exclude>org.openjdk.jmh:*</exclude>
+                    <exclude>com.mysql:*</exclude>
+                    <exclude>mysql:*</exclude>
+                    <exclude>org.mariadb.jdbc:*</exclude>
+                    <exclude>com.h2database:*</exclude>
+                  </excludes>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <configuration>
+          <java>
+            <includes>
+              <include>src/main/java/**/*.java</include>
+              <include>src/test/java/**/*.java</include>
+            </includes>
+            <googleJavaFormat>
+              <version>1.28.0</version>
+              <style>GOOGLE</style>
+              <reflowLongStrings>true</reflowLongStrings>
+            </googleJavaFormat>
+            <removeUnusedImports/>
+            <licenseHeader>
+              <file>${maven.multiModuleProjectDirectory}/config/spotless/header.txt</file>
+            </licenseHeader>
+          </java>
+          <pom>
+            <includes>
+              <include>pom.xml</include>
+            </includes>
+            <sortPom>
+              <expandEmptyElements>false</expandEmptyElements>
+              <nrOfIndentSpace>2</nrOfIndentSpace>
+              <keepBlankLines>true</keepBlankLines>
+            </sortPom>
+          </pom>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotless-check</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <configuration>
+          <effort>Max</effort>
+          <threshold>Medium</threshold>
+          <failOnError>true</failOnError>
+          <excludeFilterFile>${maven.multiModuleProjectDirectory}/config/spotbugs/exclude.xml</excludeFilterFile>
+          <includeTests>false</includeTests>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotbugs-check</id>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>jacoco-prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>jacoco-report</id>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>license-maven-plugin</artifactId>
+        <configuration>
+          <failOnBlacklist>true</failOnBlacklist>
+          <failOnMissing>true</failOnMissing>
+          <excludedScopes>test,provided</excludedScopes>
+          <useMissingFile>true</useMissingFile>
+          <missingFile>${maven.multiModuleProjectDirectory}/src/license/THIRD-PARTY.properties</missingFile>
+          <includedLicenses>
+            <includedLicense>Apache License, Version 2.0</includedLicense>
+            <includedLicense>MIT License</includedLicense>
+            <includedLicense>BSD 2-Clause License</includedLicense>
+            <includedLicense>BSD 3-Clause License</includedLicense>
+            <includedLicense>Eclipse Public License 1.0</includedLicense>
+            <includedLicense>Eclipse Public License 2.0</includedLicense>
+            <includedLicense>Eclipse Distribution License 1.0</includedLicense>
+            <includedLicense>CDDL 1.0</includedLicense>
+            <includedLicense>CDDL 1.1</includedLicense>
+            <includedLicense>Mozilla Public License 2.0</includedLicense>
+            <includedLicense>Universal Permissive License 1.0</includedLicense>
+            <includedLicense>Oracle Free Use Terms and Conditions</includedLicense>
+            <includedLicense>Bouncy Castle Licence</includedLicense>
+            <includedLicense>Public Domain</includedLicense>
+            <includedLicense>GNU Lesser General Public License 2.1</includedLicense>
+          </includedLicenses>
+          <licenseMerges>
+            <licenseMerge>Apache License, Version 2.0|Apache-2.0|Apache 2.0|Apache 2|Apache License 2.0|Apache License, version 2.0|The Apache Software License, Version 2.0|The Apache License, Version 2.0|Apache Software License - Version 2.0|Apache Software License, version 2.0|ASL 2.0|ASF 2.0|Apache License Version 2.0|Apache License v2.0|Apache-2.0 License|The Apache Software License, version 2.0</licenseMerge>
+            <licenseMerge>MIT License|MIT|The MIT License|MIT license|The MIT License (MIT)|MIT-0</licenseMerge>
+            <licenseMerge>BSD 2-Clause License|BSD-2-Clause|The BSD 2-Clause License|BSD 2-Clause "Simplified" License</licenseMerge>
+            <licenseMerge>BSD 3-Clause License|BSD-3-Clause|The BSD 3-Clause License|BSD License 3|New BSD License|BSD License|The BSD License|BSD|BSD licence|Revised BSD|BSD 3-clause New License</licenseMerge>
+            <licenseMerge>Eclipse Public License 1.0|EPL-1.0|Eclipse Public License - v 1.0|Eclipse Public License v1.0|Eclipse Public License 1.0 (EPL-1.0)</licenseMerge>
+            <licenseMerge>Eclipse Public License 2.0|EPL-2.0|Eclipse Public License - v 2.0|Eclipse Public License v2.0|Eclipse Public License v. 2.0|EPL 2.0</licenseMerge>
+            <licenseMerge>Eclipse Distribution License 1.0|EDL 1.0|Eclipse Distribution License - v 1.0|Eclipse Distribution License v. 1.0</licenseMerge>
+            <licenseMerge>CDDL 1.0|CDDL-1.0|Common Development and Distribution License (CDDL) v1.0|COMMON DEVELOPMENT AND DISTRIBUTION LICENSE (CDDL) Version 1.0</licenseMerge>
+            <licenseMerge>CDDL 1.1|CDDL-1.1|CDDL + GPLv2 with classpath exception|CDDL/GPLv2+CE|Dual license consisting of the CDDL v1.1 and GPL v2|CDDL or GPLv2 with exceptions</licenseMerge>
+            <licenseMerge>Mozilla Public License 2.0|MPL-2.0|MPL 2.0|Mozilla Public License, Version 2.0|Mozilla Public License Version 2.0</licenseMerge>
+            <licenseMerge>Universal Permissive License 1.0|UPL-1.0|The Universal Permissive License (UPL), Version 1.0|Universal Permissive License, Version 1.0</licenseMerge>
+            <licenseMerge>Oracle Free Use Terms and Conditions|Oracle Free Use Terms and Conditions (FUTC)|FUTC</licenseMerge>
+            <licenseMerge>Bouncy Castle Licence|Bouncy Castle License</licenseMerge>
+            <licenseMerge>Public Domain|Public domain|CC0|CC0-1.0|Creative Commons Zero|Public Domain, per Creative Commons CC0|The Unlicense</licenseMerge>
+            <licenseMerge>GNU Lesser General Public License 2.1|LGPL-2.1|LGPL 2.1|GNU Lesser General Public License, Version 2.1|GNU Lesser General Public License|LGPL, version 2.1|GNU Lesser General Public License v2.1 or later</licenseMerge>
+          </licenseMerges>
+        </configuration>
+        <executions>
+          <execution>
+            <id>license-allowlist</id>
+            <goals>
+              <goal>add-third-party</goal>
+            </goals>
+            <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
   </build>
 
   <profiles>
     <!-- Release profile for Maven Central deployment (Sonatype Central Portal) -->
     <profile>
       <id>release</id>
+      <distributionManagement>
+        <repository>
+          <id>central</id>
+          <url>https://central.sonatype.com/api/v1/publisher/deployments/download/</url>
+        </repository>
+        <snapshotRepository>
+          <id>central</id>
+          <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+        </snapshotRepository>
+      </distributionManagement>
       <build>
         <plugins>
           <plugin>
@@ -268,10 +475,10 @@
             <executions>
               <execution>
                 <id>sign-artifacts</id>
-                <phase>verify</phase>
                 <goals>
                   <goal>sign</goal>
                 </goals>
+                <phase>verify</phase>
                 <configuration>
                   <gpgArguments>
                     <arg>--pinentry-mode</arg>
@@ -294,16 +501,6 @@
           </plugin>
         </plugins>
       </build>
-      <distributionManagement>
-        <snapshotRepository>
-          <id>central</id>
-          <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-        </snapshotRepository>
-        <repository>
-          <id>central</id>
-          <url>https://central.sonatype.com/api/v1/publisher/deployments/download/</url>
-        </repository>
-      </distributionManagement>
     </profile>
   </profiles>
 </project>
