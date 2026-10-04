@@ -15,6 +15,7 @@
  */
 package sh.oso.connect.oracle.core.mining;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -26,9 +27,9 @@ public record ResolvedObjects(
     Map<Long, TableId> byObjectId, Set<TableId> tables, Set<String> owners) {
 
   public ResolvedObjects {
-    byObjectId = Map.copyOf(new TreeMap<>(byObjectId));
+    byObjectId = Collections.unmodifiableMap(new TreeMap<>(byObjectId));
     tables = Set.copyOf(tables);
-    owners = Set.copyOf(new TreeSet<>(owners));
+    owners = Collections.unmodifiableSet(new TreeSet<>(owners));
   }
 
   public MiningFilter filter(Set<String> excludedUsers, int inlistMax) {
