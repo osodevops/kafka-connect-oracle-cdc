@@ -1,0 +1,35 @@
+# build
+target/
+*.class
+*.log
+.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.properties
+
+# IDE and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# website
+website/node_modules/
+website/build/
+website/.docusaurus/
+
+# local lab state
+lab/local/**/data/
+lab/**/.terraform/
+lab/**/*.tfstate*
+docker/test-oracle/archive/
+
+# never commit sales material or secrets
+sales/
+secrets/
+*.env

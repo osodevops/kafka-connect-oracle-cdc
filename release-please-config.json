@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "maven",
+  "include-v-in-tag": true,
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "packages": {
+    ".": {
+      "package-name": "kafka-connect-oracle-cdc",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        "oracle-cdc-core/pom.xml",
+        "kafka-connect-oracle-cdc/pom.xml",
+        "oracle-cdc-doctor/pom.xml",
+        "bench/pom.xml",
+        "e2e-tests/pom.xml"
+      ]
+    }
+  }
+}

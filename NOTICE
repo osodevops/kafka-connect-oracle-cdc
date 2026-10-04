@@ -1,0 +1,25 @@
+OSO CDC Connector for Oracle Database
+Copyright 2026 OSO DevOps Ltd
+
+This product includes software developed at OSO (https://oso.sh), licensed under the
+Apache License, Version 2.0.
+
+Third-party components
+----------------------
+
+Oracle JDBC driver (com.oracle.database.jdbc:ojdbc11)
+  Bundled unmodified in the Connect plugin archive under the Oracle Free Use Terms and
+  Conditions (https://www.oracle.com/downloads/licenses/oracle-free-license.html).
+  See doc/licenses/ojdbc-FUTC.txt in the plugin archive.
+
+Apache Kafka (https://kafka.apache.org)
+  Apache License, Version 2.0. Provided by the Kafka Connect runtime; not bundled.
+
+Trademarks
+----------
+
+Oracle and Java are registered trademarks of Oracle and/or its affiliates. This project is
+not affiliated with or endorsed by Oracle. Apache Kafka and Kafka are trademarks of the Apache
+Software Foundation. This project is not affiliated with or endorsed by the Apache Software
+Foundation. Confluent is a trademark of Confluent, Inc. Debezium is a trademark of Red Hat, Inc.
+Names are used only to identify the products concerned.

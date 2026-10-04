@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (Java ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ['17', '21']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+
+      - name: Build, quality gates and unit tests
+        run: mvn clean verify -DskipE2E --batch-mode --no-transfer-progress
+
+      - name: Upload connector plugin ZIP
+        if: matrix.java == '17'
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-plugin-zip
+          path: kafka-connect-oracle-cdc/target/*-kafka-connect-plugin.zip
+          retention-days: 14
+
+      - name: Upload oracle-cdc-doctor CLI
+        if: matrix.java == '17'
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-cdc-doctor-cli
+          path: oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar
+          retention-days: 14

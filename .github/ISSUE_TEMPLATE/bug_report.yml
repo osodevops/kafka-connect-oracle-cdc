@@ -1,0 +1,54 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: input
+    id: connector-version
+    attributes:
+      label: Connector version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: kafka-version
+    attributes:
+      label: Kafka / Kafka Connect version
+      placeholder: e.g. Kafka 3.9.0, Connect distributed
+    validations:
+      required: true
+  - type: input
+    id: oracle-version
+    attributes:
+      label: Oracle Database version and release update
+      placeholder: e.g. 19.22 EE CDB with two PDBs, 23ai Free, RDS 19c SE2
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which component?
+      options:
+        - Source connector
+        - oracle-cdc-doctor CLI
+        - Migration tools (tools/migration)
+        - Documentation site
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Connector configuration
+      description: Redact credentials! (cdc.database.password, wallets, etc.)
+      render: json
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      render: text

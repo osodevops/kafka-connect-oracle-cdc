@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (must match the POM, no -SNAPSHOT)
+        required: true
+      tag_name:
+        description: Git tag (vX.Y.Z)
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      tag_name:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Refuse snapshots and mismatched versions
+        run: |
+          set -euo pipefail
+          POM_VERSION=$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)
+          echo "POM version: $POM_VERSION, requested: ${{ inputs.version }}"
+          case "$POM_VERSION" in *-SNAPSHOT) echo "refusing to release a SNAPSHOT" >&2; exit 1;; esac
+          [ "$POM_VERSION" = "${{ inputs.version }}" ] || { echo "version mismatch" >&2; exit 1; }
+      - name: Full build (unit tests and quality gates)
+        run: mvn clean verify -DskipE2E --batch-mode --no-transfer-progress
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Deploy to Maven Central and build the plugin ZIP
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: mvn clean deploy -Prelease -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+      - name: Attest plugin ZIP provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: kafka-connect-oracle-cdc/target/*-kafka-connect-plugin.zip
+      - name: Attach artefacts to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag_name }}
+          files: |
+            kafka-connect-oracle-cdc/target/*-kafka-connect-plugin.zip
+            oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar

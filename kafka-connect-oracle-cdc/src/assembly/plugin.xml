@@ -1,0 +1,52 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 http://maven.apache.org/xsd/assembly-2.2.0.xsd">
+  <!-- Confluent Hub component layout: manifest.json, lib/, doc/, etc/, assets/ -->
+  <id>kafka-connect-plugin</id>
+  <formats>
+    <format>zip</format>
+    <format>dir</format>
+  </formats>
+  <includeBaseDirectory>true</includeBaseDirectory>
+  <baseDirectory>osodevops-${project.artifactId}-${project.version}</baseDirectory>
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>lib</outputDirectory>
+      <useProjectArtifact>true</useProjectArtifact>
+      <scope>runtime</scope>
+      <excludes>
+        <!-- provided by the Connect runtime -->
+        <exclude>org.apache.kafka:connect-api</exclude>
+        <exclude>org.apache.kafka:kafka-clients</exclude>
+        <exclude>org.slf4j:slf4j-api</exclude>
+      </excludes>
+    </dependencySet>
+  </dependencySets>
+  <fileSets>
+    <fileSet>
+      <directory>${project.basedir}/src/assembly</directory>
+      <outputDirectory>/</outputDirectory>
+      <includes>
+        <include>manifest.json</include>
+      </includes>
+      <filtered>true</filtered>
+    </fileSet>
+    <fileSet>
+      <directory>${project.basedir}/..</directory>
+      <outputDirectory>doc</outputDirectory>
+      <includes>
+        <include>LICENSE</include>
+        <include>NOTICE</include>
+        <include>README.md</include>
+      </includes>
+    </fileSet>
+    <fileSet>
+      <directory>${project.basedir}/src/assembly/licenses</directory>
+      <outputDirectory>doc/licenses</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.basedir}/etc</directory>
+      <outputDirectory>etc</outputDirectory>
+    </fileSet>
+  </fileSets>
+</assembly>

@@ -1,0 +1,47 @@
+keyword,us,uk,de,in,total,us_cpc_usd,us_kd
+oracle cdc,210,30,20,110,370,8.42,26
+oracle change data capture,210,20,20,110,360,8.42,18
+oracle replication,170,30,20,30,250,14.58,19
+change data capture oracle,90,20,20,110,240,4.77,20
+redo log,40,20,20,140,220,0,16
+oracle logminer,90,20,20,50,180,7.89,23
+cdc oracle,50,0,10,110,170,8.42,19
+logminer,90,20,20,30,160,6.85,6
+kafka connect oracle,40,20,20,30,110,0,0
+kafka oracle connector,40,20,20,10,90,0,0
+debezium oracle,20,20,20,30,90,0,0
+oracle kafka connector,40,20,20,0,80,0,0
+oracle kafka,20,20,20,20,80,3.71,0
+oracle xstream,30,20,20,10,80,15,0
+oracle redo log,20,20,20,20,80,0,0
+oracle to snowflake,50,20,10,0,80,81.65,22
+oracle to postgres replication,20,20,10,30,80,0,0
+debezium oracle connector,20,20,20,10,70,0,0
+oracle goldengate kafka,20,10,20,20,70,0,0
+oracle real time replication,30,0,10,30,70,0,0
+oracle to kafka,20,10,10,20,60,0,0
+kafka oracle,20,20,20,0,60,3.71,0
+oracle cdc connector,30,20,10,0,60,6.61,21
+kafka connect oracle cdc,40,20,0,0,60,0,0
+oracle data replication tools,20,10,0,30,60,0,0
+oracle cdc kafka,10,10,10,20,50,2.84,0
+goldengate alternative,20,10,0,20,50,0,0
+oracle cdc debezium,20,10,20,0,50,0,0
+oracle log mining,30,20,0,0,50,6.85,18
+goldengate kafka,20,10,0,10,40,0,0
+confluent oracle cdc,20,10,10,0,40,0,0
+oracle cdc source connector,20,20,0,0,40,0,0
+oracle streaming,10,10,0,20,40,0,0
+oracle cdc tools,20,0,0,10,30,0,0
+striim oracle,20,10,0,0,30,0,0
+openlogreplicator,20,0,0,0,20,0,0
+oracle database cdc,20,0,0,0,20,0,0
+oracle cdc open source,10,0,0,0,10,0,0
+oracle logminer kafka,10,0,0,0,10,0,0
+oracdc,10,0,0,0,10,0,0
+oracle goldengate alternative,0,10,0,0,10,0,0
+oracle cdc tool,0,0,0,0,0,0,0
+open source oracle cdc,0,0,0,0,0,0,0
+oracle cdc to snowflake,0,0,0,0,0,0,0
+aws dms oracle cdc,0,0,0,0,0,0,0
+logminer cdc,0,0,0,0,0,0,0
