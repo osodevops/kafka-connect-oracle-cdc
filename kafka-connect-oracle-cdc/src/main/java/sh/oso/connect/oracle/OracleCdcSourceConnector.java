@@ -17,11 +17,13 @@ package sh.oso.connect.oracle;
 
 import java.util.List;
 import java.util.Map;
+import org.apache.kafka.common.config.Config;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.connect.connector.Task;
 import org.apache.kafka.connect.source.SourceConnector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sh.oso.connect.oracle.validation.ConnectorValidator;
 
 /**
  * OSO CDC Connector for Oracle Database. Captures row changes from Oracle Database redo through
@@ -62,6 +64,14 @@ public class OracleCdcSourceConnector extends SourceConnector {
   @Override
   public void stop() {
     LOG.info("OSO CDC Connector for Oracle Database stopped");
+  }
+
+  /** SRC-LC-1: field-level errors first, then the doctor's fast rules against the database. */
+  @Override
+  public Config validate(Map<String, String> connectorConfigs) {
+    Config config = super.validate(connectorConfigs);
+    boolean clean = config.configValues().stream().allMatch(v -> v.errorMessages().isEmpty());
+    return clean ? ConnectorValidator.validate(connectorConfigs, config) : config;
   }
 
   @Override

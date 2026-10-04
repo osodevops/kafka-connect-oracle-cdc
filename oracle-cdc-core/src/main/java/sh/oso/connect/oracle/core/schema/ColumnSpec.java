@@ -17,7 +17,10 @@ package sh.oso.connect.oracle.core.schema;
 
 import java.util.Objects;
 
-/** One column of a captured table as the dictionary describes it. */
+/**
+ * One column of a captured table as the dictionary describes it. {@code precision} and {@code
+ * scale} are -1 when the dictionary leaves them NULL (an unconstrained NUMBER or FLOAT).
+ */
 public record ColumnSpec(
     String name,
     int position,
@@ -34,6 +37,6 @@ public record ColumnSpec(
   }
 
   public static ColumnSpec of(String name, int position, OracleType type) {
-    return new ColumnSpec(name, position, type, type.name(), 0, 0, 0, true);
+    return new ColumnSpec(name, position, type, type.name(), 0, -1, -1, true);
   }
 }

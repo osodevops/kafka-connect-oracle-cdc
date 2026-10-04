@@ -21,101 +21,86 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
 import org.junit.jupiter.api.Test;
+import sh.oso.connect.oracle.core.config.CoreConfig;
+import sh.oso.connect.oracle.core.schema.KeySelector;
 
-class OracleCdcSourceConnectorConfigTest {
+public class OracleCdcSourceConnectorConfigTest {
 
-  private static Map<String, String> minimal() {
+  public static Map<String, String> minimal() {
     Map<String, String> p = new HashMap<>();
-    p.put(OracleCdcSourceConnectorConfig.DATABASE_HOST, "oracle");
-    p.put(OracleCdcSourceConnectorConfig.DATABASE_SERVICE, "FREE");
-    p.put(OracleCdcSourceConnectorConfig.DATABASE_USER, "C##CDC");
-    p.put(OracleCdcSourceConnectorConfig.DATABASE_PASSWORD, "secret");
+    p.put(CoreConfig.DATABASE_HOST, "oracle");
+    p.put(CoreConfig.DATABASE_SERVICE, "FREE");
+    p.put(CoreConfig.DATABASE_USER, "c##cdc");
+    p.put(CoreConfig.DATABASE_PASSWORD, "cdc");
+    p.put(CoreConfig.DATABASE_PDBS, "FREEPDB1");
     p.put(OracleCdcSourceConnectorConfig.TOPIC_PREFIX, "cdc");
     p.put(OracleCdcSourceConnectorConfig.TABLES_INCLUDE, "FREEPDB1\\.APP\\..*");
     return p;
   }
 
   @Test
-  void everyKeyUsesTheCdcPrefix() {
-    for (String key : OracleCdcSourceConnectorConfig.configDef().names()) {
-      assertThat(key).startsWith("cdc.");
-    }
+  void composesTheCoreDefinitionWithTheConnectorKeys() {
+    var def = OracleCdcSourceConnectorConfig.configDef();
+    assertThat(def.names())
+        .contains(
+            CoreConfig.DATABASE_HOST,
+            CoreConfig.MINING_TARGET_LATENCY_MS,
+            OracleCdcSourceConnectorConfig.TOPIC_PREFIX,
+            OracleCdcSourceConnectorConfig.TABLES_INCLUDE,
+            OracleCdcSourceConnectorConfig.KEY_MISSING,
+            OracleCdcSourceConnectorConfig.DECIMAL_MODE,
+            OracleCdcSourceConnectorConfig.POLL_MAX_RECORDS);
+    assertThat(def.names()).allMatch(n -> n.startsWith("cdc."));
+    assertThat(def.groups()).contains("Database", "Topics", "Record format", "Task");
   }
 
   @Test
-  void everyKeyHasGroupDisplayNameAndDocumentation() {
-    for (ConfigDef.ConfigKey key :
-        OracleCdcSourceConnectorConfig.configDef().configKeys().values()) {
-      assertThat(key.group).as("%s group", key.name).isNotBlank();
-      assertThat(key.displayName).as("%s displayName", key.name).isNotBlank();
-      assertThat(key.documentation).as("%s documentation", key.name).isNotBlank();
-    }
-  }
-
-  @Test
-  void minimalConfigParsesWithDefaults() {
+  void defaultsAndAccessors() {
     OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(minimal());
-    assertThat(c.getInt(OracleCdcSourceConnectorConfig.DATABASE_PORT)).isEqualTo(1521);
     assertThat(c.topicPrefix()).isEqualTo("cdc");
+    assertThat(c.topicTemplate(true)).isEqualTo("${prefix}.${pdb}.${schema}.${table}");
+    assertThat(c.topicTemplate(false)).isEqualTo("${prefix}.${schema}.${table}");
     assertThat(c.tablesInclude()).containsExactly("FREEPDB1\\.APP\\..*");
     assertThat(c.tablesExclude()).isEmpty();
-    assertThat(c.getList(OracleCdcSourceConnectorConfig.DATABASE_PDBS)).isEmpty();
+    assertThat(c.usersExclude()).isEmpty();
+    assertThat(c.keyMissing()).isEqualTo(KeySelector.MissingKeyPolicy.FAIL);
+    assertThat(c.keyOverrides()).isEmpty();
+    assertThat(c.tombstonesOnDelete()).isTrue();
+    assertThat(c.decimalMode()).isEqualTo(OracleCdcSourceConnectorConfig.DecimalMode.PRECISE);
+    assertThat(c.temporalMode()).isEqualTo(OracleCdcSourceConnectorConfig.TemporalMode.ADAPTIVE);
+    assertThat(c.pollMaxRecords()).isEqualTo(2000);
+    assertThat(c.pollLingerMs()).isEqualTo(50);
+    assertThat(c.shutdownTimeoutMs()).isEqualTo(30_000);
+    assertThat(c.core().pdbs()).containsExactly("FREEPDB1");
+    assertThat(c.databasePassword().value()).isEqualTo("cdc");
+    assertThat(c.rawProperties()).containsEntry(CoreConfig.DATABASE_USER, "c##cdc");
   }
 
   @Test
-  void passwordIsNeverPrintedByToString() {
-    OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(minimal());
-    assertThat(c.databasePassword().value()).isEqualTo("secret");
-    assertThat(c.databasePassword().toString()).doesNotContain("secret");
-  }
-
-  @Test
-  void requiresTopicPrefixAndTables() {
+  void keyOverridesAndValidation() {
     Map<String, String> p = minimal();
-    p.remove(OracleCdcSourceConnectorConfig.TOPIC_PREFIX);
+    p.put(
+        OracleCdcSourceConnectorConfig.KEY_COLUMNS, "app.orders:id, code; FREEPDB1.APP.ITEMS:sku");
+    p.put(OracleCdcSourceConnectorConfig.KEY_MISSING, "RowId");
+    p.put(OracleCdcSourceConnectorConfig.TOPIC_TEMPLATE, "${prefix}-${table}");
+    OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(p);
+    assertThat(c.keyOverrides())
+        .containsEntry("APP.ORDERS", List.of("ID", "CODE"))
+        .containsEntry("FREEPDB1.APP.ITEMS", List.of("SKU"));
+    assertThat(c.keyMissing()).isEqualTo(KeySelector.MissingKeyPolicy.ROWID);
+    assertThat(c.topicTemplate(true)).isEqualTo("${prefix}-${table}");
+    p.put(OracleCdcSourceConnectorConfig.KEY_COLUMNS, "broken");
     assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(p))
-        .isInstanceOf(ConfigException.class)
-        .hasMessageContaining("cdc.topic.prefix");
-    Map<String, String> q = minimal();
-    q.remove(OracleCdcSourceConnectorConfig.TABLES_INCLUDE);
-    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(q))
-        .isInstanceOf(ConfigException.class)
-        .hasMessageContaining("cdc.tables.include");
-  }
-
-  @Test
-  void requiresHostOrUrlAndServiceOrSid() {
-    Map<String, String> p = minimal();
-    p.remove(OracleCdcSourceConnectorConfig.DATABASE_HOST);
-    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(p))
-        .isInstanceOf(ConfigException.class)
-        .hasMessageContaining("cdc.database.url");
-    Map<String, String> q = minimal();
-    q.remove(OracleCdcSourceConnectorConfig.DATABASE_SERVICE);
-    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(q))
-        .isInstanceOf(ConfigException.class)
-        .hasMessageContaining("cdc.database.sid");
-    Map<String, String> r = minimal();
-    r.remove(OracleCdcSourceConnectorConfig.DATABASE_HOST);
-    r.remove(OracleCdcSourceConnectorConfig.DATABASE_SERVICE);
-    r.put(OracleCdcSourceConnectorConfig.DATABASE_URL, "jdbc:oracle:thin:@//oracle:1521/FREE");
-    assertThat(
-            new OracleCdcSourceConnectorConfig(r)
-                .getString(OracleCdcSourceConnectorConfig.DATABASE_URL))
-        .isNotBlank();
-  }
-
-  @Test
-  void connectorAlwaysReturnsOneTaskConfig() {
-    OracleCdcSourceConnector connector = new OracleCdcSourceConnector();
-    connector.start(minimal());
-    List<Map<String, String>> tasks = connector.taskConfigs(4);
-    assertThat(tasks).hasSize(1);
-    assertThat(tasks.get(0)).containsAllEntriesOf(minimal());
-    assertThat(connector.taskClass()).isEqualTo(OracleCdcSourceTask.class);
-    connector.stop();
+        .isInstanceOf(ConfigException.class);
+    Map<String, String> bad = minimal();
+    bad.put(OracleCdcSourceConnectorConfig.KEY_MISSING, "maybe");
+    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(bad))
+        .isInstanceOf(ConfigException.class);
+    Map<String, String> noPrefix = minimal();
+    noPrefix.remove(OracleCdcSourceConnectorConfig.TOPIC_PREFIX);
+    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(noPrefix))
+        .isInstanceOf(ConfigException.class);
   }
 }

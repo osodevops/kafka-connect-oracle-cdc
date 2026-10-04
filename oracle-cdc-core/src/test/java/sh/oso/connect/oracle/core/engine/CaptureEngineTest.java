@@ -63,11 +63,13 @@ class CaptureEngineTest {
   static final class Sink implements EventSink {
     final List<CommittedTransaction> committed = new ArrayList<>();
     final List<Integer> skipped = new ArrayList<>();
+    final List<Long> resumes = new ArrayList<>();
     final List<long[]> steps = new ArrayList<>();
     final List<MiningEvent.Ddl> ddls = new ArrayList<>();
     final List<MiningEvent.Dml> failed = new ArrayList<>();
 
-    public void committed(CommittedTransaction tx, int skip) {
+    public void committed(CommittedTransaction tx, int skip, long resumeCandidate) {
+      resumes.add(resumeCandidate);
       committed.add(tx);
       skipped.add(skip);
     }
@@ -209,6 +211,10 @@ class CaptureEngineTest {
     h.runUntilIdle(e);
     assertThat(h.sink.committed).hasSize(2);
     assertThat(h.sink.sqls()).containsExactly("a1", "a2", "a3", "c1");
+    // when a committed, b (started at 1003) was still open: a's resume is b's first capture
+    assertThat(h.sink.resumes.get(0)).isEqualTo(1004);
+    // when c committed nothing else was open: its resume is its own commit scn
+    assertThat(h.sink.resumes.get(1)).isEqualTo(h.sink.committed.get(1).commitScn());
     assertThat(h.sink.committed.get(0).username()).isEqualTo("APP");
     assertThat(h.buffer.openTransactions()).isZero();
     assertThat(e.metrics().transactionsCommitted.get()).isEqualTo(2);
@@ -238,6 +244,9 @@ class CaptureEngineTest {
     long[] last = h.sink.steps.get(h.sink.steps.size() - 1);
     assertThat(last[0]).isEqualTo(1500);
     assertThat(last[1]).isEqualTo(1001);
+    assertThat(h.sink.resumes)
+        .as("the committed one must not outrun the open one")
+        .containsExactly(1001L);
     assertThat(h.buffer.openTransactions()).isEqualTo(1);
   }
 

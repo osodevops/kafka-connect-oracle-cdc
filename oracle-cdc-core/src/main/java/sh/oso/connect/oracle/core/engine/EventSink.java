@@ -27,9 +27,12 @@ public interface EventSink {
 
   /**
    * A transaction committed; {@code skipped} leading events were already acknowledged before this
-   * run started (CORE-POS-3) and must not be emitted again.
+   * run started (CORE-POS-3) and must not be emitted again. {@code resumeCandidate} is the SCN a
+   * restart may mine from once this transaction is fully acknowledged: the lower of its commit SCN
+   * and the first capture of every transaction still open at this moment (CORE-POS-2), so an
+   * interleaved transaction that commits later is never skipped (dbz#2544).
    */
-  void committed(CommittedTransaction tx, int skipped);
+  void committed(CommittedTransaction tx, int skipped, long resumeCandidate);
 
   /**
    * A step was applied. {@code minedToScn} is where mining continues; {@code resumeCandidate} is

@@ -15,7 +15,11 @@
  */
 package sh.oso.connect.oracle;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;
@@ -24,63 +28,84 @@ import org.apache.kafka.common.config.ConfigDef.Type;
 import org.apache.kafka.common.config.ConfigDef.Width;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.types.Password;
+import sh.oso.connect.oracle.core.config.CoreConfig;
+import sh.oso.connect.oracle.core.schema.KeySelector;
 
 /**
- * Connector-level configuration ({@code cdc.*} namespace, PRD-01 section 5). The engine-level keys
- * (PRD-00 section 5) are composed in from {@code oracle-cdc-core} as the core module grows; this
- * first version holds only what the bootstrap connector needs.
+ * Connector configuration: every engine key from {@link CoreConfig} plus the Kafka-facing keys of
+ * PRD-01 (topics, keys, formats, polling). The generated configuration reference is produced from
+ * {@link #configDef()}.
  */
 public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
-  public static final String GROUP_DATABASE = "Database";
-  public static final String GROUP_CAPTURE = "Capture";
   public static final String GROUP_TOPICS = "Topics";
+  public static final String GROUP_FORMAT = "Record format";
+  public static final String GROUP_TASK = "Task";
 
-  public static final String DATABASE_HOST = "cdc.database.host";
-  public static final String DATABASE_PORT = "cdc.database.port";
-  public static final String DATABASE_SERVICE = "cdc.database.service";
-  public static final String DATABASE_SID = "cdc.database.sid";
-  public static final String DATABASE_URL = "cdc.database.url";
-  public static final String DATABASE_USER = "cdc.database.user";
-  public static final String DATABASE_PASSWORD = "cdc.database.password";
-  public static final String DATABASE_PDBS = "cdc.database.pdbs";
-
+  // table selection (PRD-01 SRC-SEL)
   public static final String TABLES_INCLUDE = "cdc.tables.include";
   public static final String TABLES_EXCLUDE = "cdc.tables.exclude";
+  public static final String TABLES_CASE_SENSITIVE = "cdc.tables.case.sensitive";
+  public static final String USERS_EXCLUDE = "cdc.users.exclude";
 
+  // topics and keys (SRC-TOP)
   public static final String TOPIC_PREFIX = "cdc.topic.prefix";
+  public static final String TOPIC_TEMPLATE = "cdc.topic.template";
+  public static final String KEY_MISSING = "cdc.key.missing";
+  public static final String KEY_COLUMNS = "cdc.key.columns";
+  public static final String TOMBSTONES_ON_DELETE = "cdc.tombstones.on.delete";
 
-  public OracleCdcSourceConnectorConfig(Map<String, String> props) {
-    super(configDef(), props);
-    validateConnection();
+  // record format (SRC-FMT)
+  public static final String OUTPUT_FORMAT = "cdc.output.format";
+  public static final String DECIMAL_MODE = "cdc.decimal.mode";
+  public static final String TEMPORAL_MODE = "cdc.temporal.mode";
+
+  // task (SRC-LC)
+  public static final String POLL_MAX_RECORDS = "cdc.poll.max.records";
+  public static final String POLL_LINGER_MS = "cdc.poll.linger.ms";
+  public static final String SHUTDOWN_TIMEOUT_MS = "cdc.shutdown.timeout.ms";
+
+  public static final String DEFAULT_TEMPLATE_CDB = "${prefix}.${pdb}.${schema}.${table}";
+  public static final String DEFAULT_TEMPLATE_NON_CDB = "${prefix}.${schema}.${table}";
+
+  public enum DecimalMode {
+    PRECISE,
+    STRING,
+    DOUBLE
   }
 
-  private void validateConnection() {
-    boolean hasUrl = getString(DATABASE_URL) != null && !getString(DATABASE_URL).isBlank();
-    boolean hasHost = getString(DATABASE_HOST) != null && !getString(DATABASE_HOST).isBlank();
-    boolean hasService =
-        getString(DATABASE_SERVICE) != null && !getString(DATABASE_SERVICE).isBlank();
-    boolean hasSid = getString(DATABASE_SID) != null && !getString(DATABASE_SID).isBlank();
-    if (!hasUrl && !hasHost) {
-      throw new ConfigException(
-          DATABASE_HOST, null, "Set either " + DATABASE_URL + " or " + DATABASE_HOST + ".");
+  public enum TemporalMode {
+    ADAPTIVE,
+    ISO_STRING
+  }
+
+  private final CoreConfig core;
+
+  public OracleCdcSourceConnectorConfig(Map<String, String> props) {
+    super(configDef(), props, false);
+    this.core = new CoreConfig(props);
+    if (!List.of("fail", "rowid", "none")
+        .contains(getString(KEY_MISSING).toLowerCase(Locale.ROOT))) {
+      throw new ConfigException(KEY_MISSING, getString(KEY_MISSING), "must be fail, rowid or none");
     }
-    if (hasHost && !hasUrl && !hasService && !hasSid) {
-      throw new ConfigException(
-          DATABASE_SERVICE,
-          null,
-          "Set "
-              + DATABASE_SERVICE
-              + " or "
-              + DATABASE_SID
-              + " together with "
-              + DATABASE_HOST
-              + ".");
-    }
+    keyOverrides();
+  }
+
+  public CoreConfig core() {
+    return core;
   }
 
   public String topicPrefix() {
     return getString(TOPIC_PREFIX);
+  }
+
+  /** The topic template, defaulting by database kind when not set. */
+  public String topicTemplate(boolean cdb) {
+    String t = getString(TOPIC_TEMPLATE);
+    if (t == null || t.isBlank()) {
+      return cdb ? DEFAULT_TEMPLATE_CDB : DEFAULT_TEMPLATE_NON_CDB;
+    }
+    return t;
   }
 
   public List<String> tablesInclude() {
@@ -91,97 +116,107 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
     return getList(TABLES_EXCLUDE);
   }
 
+  public List<String> usersExclude() {
+    return getList(USERS_EXCLUDE);
+  }
+
   public Password databasePassword() {
-    return getPassword(DATABASE_PASSWORD);
+    return core.databasePassword();
+  }
+
+  public KeySelector.MissingKeyPolicy keyMissing() {
+    return KeySelector.MissingKeyPolicy.parse(getString(KEY_MISSING));
+  }
+
+  /** {@code SCHEMA.TABLE:COL1,COL2;PDB.SCHEMA.TABLE:COL} as upper-cased table to columns. */
+  public Map<String, List<String>> keyOverrides() {
+    String raw = getString(KEY_COLUMNS);
+    Map<String, List<String>> out = new LinkedHashMap<>();
+    if (raw == null || raw.isBlank()) {
+      return out;
+    }
+    for (String entry : raw.split(";")) {
+      if (entry.isBlank()) {
+        continue;
+      }
+      int colon = entry.indexOf(':');
+      if (colon <= 0 || colon == entry.length() - 1) {
+        throw new ConfigException(KEY_COLUMNS, raw, "entries are TABLE:COL1,COL2 separated by ;");
+      }
+      List<String> cols = new ArrayList<>();
+      for (String c : entry.substring(colon + 1).split(",")) {
+        if (!c.isBlank()) {
+          cols.add(c.trim().toUpperCase(Locale.ROOT));
+        }
+      }
+      out.put(entry.substring(0, colon).trim().toUpperCase(Locale.ROOT), cols);
+    }
+    return out;
+  }
+
+  public boolean tombstonesOnDelete() {
+    return getBoolean(TOMBSTONES_ON_DELETE);
+  }
+
+  public DecimalMode decimalMode() {
+    return DecimalMode.valueOf(getString(DECIMAL_MODE).toUpperCase(Locale.ROOT));
+  }
+
+  public TemporalMode temporalMode() {
+    return TemporalMode.valueOf(getString(TEMPORAL_MODE).toUpperCase(Locale.ROOT));
+  }
+
+  public int pollMaxRecords() {
+    return getInt(POLL_MAX_RECORDS);
+  }
+
+  public long pollLingerMs() {
+    return getLong(POLL_LINGER_MS);
+  }
+
+  public long shutdownTimeoutMs() {
+    return getLong(SHUTDOWN_TIMEOUT_MS);
+  }
+
+  public boolean tablesCaseSensitive() {
+    return getBoolean(TABLES_CASE_SENSITIVE);
+  }
+
+  /** The raw properties, for building the core configuration elsewhere. */
+  public Map<String, String> rawProperties() {
+    return new HashMap<>(originalsStrings());
   }
 
   public static ConfigDef configDef() {
-    ConfigDef def = new ConfigDef();
-    int order = 0;
+    ConfigDef def = CoreConfig.configDef();
+    int o = 0;
     def.define(
-        DATABASE_HOST,
+        TOPIC_PREFIX,
         Type.STRING,
-        null,
+        ConfigDef.NO_DEFAULT_VALUE,
+        new ConfigDef.NonEmptyString(),
         Importance.HIGH,
-        "Oracle Database host. Alternative to " + DATABASE_URL + ".",
-        GROUP_DATABASE,
-        ++order,
+        "Prefix of every topic this connector writes; also the logical server name in the"
+            + " Debezium-compatible envelope and the offset partition.",
+        GROUP_TOPICS,
+        ++o,
         Width.MEDIUM,
-        "Host");
+        "Topic prefix");
     def.define(
-        DATABASE_PORT,
-        Type.INT,
-        1521,
-        ConfigDef.Range.between(1, 65535),
-        Importance.MEDIUM,
-        "Oracle listener port.",
-        GROUP_DATABASE,
-        ++order,
-        Width.SHORT,
-        "Port");
-    def.define(
-        DATABASE_SERVICE,
-        Type.STRING,
-        null,
-        Importance.HIGH,
-        "Service name (preferred over SID). In a CDB this is the CDB$ROOT service.",
-        GROUP_DATABASE,
-        ++order,
-        Width.MEDIUM,
-        "Service");
-    def.define(
-        DATABASE_SID,
-        Type.STRING,
-        null,
-        Importance.LOW,
-        "SID, for databases without a service name.",
-        GROUP_DATABASE,
-        ++order,
-        Width.MEDIUM,
-        "SID");
-    def.define(
-        DATABASE_URL,
+        TOPIC_TEMPLATE,
         Type.STRING,
         null,
         Importance.MEDIUM,
-        "Full JDBC URL (TNS descriptor, LDAP naming or wallet). Overrides host, port, service and"
-            + " SID.",
-        GROUP_DATABASE,
-        ++order,
+        "Topic name template. Variables: ${prefix}, ${pdb}, ${schema}, ${table}, ${database}."
+            + " Default "
+            + DEFAULT_TEMPLATE_CDB
+            + " in a CDB and "
+            + DEFAULT_TEMPLATE_NON_CDB
+            + " otherwise. Characters Kafka does not allow become underscores.",
+        GROUP_TOPICS,
+        ++o,
         Width.LONG,
-        "JDBC URL");
-    def.define(
-        DATABASE_USER,
-        Type.STRING,
-        ConfigDef.NO_DEFAULT_VALUE,
-        Importance.HIGH,
-        "Mining user. In a CDB this must be a common user (C## prefix) with the grants from"
-            + " oracle-cdc-doctor setup-sql.",
-        GROUP_DATABASE,
-        ++order,
-        Width.MEDIUM,
-        "User");
-    def.define(
-        DATABASE_PASSWORD,
-        Type.PASSWORD,
-        ConfigDef.NO_DEFAULT_VALUE,
-        Importance.HIGH,
-        "Password for the mining user. Use a Connect config provider; the value is never logged.",
-        GROUP_DATABASE,
-        ++order,
-        Width.MEDIUM,
-        "Password");
-    def.define(
-        DATABASE_PDBS,
-        Type.LIST,
-        "",
-        Importance.HIGH,
-        "Pluggable databases to capture, comma separated. Leave empty for a non-CDB database.",
-        GROUP_DATABASE,
-        ++order,
-        Width.LONG,
-        "PDBs");
-
+        "Topic template");
     def.define(
         TABLES_INCLUDE,
         Type.LIST,
@@ -189,8 +224,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Importance.HIGH,
         "Comma-separated regular expressions over PDB.SCHEMA.TABLE (CDB) or SCHEMA.TABLE (non-CDB)"
             + " selecting the tables to capture.",
-        GROUP_CAPTURE,
-        ++order,
+        GROUP_TOPICS,
+        ++o,
         Width.LONG,
         "Tables to include");
     def.define(
@@ -198,24 +233,136 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.LIST,
         "",
         Importance.MEDIUM,
-        "Comma-separated regular expressions excluding tables that the include patterns matched.",
-        GROUP_CAPTURE,
-        ++order,
+        "Comma-separated regular expressions removing tables from the included set.",
+        GROUP_TOPICS,
+        ++o,
         Width.LONG,
         "Tables to exclude");
-
     def.define(
-        TOPIC_PREFIX,
-        Type.STRING,
-        ConfigDef.NO_DEFAULT_VALUE,
-        new ConfigDef.NonEmptyString(),
-        Importance.HIGH,
-        "Logical name of this connector and prefix of every topic it writes, including the internal"
-            + " schema, journal, ops, heartbeat and signal topics.",
+        TABLES_CASE_SENSITIVE,
+        Type.BOOLEAN,
+        false,
+        Importance.LOW,
+        "Match table patterns case-sensitively. Oracle stores unquoted names in upper case.",
         GROUP_TOPICS,
-        ++order,
-        Width.MEDIUM,
-        "Topic prefix");
+        ++o,
+        Width.SHORT,
+        "Case-sensitive patterns");
+    def.define(
+        USERS_EXCLUDE,
+        Type.LIST,
+        "",
+        Importance.LOW,
+        "Oracle users whose transactions are dropped in the mining query, so they never create"
+            + " transactions in the buffer (for example a replication or GoldenGate user).",
+        GROUP_TOPICS,
+        ++o,
+        Width.LONG,
+        "Users to exclude");
+    def.define(
+        KEY_MISSING,
+        Type.STRING,
+        "fail",
+        Importance.MEDIUM,
+        "What to do with a captured table that has neither a primary key nor a NOT NULL unique"
+            + " index: fail (at validation), rowid (key records by ROWID; a moved row changes its"
+            + " key) or none (no key).",
+        GROUP_TOPICS,
+        ++o,
+        Width.SHORT,
+        "Missing key policy");
+    def.define(
+        KEY_COLUMNS,
+        Type.STRING,
+        "",
+        Importance.LOW,
+        "Per-table key override as SCHEMA.TABLE:COL1,COL2;SCHEMA.OTHER:COL, taking precedence over"
+            + " the primary key.",
+        GROUP_TOPICS,
+        ++o,
+        Width.LONG,
+        "Key column overrides");
+    def.define(
+        TOMBSTONES_ON_DELETE,
+        Type.BOOLEAN,
+        true,
+        Importance.MEDIUM,
+        "Emit a null-valued record after every delete so compacted topics drop the key.",
+        GROUP_TOPICS,
+        ++o,
+        Width.SHORT,
+        "Tombstones on delete");
+    int f = 0;
+    def.define(
+        OUTPUT_FORMAT,
+        Type.STRING,
+        "debezium",
+        ConfigDef.ValidString.in("debezium"),
+        Importance.MEDIUM,
+        "Record envelope: debezium (before, after, source, op, ts_ms). The Confluent-compatible"
+            + " flat format arrives in Phase 2.",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Output format");
+    def.define(
+        DECIMAL_MODE,
+        Type.STRING,
+        "precise",
+        ConfigDef.CaseInsensitiveValidString.in("precise", "string", "double"),
+        Importance.MEDIUM,
+        "NUMBER handling: precise (Connect Decimal; unconstrained NUMBER and FLOAT as a variable"
+            + " scale decimal struct), string, or double.",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Decimal mode");
+    def.define(
+        TEMPORAL_MODE,
+        Type.STRING,
+        "adaptive",
+        ConfigDef.CaseInsensitiveValidString.in("adaptive", "iso_string"),
+        Importance.MEDIUM,
+        "DATE, TIMESTAMP and INTERVAL handling: adaptive (Debezium semantic types sized to the"
+            + " column precision) or iso_string (ISO 8601 text).",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Temporal mode");
+    int t = 0;
+    def.define(
+        POLL_MAX_RECORDS,
+        Type.INT,
+        2000,
+        ConfigDef.Range.between(1, 100_000),
+        Importance.LOW,
+        "Most records one poll() returns.",
+        GROUP_TASK,
+        ++t,
+        Width.SHORT,
+        "Poll batch size");
+    def.define(
+        POLL_LINGER_MS,
+        Type.LONG,
+        50L,
+        ConfigDef.Range.between(0L, 60_000L),
+        Importance.LOW,
+        "How long poll() waits for the first record before returning nothing.",
+        GROUP_TASK,
+        ++t,
+        Width.SHORT,
+        "Poll linger");
+    def.define(
+        SHUTDOWN_TIMEOUT_MS,
+        Type.LONG,
+        30_000L,
+        ConfigDef.Range.between(1_000L, 600_000L),
+        Importance.LOW,
+        "How long stop() waits for the engine thread before interrupting it.",
+        GROUP_TASK,
+        ++t,
+        Width.SHORT,
+        "Shutdown timeout");
     return def;
   }
 }

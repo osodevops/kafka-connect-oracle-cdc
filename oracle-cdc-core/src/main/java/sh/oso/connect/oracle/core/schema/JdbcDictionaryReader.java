@@ -74,8 +74,8 @@ public final class JdbcDictionaryReader implements DictionaryReader {
                   OracleType.fromDictionary(type),
                   type,
                   rs.getInt(4),
-                  rs.getInt(5),
-                  rs.getInt(6),
+                  rs.getObject(5) == null ? -1 : rs.getInt(5),
+                  rs.getObject(6) == null ? -1 : rs.getInt(6),
                   "Y".equals(rs.getString(7))));
         }
       }

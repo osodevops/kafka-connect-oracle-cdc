@@ -186,15 +186,7 @@ public final class CaptureEngine {
     } else {
       scheduler.stepCompleted(elapsed);
     }
-    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> oldestOpen =
-        buffer.oldestFirstCaptured();
-    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> pending = coalescer.oldestPending();
-    if (pending.isPresent()
-        && (oldestOpen.isEmpty() || pending.get().compareTo(oldestOpen.get()) < 0)) {
-      oldestOpen = pending;
-    }
-    long resume = ResumeCalculator.resumeScn(cursor.scn(), oldestOpen);
-    sink.stepApplied(cursor.scn(), resume);
+    sink.stepApplied(cursor.scn(), ResumeCalculator.resumeScn(cursor.scn(), oldestOpen()));
     return Progress.STEP_APPLIED;
   }
 
@@ -268,6 +260,16 @@ public final class CaptureEngine {
     metrics.lobInsertsMerged.set(coalescer.merged());
   }
 
+  /** Oldest unfinished work: open buffer entries and inserts held by the coalescer. */
+  private Optional<sh.oso.connect.oracle.core.model.RedoRecordId> oldestOpen() {
+    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> oldest = buffer.oldestFirstCaptured();
+    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> pending = coalescer.oldestPending();
+    if (pending.isPresent() && (oldest.isEmpty() || pending.get().compareTo(oldest.get()) < 0)) {
+      return pending;
+    }
+    return oldest;
+  }
+
   private void emit(CommittedTransaction tx) {
     int skip = SkipRule.eventsToSkip(start, tx);
     if (skip >= tx.size()) {
@@ -275,6 +277,7 @@ public final class CaptureEngine {
       return;
     }
     metrics.transactionsCommitted.incrementAndGet();
-    sink.committed(tx, skip);
+    long resume = ResumeCalculator.resumeScn(tx.commitScn(), oldestOpen());
+    sink.committed(tx, skip, resume);
   }
 }

@@ -80,10 +80,12 @@ class EngineCorrectnessEngineIT {
   static final class Collector implements EventSink {
     final List<CommittedTransaction> committed = new ArrayList<>();
     final List<Integer> skipped = new ArrayList<>();
+    final List<Long> resumes = new ArrayList<>();
     long minedTo;
     long resume;
 
-    public void committed(CommittedTransaction tx, int skip) {
+    public void committed(CommittedTransaction tx, int skip, long resumeCandidate) {
+      resumes.add(resumeCandidate);
       committed.add(tx);
       skipped.add(skip);
     }
@@ -142,14 +144,9 @@ class EngineCorrectnessEngineIT {
       assertThat(first.committed).as("commits before the split").isNotEmpty();
       int k = Math.max(1, first.committed.size() * 2 / 3);
       CommittedTransaction acked = first.committed.get(k - 1);
-      // the owner's acknowledgement rule (CORE-POS-2 as the task applies it): the resume SCN is the
-      // lower of the engine's candidate and the first capture of every emitted transaction that
-      // was not acknowledged, otherwise the restart would skip the commits between the acknowledged
-      // one and the split point
-      long resume = first.resume;
-      for (int i = k; i < first.committed.size(); i++) {
-        resume = Math.min(resume, first.committed.get(i).firstCaptured().scn());
-      }
+      // the resume SCN the engine attached to the acknowledged commit is exactly what a restart
+      // may mine from: lower than every transaction still open when that commit was emitted
+      long resume = first.resumes.get(k - 1);
       Position restart =
           Position.initial(resume, identity(meta))
               .withCommit(acked.commitScn(), acked.thread(), acked.key(), acked.size());
@@ -157,10 +154,10 @@ class EngineCorrectnessEngineIT {
       runEngine(schema, spec, restart, endScn, second, meta);
       Collector union = new Collector();
       for (int i = 0; i < k; i++) {
-        union.committed(first.committed.get(i), first.skipped.get(i));
+        union.committed(first.committed.get(i), first.skipped.get(i), 0);
       }
       for (int i = 0; i < second.committed.size(); i++) {
-        union.committed(second.committed.get(i), second.skipped.get(i));
+        union.committed(second.committed.get(i), second.skipped.get(i), 0);
       }
       Set<String> keys = new LinkedHashSet<>();
       for (CommittedTransaction t : union.committed) {
