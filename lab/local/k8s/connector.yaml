@@ -21,3 +21,4 @@ spec:
     cdc.database.pdbs: FREEPDB1
     cdc.topic.prefix: cdc
     cdc.tables.include: FREEPDB1\.WORKLOAD\..*
+    cdc.tables.exclude: "FREEPDB1\\.WORKLOAD\\.WL_LEDGER"

@@ -103,3 +103,36 @@ jobs:
           name: t1-engine-reports
           path: e2e-tests/target/failsafe-reports/
           retention-days: 7
+
+  t1-connector:
+    name: T1 connector (Oracle Database Free, Kafka, Connect worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Fork pull requests have no Docker Hub secrets; maintainers re-run after review.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Log in to Docker Hub (avoids anonymous pull limits)
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build modules without tests
+        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+      - name: Oracle, Kafka and Connect worker integration tests
+        run: mvn -pl e2e-tests verify -De2e.groups=connector --batch-mode --no-transfer-progress
+      - name: Upload failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t1-connector-reports
+          path: e2e-tests/target/failsafe-reports/
+          retention-days: 7
