@@ -10,9 +10,6 @@ spec:
   replicas: 2
   bootstrapServers: lab-kafka-bootstrap:9092
   image: oracle-cdc-connect:dev
-  template:
-    pod:
-      imagePullPolicy: IfNotPresent
   config:
     group.id: oracle-cdc-lab
     config.storage.topic: _connect_configs

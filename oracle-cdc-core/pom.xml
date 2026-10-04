@@ -17,6 +17,11 @@
       <artifactId>ojdbc11</artifactId>
     </dependency>
     <dependency>
+      <!-- ConfigDef only; the Connect runtime provides it -->
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>connect-api</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>
