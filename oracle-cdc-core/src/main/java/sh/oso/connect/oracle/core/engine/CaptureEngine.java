@@ -55,14 +55,16 @@ public final class CaptureEngine {
 
   /** Called after a DDL step cut so the owner refreshes the pushed-down object ids (ADR-0001). */
   public interface IdRefresher {
-    void refresh() throws SQLException;
+    /** Re-resolves the pushed-down ids; returns the captured owners afterwards. */
+    java.util.Set<String> refresh() throws SQLException;
   }
 
   private final EventSource source;
   private final LogInventory inventory;
   private final Supplier<Long> safeEnd;
   private final MiningScheduler scheduler;
-  private final StepRunner runner;
+  private StepRunner runner;
+  private final OraErrorClassifier classifier;
   private final TransactionBuffer buffer;
   private final SchemaRegistry schemas;
   private final ChangeDecoder decoder;
@@ -101,6 +103,7 @@ public final class CaptureEngine {
     this.sink = sink;
     this.settings = settings;
     this.scheduler = new MiningScheduler(settings.targetLatency(), settings.maxLogsPerStep());
+    this.classifier = classifier;
     this.runner =
         new StepRunner(
             classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(capturedOwners));
@@ -182,7 +185,9 @@ public final class CaptureEngine {
     metrics.minedToScn.set(cursor.scn());
     if (outcome.kind() == StepOutcome.Kind.CUT) {
       metrics.stepCuts.incrementAndGet();
-      idRefresher.refresh();
+      java.util.Set<String> owners = idRefresher.refresh();
+      runner =
+          new StepRunner(classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(owners));
     } else {
       scheduler.stepCompleted(elapsed);
     }

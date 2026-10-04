@@ -191,6 +191,12 @@ public final class JdbcEngineFactory implements EngineFactory {
           () -> {
             ResolvedObjects refreshed = resolver.resolve();
             source.update(refreshed, refreshed.filter(excludedUsers, inlistMax));
+            LOG.info(
+                "Object ids refreshed after DDL: {} tables ({} ids) for owners {}",
+                refreshed.tables().size(),
+                refreshed.byObjectId().size(),
+                refreshed.owners());
+            return refreshed.owners();
           },
           Instant::now);
     }

@@ -89,6 +89,23 @@ public final class OracleTestDatabase {
     return local;
   }
 
+  /** One Docker network for the JVM so Kafka and Connect containers can reach "oracle:1521". */
+  public static final org.testcontainers.containers.Network NETWORK =
+      org.testcontainers.containers.Network.builder()
+          // a fixed subnet: Docker Desktop on a busy workstation exhausts its default address
+          // pools ("all predefined address pools have been fully subnetted")
+          .createNetworkCmdModifier(
+              cmd ->
+                  cmd.withIpam(
+                      new com.github.dockerjava.api.model.Network.Ipam()
+                          .withConfig(
+                              new com.github.dockerjava.api.model.Network.Ipam.Config()
+                                  .withSubnet(
+                                      System.getProperty("e2e.network.subnet", "10.214.0.0/24")))))
+          .build();
+
+  public static final String NETWORK_ALIAS = "oracle";
+
   private static OracleTestDatabase start() {
     String baseTag = System.getProperty("oracle.image.tag", "23.26.3-slim-faststart");
     Path dockerDir =
@@ -110,6 +127,8 @@ public final class OracleTestDatabase {
     GenericContainer<?> container =
         new GenericContainer<>(image)
             .withExposedPorts(1521)
+            .withNetwork(NETWORK)
+            .withNetworkAliases(NETWORK_ALIAS)
             .withEnv("ORACLE_PASSWORD", SYS_PASSWORD)
             .withSharedMemorySize(2L * 1024 * 1024 * 1024)
             .withReuse(true)

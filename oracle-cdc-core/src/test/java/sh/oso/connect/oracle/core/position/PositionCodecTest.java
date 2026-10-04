@@ -65,6 +65,18 @@ class PositionCodecTest {
                 "event_index",
                 2));
     assertThat(PositionCodec.read(written)).isEqualTo(p);
+    // Connect accepts only primitive offset values
+    for (Object v : written.values()) {
+      assertThat(v == null || v instanceof String || v instanceof Number || v instanceof Boolean)
+          .as("offset value %s", v)
+          .isTrue();
+    }
+    assertThat(written.get("released_xids")).isEqualTo("3:9.1.77");
+    assertThat(
+            PositionCodec.read(Map.of("v", 1, "released_xids", List.of("a:1.2.3", "b:4.5.6")))
+                .released())
+        .as("the pre-release list form still reads")
+        .containsExactly("a:1.2.3", "b:4.5.6");
   }
 
   @Test
@@ -75,6 +87,10 @@ class PositionCodecTest {
     Map<String, Object> written = PositionCodec.write(p.withResumeScn(501));
     assertThat(written).containsEntry("future_field", "kept by a one-version-older reader");
     assertThat(written).containsEntry("resume_scn", 501L);
+    assertThat(written.get("snapshot")).isInstanceOf(String.class).asString().contains("chunk");
+    assertThat(PositionCodec.read(written).snapshot()).containsEntry("frontier", "9");
+    assertThatThrownBy(() -> PositionCodec.read(Map.of("v", 1, "snapshot", "{not json")))
+        .isInstanceOf(OracleCdcCorruptionException.class);
   }
 
   @Test

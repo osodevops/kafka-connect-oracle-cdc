@@ -73,8 +73,8 @@ public final class PositionCodec {
     m.put(SCHEMA_EPOCH, p.schemaEpoch());
     m.put(DBID, p.identity().dbid());
     m.put(RESETLOGS_SCN, p.identity().resetlogsScn());
-    m.put(RELEASED_XIDS, new ArrayList<>(p.released()));
-    m.put(SNAPSHOT, p.snapshot());
+    m.put(RELEASED_XIDS, p.released().isEmpty() ? null : String.join(",", p.released()));
+    m.put(SNAPSHOT, p.snapshot() == null ? null : snapshotJson(p.snapshot()));
     for (Map.Entry<String, Object> e : p.extras().entrySet()) {
       m.putIfAbsent(e.getKey(), e.getValue());
     }
@@ -110,9 +110,15 @@ public final class PositionCodec {
     String xid = (String) m.get(LAST_COMMIT_XID);
     List<String> released = new ArrayList<>();
     Object rel = m.get(RELEASED_XIDS);
-    if (rel instanceof List<?> l) {
+    if (rel instanceof List<?> l) { // pre-release form, read for completeness
       for (Object o : l) {
         released.add(String.valueOf(o));
+      }
+    } else if (rel instanceof String str && !str.isBlank()) {
+      for (String x : str.split(",")) {
+        if (!x.isBlank()) {
+          released.add(x.trim());
+        }
       }
     }
     Map<String, Object> extras = new LinkedHashMap<>();
@@ -133,8 +139,40 @@ public final class PositionCodec {
         longValue(m, SCHEMA_EPOCH),
         new DatabaseIdentity(longValue(m, DBID), longValue(m, RESETLOGS_SCN)),
         released,
-        snap instanceof Map<?, ?> sm ? (Map<String, Object>) sm : null,
+        snapshot(snap),
         extras);
+  }
+
+  private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+      new com.fasterxml.jackson.databind.ObjectMapper();
+
+  static String snapshotJson(Map<String, Object> snapshot) {
+    try {
+      return JSON.writeValueAsString(snapshot);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      throw new OracleCdcCorruptionException(
+          "The snapshot block cannot be serialised: " + e.getMessage(),
+          "Report the connector logs; the position is not written.",
+          e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  static Map<String, Object> snapshot(Object raw) {
+    if (raw == null) {
+      return null;
+    }
+    if (raw instanceof Map<?, ?> sm) {
+      return (Map<String, Object>) sm;
+    }
+    try {
+      return JSON.readValue(raw.toString(), Map.class);
+    } catch (java.io.IOException e) {
+      throw new OracleCdcCorruptionException(
+          "The stored offset's snapshot block is not JSON: " + raw,
+          "Reset the connector's offsets with oracle-cdc-admin.",
+          e);
+    }
   }
 
   static TxKey parseKey(String s) {

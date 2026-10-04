@@ -32,7 +32,8 @@ class LogMinerQueryTest {
         .contains(" FROM V$LOGMNR_CONTENTS WHERE SCN >= ? AND SCN < ? AND (")
         .contains(
             "(OPERATION_CODE IN (1, 2, 3, 9, 10, 11, 28, 255) AND (DATA_OBJ# IN (1001, 1002)))")
-        .contains(" OR (OPERATION_CODE = 5 AND SEG_OWNER IN ('APP'))")
+        .contains(
+            " OR (OPERATION_CODE = 5 AND (SEG_OWNER IS NULL OR SEG_OWNER NOT IN ('ANONYMOUS',")
         .contains(" OR (OPERATION_CODE IN (6, 7, 36))")
         .contains(" OR OPERATION_CODE = 34)")
         .doesNotContain("USERNAME NOT IN");
@@ -55,7 +56,7 @@ class LogMinerQueryTest {
     String sql = LogMinerQuery.sql(MiningFilter.of(Set.of(), Set.of()));
     assertThat(sql)
         .contains("(OPERATION_CODE IN (1, 2, 3, 9, 10, 11, 28, 255) AND 1 = 0)")
-        .contains("(OPERATION_CODE = 5 AND 1 = 0)")
+        .contains("(OPERATION_CODE = 5 AND (SEG_OWNER IS NULL OR SEG_OWNER NOT IN (")
         .contains("(OPERATION_CODE IN (6, 7, 36))");
   }
 

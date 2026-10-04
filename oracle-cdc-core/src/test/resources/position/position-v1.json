@@ -9,6 +9,6 @@
   "schema_epoch": 1,
   "dbid": 1234567890,
   "resetlogs_scn": 1,
-  "released_xids": ["3:9.1.77"],
+  "released_xids": "3:9.1.77",
   "snapshot": null
 }

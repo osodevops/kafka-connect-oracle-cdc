@@ -33,10 +33,23 @@ public final class DdlStepCut {
   }
 
   public boolean requiresCut(MiningEvent.Ddl ddl) {
+    if (createsOrDropsTable(ddl.sql())) {
+      return true; // any owner: a new table may match the include patterns (SRC-SEL-4)
+    }
     if (ddl.owner() == null || !capturedOwners.contains(ddl.owner())) {
       return false;
     }
     return changesObjectIds(ddl.sql());
+  }
+
+  static boolean createsOrDropsTable(String sql) {
+    if (sql == null) {
+      return false;
+    }
+    String s = sql.trim().replaceAll("\\s+", " ").toUpperCase(Locale.ROOT);
+    return s.startsWith("CREATE TABLE")
+        || s.startsWith("CREATE GLOBAL TEMPORARY TABLE")
+        || s.startsWith("DROP TABLE");
   }
 
   static boolean changesObjectIds(String sql) {

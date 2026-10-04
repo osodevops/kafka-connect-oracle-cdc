@@ -166,7 +166,10 @@ class CaptureEngineTest {
           s,
           new OraErrorClassifier(),
           Set.of("APP"),
-          () -> refreshes++,
+          () -> {
+            refreshes++;
+            return Set.of("APP");
+          },
           () -> Instant.ofEpochMilli(clock.getAsLong()));
     }
 

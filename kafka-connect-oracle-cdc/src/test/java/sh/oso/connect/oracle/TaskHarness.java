@@ -159,7 +159,7 @@ final class TaskHarness implements AutoCloseable {
                     CoreConfig.DecodeErrorAction.FAIL),
                 new OraErrorClassifier(),
                 Set.of("APP"),
-                () -> {},
+                () -> Set.of("APP"),
                 Instant::now);
           }
 

@@ -55,10 +55,44 @@ public final class SchemaFixtures {
     }
   }
 
+  /** Kills the user's sessions first (a connector may still hold one), then drops with retries. */
   private static void dropIfExists(Statement st, String schema) throws SQLException {
-    st.execute(
-        "BEGIN EXECUTE IMMEDIATE 'DROP USER "
-            + schema
-            + " CASCADE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;");
+    SQLException last = null;
+    for (int attempt = 0; attempt < 10; attempt++) {
+      try (java.sql.ResultSet rs =
+          st.executeQuery("SELECT sid, serial# FROM v$session WHERE username = '" + schema + "'")) {
+        java.util.List<String> sessions = new java.util.ArrayList<>();
+        while (rs.next()) {
+          sessions.add(rs.getLong(1) + "," + rs.getLong(2));
+        }
+        for (String s : sessions) {
+          try (Statement kill = st.getConnection().createStatement()) {
+            kill.execute("ALTER SYSTEM KILL SESSION '" + s + "' IMMEDIATE");
+          } catch (SQLException ignore) {
+            // already gone
+          }
+        }
+      }
+      try {
+        st.execute(
+            "BEGIN EXECUTE IMMEDIATE 'DROP USER "
+                + schema
+                + " CASCADE'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF;"
+                + " END;");
+        return;
+      } catch (SQLException e) {
+        if (e.getErrorCode() != 1940) {
+          throw e;
+        }
+        last = e;
+        try {
+          Thread.sleep(1000);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw e;
+        }
+      }
+    }
+    throw last;
   }
 }

@@ -21,7 +21,7 @@ import java.util.TreeSet;
 
 /**
  * Builds the V$LOGMNR_CONTENTS query. Three OR branches, always present (ADR-0001): row changes on
- * captured object ids, DDL for captured owners, transaction control rows. MISSING_SCN rows are
+ * captured object ids, DDL by non-Oracle owners, transaction control rows. MISSING_SCN rows are
  * always fetched because they signal a gap. SCN bounds are the two binds. Identifiers and user
  * names are embedded as literals (an in-list of a thousand ids cannot be bound), quoted and split
  * into chunks of {@code inlistMax} so Oracle's in-list limit is never hit.
@@ -73,6 +73,37 @@ public final class LogMinerQuery {
   static final List<Integer> TX_CODES = List.of(6, 7, 36);
   static final int MISSING_SCN_CODE = 34;
 
+  /** Owners whose DDL is Oracle's own housekeeping, never a captured table. */
+  static final List<String> ORACLE_MAINTAINED =
+      List.of(
+          "SYS",
+          "SYSTEM",
+          "AUDSYS",
+          "XDB",
+          "OUTLN",
+          "DBSNMP",
+          "MDSYS",
+          "CTXSYS",
+          "ORDSYS",
+          "WMSYS",
+          "LBACSYS",
+          "OJVMSYS",
+          "GSMADMIN_INTERNAL",
+          "DVSYS",
+          "APPQOSSYS",
+          "DBSFWUSER",
+          "GGSYS",
+          "ANONYMOUS",
+          "REMOTE_SCHEDULER_AGENT",
+          "SYS$UMF",
+          "DIP",
+          "ORACLE_OCM",
+          "XS$NULL",
+          "ORDDATA",
+          "OLAPSYS",
+          "DVF",
+          "PDBADMIN");
+
   private LogMinerQuery() {}
 
   public static String sql(MiningFilter f) {
@@ -97,14 +128,13 @@ public final class LogMinerQuery {
       sb.append(')');
     }
     sb.append(')');
-    // 2. DDL for captured owners
-    sb.append(" OR (OPERATION_CODE = ").append(DDL_CODE).append(" AND ");
-    if (f.ddlOwners().isEmpty()) {
-      sb.append("1 = 0");
-    } else {
-      sb.append("SEG_OWNER IN (").append(quoted(f.ddlOwners())).append(')');
-    }
-    sb.append(')');
+    // 2. DDL by any non-Oracle owner: a CREATE TABLE that newly matches the include patterns must
+    //    be seen even when no table is captured yet (SRC-SEL-4); DDL rows are rare
+    sb.append(" OR (OPERATION_CODE = ")
+        .append(DDL_CODE)
+        .append(" AND (SEG_OWNER IS NULL OR SEG_OWNER NOT IN (")
+        .append(quoted(ORACLE_MAINTAINED))
+        .append(")))");
     // 3. transaction control, minus excluded users (dbz#24)
     sb.append(" OR (OPERATION_CODE IN (").append(join(TX_CODES)).append(')');
     if (!f.excludedUsers().isEmpty()) {

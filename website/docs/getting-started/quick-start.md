@@ -39,13 +39,19 @@ make -C lab/local/compose down
 Profiles add Prometheus and Grafana (`observability`), Toxiproxy (`chaos`) and a Debezium
 worker (`debezium`) for side-by-side comparison on the same database.
 
-Until the capture engine lands, the registered connector starts, reports RUNNING and idles;
-the doctor and the workload generator already work against this database:
+Register the example connector, generate a workload with the bench tool and read the records:
 
 ```bash
-java -jar oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar check \
-  --config lab/local/compose/examples/connector-freepdb1.json
+make -C lab/local/compose register
 java -jar bench/target/bench-*-cli.jar workload \
   --url jdbc:oracle:thin:@//localhost:1521/FREEPDB1 --user workload --password workload \
-  --spec bench/src/main/resources/workloads/simple.json --reset
+  --spec bench/src/main/resources/workloads/simple.json --transactions 30 --reset
+make -C lab/local/compose consume TOPIC=cdc.FREEPDB1.WORKLOAD.WL_T1
+curl -s localhost:8083/connectors/oracle-cdc/offsets | python3 -m json.tool
+java -jar oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar check \
+  --config lab/local/compose/examples/connector-freepdb1.json
 ```
+
+Tables created after the connector started are picked up at the CREATE TABLE in the redo, so the
+bench tool's `--reset` needs no restart. LOB values are not captured yet (Phase 1b): keep the
+workload's `lobWeight` at 0 until then.

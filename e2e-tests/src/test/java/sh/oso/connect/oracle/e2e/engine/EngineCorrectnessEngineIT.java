@@ -300,6 +300,7 @@ class EngineCorrectnessEngineIT {
               () -> {
                 ResolvedObjects refreshed = resolver.resolve();
                 source.update(refreshed, refreshed.filter(Set.of(), 1000));
+                return refreshed.owners();
               },
               Instant::now);
       for (int i = 0; i < 1000; i++) {
