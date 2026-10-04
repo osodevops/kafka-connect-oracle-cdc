@@ -49,10 +49,19 @@ spec:
             - bash
             - -c
             - |
-              rm -rf /dev/shm/* 2>/dev/null
-              for id in $(ipcs -s 2>/dev/null | awk "NR>3 && \$2 ~ /^[0-9]+$/ {print \$2}"); do ipcrm -s "$id"; done
-              for id in $(ipcs -m 2>/dev/null | awk "NR>3 && \$2 ~ /^[0-9]+$/ {print \$2}"); do ipcrm -m "$id"; done
-              exec container-entrypoint.sh
+              # A previous container in this pod (or a pod force-deleted while still running on the
+              # same volume) can leave an instance or its shared memory behind: ORA-01081 on start.
+              # Abort any such instance, then clear POSIX shm and System V IPC before the entrypoint.
+              sqlplus -s / as sysdba <<'SQL' >/dev/null 2>&1 || true
+              shutdown abort;
+              exit
+              SQL
+              rm -rf /dev/shm/* 2>/dev/null || true
+              if command -v ipcs >/dev/null 2>&1; then
+                for id in $(ipcs -s 2>/dev/null | awk 'NR>3 && $2 ~ /^[0-9]+$/ {print $2}'); do ipcrm -s "$id" 2>/dev/null || true; done
+                for id in $(ipcs -m 2>/dev/null | awk 'NR>3 && $2 ~ /^[0-9]+$/ {print $2}'); do ipcrm -m "$id" 2>/dev/null || true; done
+              fi
+              exec /opt/oracle/container-entrypoint.sh
           ports:
             - containerPort: 1521
               name: listener

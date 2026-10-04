@@ -33,3 +33,11 @@ purged after the CRDs are installed; the Oracle base must be the regular (not fa
 because faststart keeps the datafiles inside the image where a volume would hide them; the slim
 image has neither `hostname` nor `rman`; a pod keeps its IPC namespace across container restarts,
 so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.
+- A `StatefulSet` pod must never be deleted with `--force --grace-period=0`: the old instance keeps
+  running against the volume and the replacement fails with ORA-01081. `edge-cases.sh` and
+  `make chaos-oracle-restart` use a graceful delete (120 s) and the container wrapper runs
+  `shutdown abort` and clears `/dev/shm` before `container-entrypoint.sh`, so a crashed pod still
+  comes back.
+- The single-replica Strimzi operator lost its leader lease on a busy laptop and exited with
+  "Stopped being a leader => exiting" every few minutes; `make operator` now sets
+  `STRIMZI_LEADER_ELECTION_ENABLED=false` (one replica needs no election).

@@ -23,6 +23,8 @@ operator: ## pinned Strimzi release manifest, namespace-scoped to $(NAMESPACE)
 	$(KUBECTL) wait --for=condition=Established crd/kafkas.kafka.strimzi.io crd/kafkanodepools.kafka.strimzi.io \
 	  crd/kafkaconnects.kafka.strimzi.io crd/kafkaconnectors.kafka.strimzi.io --timeout=120s
 	$(KUBECTL) wait --for=condition=Available deployment/strimzi-cluster-operator --timeout=300s
+	@# a single-replica operator on a busy laptop loses its leader lease and exits; no election needed
+	$(KUBECTL) set env deployment/strimzi-cluster-operator STRIMZI_LEADER_ELECTION_ENABLED=false
 	@# kubectl caches API discovery on disk for hours; purge it so the new CRDs are visible
 	rm -rf ~/.kube/cache/discovery/$$(kubectl --context $(MINIKUBE_PROFILE) config view --minify -o jsonpath='{.clusters[0].cluster.server}' | sed -E 's#https?://##; s#[:/]#_#g')
 
@@ -81,8 +83,8 @@ chaos-rollout: ## Strimzi-driven rolling update of the Connect cluster
 	$(KUBECTL) annotate kafkaconnect connect strimzi.io/manual-rolling-update=true --overwrite
 	sleep 10; $(KUBECTL) wait kafkaconnect/connect --for=condition=Ready --timeout=600s
 
-chaos-oracle-restart: ## kill the database pod; it must come back from the PVC with ARCHIVELOG intact
-	$(KUBECTL) delete pod oracle-0 --grace-period=0 --force
+chaos-oracle-restart: ## delete the database pod gracefully; it must come back from the PVC with ARCHIVELOG intact
+	$(KUBECTL) delete pod oracle-0 --grace-period=120
 	$(KUBECTL) rollout status statefulset/oracle --timeout=900s
 	$(KUBECTL) exec oracle-0 -- bash -c "echo \"SELECT log_mode FROM v\\\$$database;\" | sqlplus -s c##cdc/cdc@//localhost:1521/FREE" | grep ARCHIVELOG
 

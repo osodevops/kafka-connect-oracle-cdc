@@ -62,8 +62,9 @@ case_broker_restart() {
   verify_platform; verify_data
 }
 case_oracle_restart() {
-  log "case: Oracle pod killed; must return from the PVC"
-  $K delete pod oracle-0 --grace-period=0 --force >/dev/null
+  log "case: Oracle pod deleted; must return from the PVC"
+  # never --force a StatefulSet pod: the old instance may still hold the volume when the new one starts
+  $K delete pod oracle-0 --grace-period=120 >/dev/null
   verify_platform; verify_data
 }
 case_partition() {
