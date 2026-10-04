@@ -72,6 +72,7 @@ public final class CaptureEngine {
   private final IdRefresher idRefresher;
   private final Position start;
   private final EngineMetrics metrics = new EngineMetrics();
+  private final LobInsertCoalescer coalescer = new LobInsertCoalescer();
   private final Supplier<Instant> clock;
   private StepCursor cursor;
   private int consecutiveRetries;
@@ -185,7 +186,14 @@ public final class CaptureEngine {
     } else {
       scheduler.stepCompleted(elapsed);
     }
-    long resume = ResumeCalculator.resumeScn(cursor.scn(), buffer.oldestFirstCaptured());
+    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> oldestOpen =
+        buffer.oldestFirstCaptured();
+    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> pending = coalescer.oldestPending();
+    if (pending.isPresent()
+        && (oldestOpen.isEmpty() || pending.get().compareTo(oldestOpen.get()) < 0)) {
+      oldestOpen = pending;
+    }
+    long resume = ResumeCalculator.resumeScn(cursor.scn(), oldestOpen);
     sink.stepApplied(cursor.scn(), resume);
     return Progress.STEP_APPLIED;
   }
@@ -197,16 +205,19 @@ public final class CaptureEngine {
         buffer.start(s);
       } else if (e instanceof MiningEvent.Dml d) {
         if (d.undo()) {
+          coalescer.flush(d.tx()).ifPresent(held -> buffer.add(d.tx(), held));
           buffer.undo(d.tx(), d.id(), d.rowId());
         } else {
           decodeAndBuffer(d);
         }
       } else if (e instanceof MiningEvent.Commit c) {
+        coalescer.flush(c.tx()).ifPresent(held -> buffer.add(c.tx(), held));
         Optional<CommittedTransaction> tx = buffer.commit(c);
         if (tx.isPresent()) {
           emit(tx.get());
         }
       } else if (e instanceof MiningEvent.Rollback r) {
+        coalescer.discard(r.tx());
         buffer.rollback(r);
       } else if (e instanceof MiningEvent.Ddl d) {
         if (d.objectName() != null && d.owner() != null) {
@@ -245,7 +256,16 @@ public final class CaptureEngine {
       sink.decodeFailed(d, ex);
       return;
     }
-    buffer.add(d.tx(), change);
+    java.util.Set<String> lobs = new java.util.HashSet<>();
+    for (sh.oso.connect.oracle.core.schema.ColumnSpec col : schema.columns()) {
+      if (col.type().isLob()) {
+        lobs.add(col.name());
+      }
+    }
+    for (RowChange ready : coalescer.accept(d.tx(), change, lobs)) {
+      buffer.add(d.tx(), ready);
+    }
+    metrics.lobInsertsMerged.set(coalescer.merged());
   }
 
   private void emit(CommittedTransaction tx) {
