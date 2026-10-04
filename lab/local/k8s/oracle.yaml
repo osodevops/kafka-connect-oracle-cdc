@@ -1,5 +1,7 @@
 # Oracle Database Free from docker/test-oracle (loaded with minikube image load). StatefulSet so the
-# datafiles survive pod restarts; deleting the PVC is itself an edge-case test.
+# datafiles survive pod restarts; deleting the PVC is itself an edge-case test. The base must be the
+# regular (not faststart) image: faststart ships the datafiles inside the image under
+# /opt/oracle/oradata, and a volume mounted there hides them.
 apiVersion: v1
 kind: Service
 metadata:
@@ -41,12 +43,16 @@ spec:
       terminationGracePeriodSeconds: 120
       containers:
         - name: oracle
-          image: oracle-cdc-test-db:23.26.3-slim-faststart
+          image: oracle-cdc-test-db:23.26.3-slim
           imagePullPolicy: IfNotPresent
           command:
             - bash
             - -c
-            - rm -rf /dev/shm/* 2>/dev/null; exec container-entrypoint.sh
+            - |
+              rm -rf /dev/shm/* 2>/dev/null
+              for id in $(ipcs -s 2>/dev/null | awk "NR>3 && \$2 ~ /^[0-9]+$/ {print \$2}"); do ipcrm -s "$id"; done
+              for id in $(ipcs -m 2>/dev/null | awk "NR>3 && \$2 ~ /^[0-9]+$/ {print \$2}"); do ipcrm -m "$id"; done
+              exec container-entrypoint.sh
           ports:
             - containerPort: 1521
               name: listener
@@ -76,7 +82,7 @@ spec:
                   printf "SELECT 'UP' FROM v\$database WHERE open_mode = 'READ WRITE';\n" \
                     | sqlplus -s -L c##cdc/cdc@//$(hostname -f):1521/FREE | grep -q UP
             periodSeconds: 10
-            failureThreshold: 60
+            failureThreshold: 90
           readinessProbe:
             exec:
               command:
