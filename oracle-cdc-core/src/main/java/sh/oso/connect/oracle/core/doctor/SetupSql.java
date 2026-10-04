@@ -145,8 +145,8 @@ public final class SetupSql {
       sb.append("GRANT ALTER SESSION TO ").append(user).append(all).append(";\n");
       sb.append(
           "\n"
-              + "-- Workload schema in every PDB: the bench ledger lives here and is never"
-              + " captured.\n");
+              + "-- Workload schema in every PDB: the bench generator runs here; its ledger is"
+              + " excluded from capture.\n");
       for (String pdb : pdbs) {
         sb.append("ALTER SESSION SET CONTAINER = ").append(pdb).append(";\n");
         sb.append("CREATE USER workload IDENTIFIED BY \"workload\" QUOTA UNLIMITED ON users;\n");

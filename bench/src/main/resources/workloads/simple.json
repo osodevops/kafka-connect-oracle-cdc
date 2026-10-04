@@ -1,0 +1,10 @@
+{
+  "seed": 1,
+  "sessions": 2,
+  "tables": 3,
+  "transactionsPerSession": 200,
+  "maxRowsPerTransaction": 10,
+  "savepointRollbackProbability": 0.1,
+  "fullRollbackProbability": 0.05,
+  "lobWeight": 0.5
+}

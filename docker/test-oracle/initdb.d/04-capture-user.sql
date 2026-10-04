@@ -45,7 +45,7 @@ GRANT SELECT ON V_$SQL TO c##cdc CONTAINER=ALL;
 GRANT ALTER SYSTEM TO c##cdc CONTAINER=ALL;
 GRANT ALTER SESSION TO c##cdc CONTAINER=ALL;
 
--- Workload schema in every PDB: the bench ledger lives here and is never captured.
+-- Workload schema in every PDB: the bench generator runs here; its ledger is excluded from capture.
 ALTER SESSION SET CONTAINER = FREEPDB1;
 CREATE USER workload IDENTIFIED BY "workload" QUOTA UNLIMITED ON users;
 GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE VIEW, CREATE PROCEDURE TO workload;
