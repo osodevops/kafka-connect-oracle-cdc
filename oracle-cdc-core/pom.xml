@@ -69,6 +69,9 @@
             <configuration>
               <excludes>
                 <exclude>sh/oso/connect/oracle/core/testkit/**</exclude>
+                <!-- JDBC-bound classes are covered by the Oracle suites in e2e-tests, not by unit tests -->
+                <exclude>sh/oso/connect/oracle/core/topology/JdbcCatalogSource*</exclude>
+                <exclude>sh/oso/connect/oracle/core/logs/LogSetProbe*</exclude>
               </excludes>
               <rules>
                 <rule>

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
+  <!-- Records and constructor-injected collaborators: collections are copied with List.copyOf in compact
+       constructors and connections are owned by the caller by design. -->
+  <Match>
+    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+  </Match>
   <!-- CT_CONSTRUCTOR_THROW fires on every constructor that validates its arguments; the "finalizer
        attack" it guards against needs a subclass with a finalizer, which this codebase never writes. -->
   <Match>
