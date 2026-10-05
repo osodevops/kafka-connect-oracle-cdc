@@ -28,7 +28,7 @@ the current code, is being built, or is planned. Nothing on this site is a bench
 | Spill to disk for large transactions, transaction journal, ops topic, internal topic creation, archive-only capture mode | Implemented |
 | Orphan detection, long-transaction policy, decode DLQ | Implemented |
 | LOB columns: `skip`, `inline` assembly from redo, `reselect` as of the commit SCN | Implemented |
-| Metrics and dashboards | Planned (Phase 1b) |
+| JMX metrics, Prometheus exporter rules, Grafana dashboard and alert rules; parallel decoding | Implemented |
 | Exactly-once delivery, snapshots, DDL replay, multi-PDB | Planned (Phase 1c) |
 | RAC, Confluent record format, RDS, Autonomous Database | Planned (Phase 2 and 3) |
 

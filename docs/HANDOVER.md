@@ -23,14 +23,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `ae3c34e` | P1-13 correctness oracle (`bench check`, ADR-0012) | `CorrectnessOracleConnectorIT` PASS |
 | `cafbccc` | P1-11 ops topic and internal topics, P1-06 spill store, P1-14 transaction journal, P1-15 orphan detection, ADR-0014 redo-address cursor | full gate, connector tier 7 suites, engine tier 31 tests, all green |
 | `ddb4c4d` | P1-21 decode DLQ (`cdc.dlq.topic`), long-transaction policy (`cdc.transaction.max.age.ms`, `CDC-4004`), archive-only coverage, `dbz-2713` regression | full gate, connector tier 7 suites plus the two surefire tests, engine tier 33 tests, all green |
-| next after `ddb4c4d` (hash recorded at the following commit) | P1-18 LOBs: `cdc.lob.mode` skip, inline, reselect; `cdc.lob.max.bytes`, `cdc.lob.oversize.action` (`CDC-3003`), `cdc.unavailable.placeholder`; per-statement assembly and newest-change undo (ADR-0015); LOB_ERASE code 29 | full gate, connector tier 7 suites plus the two surefire tests (oracle suite with LOBs in reselect mode), engine tier 37 tests, all green |
+| `5d152a5` | P1-18 LOBs: `cdc.lob.mode` skip, inline, reselect; `cdc.lob.max.bytes`, `cdc.lob.oversize.action` (`CDC-3003`), `cdc.unavailable.placeholder`; per-statement assembly and newest-change undo (ADR-0015); LOB_ERASE code 29 | full gate, connector tier 7 suites plus the two surefire tests (oracle suite with LOBs in reselect mode), engine tier 37 tests, all green |
+| next after `5d152a5` (hash recorded at the following commit) | P1-23 task MXBean (41 attributes, top 20 transactions), generated metrics page and JMX exporter rules, Grafana dashboard, Prometheus alert rules, parallel decoding (`cdc.mining.decode.threads`) | full gate, connector tier 7 suites plus the two surefire tests, engine tier 38 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-23 (pipelining, JMX metrics, ops assets), section 5.
+Nothing. The next increment is P1-12 (exactly-once), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -139,6 +140,20 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
   (`JdbcEngineFactory` opens it on first use and drops it on reconnect). It runs while the sink reads
   the events, inside the engine's step, so its exceptions stop the task like any other.
 
+### Metrics and parallel decoding (P1-23, ADR-0013 amendment)
+
+- `core/metrics/TaskMetricsMXBean`: every getter needs a `@Description` (kind COUNTER or GAUGE);
+  after adding one run `mvn -pl oracle-cdc-core test -Dtest=MetricsReferenceTest
+  -Dmetricsdocs.update=true` and commit website/docs/reference/metrics.md and
+  ops/jmx-exporter/oracle-cdc.yml. The dashboard and alert rules may only use exported names.
+- `CaptureEngine.publishBuffer()` copies `buffer.metrics()` and `buffer.largest(20)` into
+  `EngineMetrics` after every step and idle poll; never read the buffer from another thread.
+- `RecordQueueSink` implements `SinkMetrics`; the task registers `TaskMetrics` after the engine starts
+  and unregisters it in `closeQuietly`.
+- `CaptureEngine.withDecodeThreads(n)`: rows up to the first DDL of a step of 256 rows or more are
+  decoded on a fork-join pool; results (and decode exceptions) are consumed in order by `apply`.
+  Any new per-row decoding must stay a pure function of the row and its `TableSchema`.
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -185,9 +200,9 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-18: connector tier 8 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-23: connector tier 8 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-plus the two surefire tests), engine tier 37 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+plus the two surefire tests), engine tier 38 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
@@ -254,28 +269,13 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
   by `LobModesEngineIT` and `LobUndoBufferTest`; decide with Sion how rows without an issue number
   are tagged before moving them into `e2e/regression`.
 
-### P1-23 Pipelining, JMX metrics, ops assets (ADR-0013)
+### P1-23 follow-ups
 
-- `metrics/JmxEngineMetrics` in core: one MBean per task (`sh.oso.cdc:type=task,server=<prefix>`)
-  exposing `EngineMetrics` counters (steps, rowsMined, stepRetries, stepTimeouts, stepCuts,
-  reconnects, idlePolls, transactionsCommitted, transactionsSkipped, decodeFailures,
-  lobInsertsMerged, lobRowsApplied, orphansReleased, transactionsDiscarded, minedToScn, safeEndScn, lastStepMillis,
-  windowLogs) and `BufferMetricsSnapshot` gauges (open, buffered events, heap bytes, spilled
-  transactions and bytes, journaled transactions) plus `RecordQueueSink` counters (heartbeats, ops
-  events, journal chunks and tombstones, DLQ records, queue depth, lag = now minus last commit
-  timestamp). Register in `OracleCdcSourceTask.start`, unregister in `stop`.
-- CORE-TX-8 top 20: `TransactionBuffer.largest(20)` as a tabular attribute (XID, user, age, events,
-  heap bytes, spilled bytes, journaled).
-- Pipelining (CORE-MINE-6): decode on `cdc.mining.decode.threads` worker threads inside
-  `StepRunner` between the row cursor and the staged list, preserving order (ordered completion
-  queue). Keep the step atomic: decode failures still surface after the whole step is read.
-- Assets: `ops/jmx-exporter/oracle-cdc.yml` (pattern rules for the MBeans), `ops/grafana/oracle-cdc-connector.json`
-  (lag, mined-to vs current SCN, buffer size, spill, journal, DLQ rate, step timings), `ops/alerts/prometheus-rules.yaml`
-  (resume SCN age near archive retention, task stopped, DLQ rate, buffer near cap). Docs page
-  `website/docs/reference/metrics.md` generated by a T0 test that walks the MBean attributes
-  (`MetricsReferenceTest` with `-Dmetricsdocs.update=true`, same pattern as the config docs), and
-  `docs/DashboardConsistencyTest` that every metric in the dashboard exists.
-- Tests: T0 registry test; T1 `MetricsEngineIT` reading the MBean through `ManagementFactory`.
+- Overlap fetch and decode (CORE-MINE-6 in full): decode while the step is still being read.
+- An alert on resume position age against archive retention needs the retention (RMAN policy or
+  `DB_RECOVERY_FILE_DEST` usage) as a metric; the doctor (P1-24) is the natural source.
+- The connector tier cannot read the worker's JMX (the worker runs in a container); `MetricsEngineIT`
+  proves the MXBean at the engine level.
 
 ### P1-12 Exactly-once (ADR-0007)
 

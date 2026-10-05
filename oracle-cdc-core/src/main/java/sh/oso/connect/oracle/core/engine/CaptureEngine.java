@@ -91,6 +91,13 @@ public final class CaptureEngine {
   private final EngineMetrics metrics = new EngineMetrics();
   private final LobAssembler lobs;
   private LobReselector reselector;
+  private int decodeThreads = 1;
+  private java.util.concurrent.ForkJoinPool decodePool;
+  private java.util.Map<MiningEvent.Dml, Object> decoded = java.util.Map.of();
+
+  /** Below this many rows a step is decoded on the engine thread: the hand-off costs more. */
+  static final int PARALLEL_DECODE_MIN_ROWS = 256;
+
   private final Supplier<Instant> clock;
   private sh.oso.connect.oracle.core.orphan.OrphanDetector orphans =
       sh.oso.connect.oracle.core.orphan.OrphanDetector.disabled();
@@ -132,6 +139,12 @@ public final class CaptureEngine {
     this.clock = clock;
     this.cursor = StepCursor.resume(start.resumePoint());
     this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
+  }
+
+  /** CORE-MINE-6: decode a step's rows on this many threads before applying them in order. */
+  public CaptureEngine withDecodeThreads(int threads) {
+    this.decodeThreads = Math.max(1, threads);
+    return this;
   }
 
   /** CORE-DEC-7: how unavailable LOB values are fetched at commit in reselect mode. */
@@ -207,6 +220,7 @@ public final class CaptureEngine {
       enforceTransactionAge();
       checkOrphans();
       sink.idle(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
+      publishBuffer();
       return Progress.IDLE;
     }
     if (recycler.due()) {
@@ -247,7 +261,12 @@ public final class CaptureEngine {
     }
     consecutiveRetries = 0;
     warmSchemas(outcome); // every database read happens before the buffer changes
-    apply(outcome);
+    decoded = preDecode(outcome);
+    try {
+      apply(outcome);
+    } finally {
+      decoded = java.util.Map.of();
+    }
     cursor = outcome.next();
     Duration elapsed = Duration.between(t0, clock.get());
     metrics.lastStepMillis.set(elapsed.toMillis());
@@ -263,7 +282,14 @@ public final class CaptureEngine {
     enforceTransactionAge();
     checkOrphans();
     sink.stepApplied(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
+    publishBuffer();
     return Progress.STEP_APPLIED;
+  }
+
+  /** The buffer belongs to this thread; JMX readers see the snapshot taken here. */
+  private void publishBuffer() {
+    metrics.buffer = buffer.metrics();
+    metrics.largest = java.util.List.copyOf(buffer.largest(20));
   }
 
   /**
@@ -422,11 +448,77 @@ public final class CaptureEngine {
     }
   }
 
+  /**
+   * CORE-MINE-6: decodes the step's rows up to its first DDL (which may change the schema of what
+   * follows) on {@code decodeThreads} threads. Schemas are looked up here, on the engine thread;
+   * results and decode errors are consumed in redo order by {@link #apply}.
+   */
+  private java.util.Map<MiningEvent.Dml, Object> preDecode(StepOutcome outcome)
+      throws SQLException {
+    if (decodeThreads <= 1) {
+      return java.util.Map.of();
+    }
+    java.util.List<MiningEvent.Dml> rows = new java.util.ArrayList<>();
+    for (MiningEvent e : outcome.events()) {
+      if (e instanceof MiningEvent.Ddl) {
+        break;
+      }
+      if (e instanceof MiningEvent.Dml d
+          && !d.undo()
+          && d.op() != sh.oso.connect.oracle.core.model.Operation.SELECT_LOB_LOCATOR) {
+        rows.add(d);
+      }
+    }
+    if (rows.size() < PARALLEL_DECODE_MIN_ROWS) {
+      return java.util.Map.of();
+    }
+    TableSchema[] tables = new TableSchema[rows.size()];
+    for (int i = 0; i < tables.length; i++) {
+      tables[i] = schemas.current(rows.get(i).table());
+    }
+    Object[] results = new Object[rows.size()];
+    if (decodePool == null) {
+      decodePool = new java.util.concurrent.ForkJoinPool(decodeThreads);
+    }
+    decodePool
+        .submit(
+            () ->
+                java.util.stream.IntStream.range(0, results.length)
+                    .parallel()
+                    .forEach(i -> results[i] = decodeOne(rows.get(i), tables[i])))
+        .join();
+    java.util.Map<MiningEvent.Dml, Object> out = new java.util.IdentityHashMap<>();
+    for (int i = 0; i < results.length; i++) {
+      out.put(rows.get(i), results[i]);
+    }
+    return out;
+  }
+
+  private Object decodeOne(MiningEvent.Dml d, TableSchema schema) {
+    try {
+      return d.op().isLobOp()
+          ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema)
+          : decoder.decode(d, schema);
+    } catch (RuntimeException ex) {
+      return ex; // raised in order when the row is applied
+    }
+  }
+
+  /** The pre-decoded result for a row, rethrowing its exception, or null when not pre-decoded. */
+  private Object predecoded(MiningEvent.Dml d) {
+    Object r = decoded.get(d);
+    if (r instanceof RuntimeException ex) {
+      throw ex;
+    }
+    return r;
+  }
+
   private void decodeAndBuffer(MiningEvent.Dml d) throws SQLException {
     TableSchema schema = schemas.current(d.table());
     RowChange change;
     try {
-      change = decoder.decode(d, schema);
+      Object pre = predecoded(d);
+      change = pre != null ? (RowChange) pre : decoder.decode(d, schema);
     } catch (DecodeException ex) {
       if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
         throw ex;
@@ -456,7 +548,11 @@ public final class CaptureEngine {
                 + d.id(),
             "Report the row shape with the Oracle version (reference/lob-redo-shapes.md).");
       }
-      f = sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema);
+      Object pre = predecoded(d);
+      f =
+          pre != null
+              ? (sh.oso.connect.oracle.core.decode.LobFragment) pre
+              : sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema);
     } catch (DecodeException ex) {
       if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
         throw ex;

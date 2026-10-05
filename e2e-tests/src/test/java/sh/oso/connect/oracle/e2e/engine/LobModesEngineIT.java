@@ -261,6 +261,21 @@ class LobModesEngineIT {
       long end,
       LobAssembler.Mode mode)
       throws Exception {
+    return mine(meta, mining, reselect, include, startScn, end, mode, e -> {}, e -> {});
+  }
+
+  /** As above, with hooks to configure the engine before the run and inspect it after. */
+  static List<CommittedTransaction> mine(
+      Connection meta,
+      Connection mining,
+      Connection reselect,
+      String include,
+      long startScn,
+      long end,
+      LobAssembler.Mode mode,
+      java.util.function.Consumer<CaptureEngine> configure,
+      java.util.function.Consumer<CaptureEngine> inspect)
+      throws Exception {
     List<CommittedTransaction> committed = new ArrayList<>();
     JdbcCatalogSource catalog = new JdbcCatalogSource(() -> meta);
     ResolvedObjects objects =
@@ -339,12 +354,14 @@ class LobModesEngineIT {
                 },
                 Instant::now)
             .withReselector(new JdbcLobReselector(() -> reselect));
+    configure.accept(engine);
     long deadline = System.currentTimeMillis() + Duration.ofMinutes(2).toMillis();
     while (engine.cursor().scn() < end && System.currentTimeMillis() < deadline) {
       if (engine.runOnce() == CaptureEngine.Progress.IDLE) {
         Thread.sleep(100);
       }
     }
+    inspect.accept(engine);
     source.close();
     return committed;
   }

@@ -48,7 +48,9 @@ import sh.oso.connect.oracle.ops.OpsEventWriter;
  * from a heartbeat offset skips nothing and repeats nothing.
  */
 public final class RecordQueueSink
-    implements EventSink, sh.oso.connect.oracle.core.buffer.JournalSink {
+    implements EventSink,
+        sh.oso.connect.oracle.core.buffer.JournalSink,
+        sh.oso.connect.oracle.core.metrics.SinkMetrics {
 
   private final DebeziumEnvelope envelope;
   private final SchemaRegistry schemas;
@@ -70,6 +72,8 @@ public final class RecordQueueSink
   private long journalChunks;
   private long journalTombstones;
   private long dlqRecords;
+  private long lastCommitTimestamp = -1;
+  private long millisBehindSource = -1;
 
   public RecordQueueSink(
       DebeziumEnvelope envelope,
@@ -309,6 +313,10 @@ public final class RecordQueueSink
   @Override
   public synchronized void committed(
       CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate) {
+    if (tx.commitTimestamp() != null) {
+      lastCommitTimestamp = tx.commitTimestamp().toEpochMilli();
+      millisBehindSource = Math.max(0, clock.getAsLong() - lastCommitTimestamp);
+    }
     Map<TableId, Long> perTable = new HashMap<>();
     for (int i = 0; i < tx.size(); i++) {
       RowChange c = tx.events().get(i);
@@ -431,6 +439,16 @@ public final class RecordQueueSink
 
   public synchronized long journalTombstones() {
     return journalTombstones;
+  }
+
+  @Override
+  public synchronized long lastCommitTimestampMillis() {
+    return lastCommitTimestamp;
+  }
+
+  @Override
+  public synchronized long millisBehindSource() {
+    return millisBehindSource;
   }
 
   public synchronized long dlqRecords() {

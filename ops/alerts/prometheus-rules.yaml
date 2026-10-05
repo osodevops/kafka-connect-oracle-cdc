@@ -1,0 +1,59 @@
+# Prometheus alert rules for the OSO CDC Connector for Oracle Database (ADR-0013).
+# Metric names come from ops/jmx-exporter/oracle-cdc.yml; MetricsReferenceTest checks every name.
+groups:
+  - name: oracle-cdc
+    rules:
+      - alert: OracleCdcTaskMetricsAbsent
+        expr: absent(oracle_cdc_steps_total)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: No capture task is reporting metrics
+          description: The task stopped or its worker is not scraped. A stopped task names its error code in the Connect status and on the ops topic.
+      - alert: OracleCdcNotAdvancing
+        expr: increase(oracle_cdc_steps_total[10m]) + increase(oracle_cdc_idle_polls_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Capture task {{ $labels.server }} has neither mined nor polled for 10 minutes"
+          description: The engine thread is blocked. Check the task log and the mining session in V$SESSION.
+      - alert: OracleCdcBehindSource
+        expr: oracle_cdc_millis_behind_source > 300000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Capture task {{ $labels.server }} publishes commits more than five minutes after they happened"
+          description: Compare oracle_cdc_last_step_millis and oracle_cdc_queue_depth to tell slow mining from a slow Kafka side.
+      - alert: OracleCdcDlqRecords
+        expr: increase(oracle_cdc_dlq_records_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Capture task {{ $labels.server }} wrote records to the DLQ topic"
+          description: Rows that could not be decoded or transactions discarded by policy are on the DLQ; the ops topic names each one.
+      - alert: OracleCdcBufferNearMemoryLimit
+        expr: oracle_cdc_buffer_heap_bytes / oracle_cdc_buffer_memory_max_bytes > 0.9
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Capture task {{ $labels.server }} holds open transactions near cdc.buffer.memory.max.bytes"
+          description: The largest transactions spill to disk above the limit; the LargestTransactions attribute lists them.
+      - alert: OracleCdcSpillNearLimit
+        expr: oracle_cdc_spilled_bytes / oracle_cdc_spill_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Capture task {{ $labels.server }} spill use is above 80 per cent of cdc.buffer.spill.max.bytes"
+          description: At the limit the task stops with CDC-4001. Raise the limit or have the long transactions commit.
+      - alert: OracleCdcReconnecting
+        expr: increase(oracle_cdc_reconnects_total[15m]) > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Capture task {{ $labels.server }} reconnected to the database more than three times in 15 minutes"
+          description: Transient database errors (CDC-1001) are recurring; check the listener, the network and the instance.

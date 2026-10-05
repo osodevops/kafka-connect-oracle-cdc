@@ -33,6 +33,15 @@ public final class EngineMetrics {
   public final AtomicLong sessionRecycles = new AtomicLong();
   public final AtomicLong lobInsertsMerged = new AtomicLong();
   public final AtomicLong lobRowsApplied = new AtomicLong();
+
+  /** Published by the engine thread after every step and idle poll, for JMX readers. */
+  public volatile sh.oso.connect.oracle.core.buffer.BufferMetricsSnapshot buffer;
+
+  /** The 20 largest open transactions at the same moment (CORE-TX-8). */
+  public volatile java.util.List<
+          sh.oso.connect.oracle.core.buffer.TransactionBuffer.OpenTransaction>
+      largest;
+
   public final AtomicLong reconnects = new AtomicLong();
   public final AtomicLong orphansReleased = new AtomicLong();
   public final AtomicLong transactionsDiscarded = new AtomicLong();

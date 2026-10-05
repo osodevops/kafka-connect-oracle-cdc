@@ -228,6 +228,12 @@ public final class JdbcEngineFactory implements EngineFactory {
                 return new CaptureEngine.Sources(source, inventory, safeEnd);
               },
               Instant::now);
+      // CORE-MINE-6: 0 means the number of cores minus one, at most 8
+      int threads = core.getInt(CoreConfig.MINING_DECODE_THREADS);
+      engine.withDecodeThreads(
+          threads > 0
+              ? threads
+              : Math.min(8, Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
       if (core.lobMode() == CoreConfig.LobMode.RESELECT) {
         // CORE-DEC-7: AS OF queries on a connection of their own, which switches container
         engine.withReselector(

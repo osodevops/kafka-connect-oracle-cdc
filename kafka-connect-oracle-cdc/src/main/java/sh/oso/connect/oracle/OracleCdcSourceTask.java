@@ -51,6 +51,7 @@ public class OracleCdcSourceTask extends SourceTask {
   private EngineFactory.Session session;
   private RecordQueueSink sink;
   private EngineLifecycle lifecycle;
+  private javax.management.ObjectName metricsName;
   private final AckTracker acks = new AckTracker();
   private volatile Position startPosition;
 
@@ -155,6 +156,7 @@ public class OracleCdcSourceTask extends SourceTask {
                 }
               });
       lifecycle.start("oracle-cdc-engine-" + config.topicPrefix());
+      registerMetrics(engine);
     } catch (OracleCdcException e) {
       closeQuietly();
       throw new ConnectException(e.getMessage(), e);
@@ -290,7 +292,30 @@ public class OracleCdcSourceTask extends SourceTask {
     return new sh.oso.connect.oracle.topics.KafkaTopicAdmin(clientProps);
   }
 
+  /** ADR-0013: one MXBean per task; a failure to register is logged, never fatal. */
+  private void registerMetrics(CaptureEngine engine) {
+    try {
+      metricsName =
+          new sh.oso.connect.oracle.core.metrics.TaskMetrics(
+                  engine.metrics(),
+                  sink,
+                  config
+                      .core()
+                      .getLong(
+                          sh.oso.connect.oracle.core.config.CoreConfig.BUFFER_MEMORY_MAX_BYTES),
+                  config
+                      .core()
+                      .getLong(sh.oso.connect.oracle.core.config.CoreConfig.BUFFER_SPILL_MAX_BYTES),
+                  java.time.Instant::now)
+              .register(config.topicPrefix());
+    } catch (javax.management.JMException | RuntimeException e) {
+      LOG.warn("Task metrics could not be registered: {}", e.getMessage());
+    }
+  }
+
   private void closeQuietly() {
+    sh.oso.connect.oracle.core.metrics.TaskMetrics.unregister(metricsName);
+    metricsName = null;
     if (session != null) {
       try {
         session.close();

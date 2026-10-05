@@ -1,0 +1,251 @@
+# Generated from TaskMetricsMXBean by MetricsReferenceTest; do not edit by hand.
+# JMX Prometheus exporter rules for the OSO CDC Connector for Oracle Database.
+lowercaseOutputName: false
+lowercaseOutputLabelNames: true
+rules:
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>BufferHeapBytes'
+    name: oracle_cdc_buffer_heap_bytes
+    type: GAUGE
+    help: "Estimated heap bytes held by open transactions."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>BufferMemoryMaxBytes'
+    name: oracle_cdc_buffer_memory_max_bytes
+    type: GAUGE
+    help: "cdc.buffer.memory.max.bytes, for ratio alerts."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>BufferedEvents'
+    name: oracle_cdc_buffered_events
+    type: GAUGE
+    help: "Changes held for open transactions, on heap and spilled."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>DecodeFailures'
+    name: oracle_cdc_decode_failures_total
+    type: COUNTER
+    help: "Rows that could not be decoded and went to the DLQ (cdc.on.decode.error=dlq)."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>DlqRecords'
+    name: oracle_cdc_dlq_records_total
+    type: COUNTER
+    help: "DLQ records queued."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>EventsApplied'
+    name: oracle_cdc_events_applied_total
+    type: COUNTER
+    help: "Mining events applied to the transaction buffer."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>HeartbeatsSent'
+    name: oracle_cdc_heartbeats_sent_total
+    type: COUNTER
+    help: "Heartbeat records queued."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>IdlePolls'
+    name: oracle_cdc_idle_polls_total
+    type: COUNTER
+    help: "Polls that found no new redo."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>JournalChunks'
+    name: oracle_cdc_journal_chunks_total
+    type: COUNTER
+    help: "Transaction journal chunks queued."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>JournalTombstones'
+    name: oracle_cdc_journal_tombstones_total
+    type: COUNTER
+    help: "Transaction journal tombstones queued."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>JournaledTransactions'
+    name: oracle_cdc_journaled_transactions
+    type: GAUGE
+    help: "Open transactions written to the transaction journal."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>LastCommitTimestampMillis'
+    name: oracle_cdc_last_commit_timestamp_millis
+    type: GAUGE
+    help: "Commit time of the last transaction queued, epoch milliseconds, or -1."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>LastStepMillis'
+    name: oracle_cdc_last_step_millis
+    type: GAUGE
+    help: "Duration of the last mining step, in milliseconds."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>LobInsertsMerged'
+    name: oracle_cdc_lob_inserts_merged_total
+    type: COUNTER
+    help: "LOB locator updates folded into their INSERT."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>LobRowsApplied'
+    name: oracle_cdc_lob_rows_applied_total
+    type: COUNTER
+    help: "LOB_WRITE, LOB_TRIM and LOB_ERASE rows applied."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>MillisBehindSource'
+    name: oracle_cdc_millis_behind_source
+    type: GAUGE
+    help: "Time between the commit of the last transaction queued and its queueing, in milliseconds."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>MinedToScn'
+    name: oracle_cdc_mined_to_scn
+    type: GAUGE
+    help: "SCN the engine has mined up to."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>OldestOpenScn'
+    name: oracle_cdc_oldest_open_scn
+    type: GAUGE
+    help: "First SCN of the oldest open transaction that is not journaled, or -1; the resume position cannot pass it."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>OpenTransactions'
+    name: oracle_cdc_open_transactions
+    type: GAUGE
+    help: "Transactions open in the buffer."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>OpsEvents'
+    name: oracle_cdc_ops_events_total
+    type: COUNTER
+    help: "Ops topic events queued."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>OrphansReleased'
+    name: oracle_cdc_orphans_released_total
+    type: COUNTER
+    help: "Open transactions released by orphan detection (CORE-TX-7)."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>QueueDepth'
+    name: oracle_cdc_queue_depth
+    type: GAUGE
+    help: "Records waiting for Kafka Connect to poll."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>Reconnects'
+    name: oracle_cdc_reconnects_total
+    type: COUNTER
+    help: "Reconnections after a transient database error (CDC-1001)."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>RolledBackTransactions'
+    name: oracle_cdc_rolled_back_transactions_total
+    type: COUNTER
+    help: "Transactions rolled back while buffered."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>RowsMined'
+    name: oracle_cdc_rows_mined_total
+    type: COUNTER
+    help: "Rows returned by LogMiner, including rows for other tables in the same logs and transaction control rows."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SafeEndScn'
+    name: oracle_cdc_safe_end_scn
+    type: GAUGE
+    help: "Database SCN read at the last step: the end of what can be mined."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>ScnLag'
+    name: oracle_cdc_scn_lag
+    type: GAUGE
+    help: "SafeEndScn minus MinedToScn."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SessionRecycles'
+    name: oracle_cdc_session_recycles_total
+    type: COUNTER
+    help: "LogMiner sessions restarted at cdc.mining.session.max.age.ms."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SpillMaxBytes'
+    name: oracle_cdc_spill_max_bytes
+    type: GAUGE
+    help: "cdc.buffer.spill.max.bytes, for ratio alerts."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SpilledBytes'
+    name: oracle_cdc_spilled_bytes
+    type: GAUGE
+    help: "Bytes in spill files."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SpilledTransactions'
+    name: oracle_cdc_spilled_transactions
+    type: GAUGE
+    help: "Open transactions spilled to disk."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>StepCuts'
+    name: oracle_cdc_step_cuts_total
+    type: COUNTER
+    help: "Steps cut after a DDL that changed the captured object ids."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>StepRetries'
+    name: oracle_cdc_step_retries_total
+    type: COUNTER
+    help: "Steps discarded and mined again after a retriable LogMiner error (CDC-1002)."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>StepTimeouts'
+    name: oracle_cdc_step_timeouts_total
+    type: COUNTER
+    help: "Steps cancelled at cdc.mining.query.timeout.ms; the next step covers fewer logs."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>Steps'
+    name: oracle_cdc_steps_total
+    type: COUNTER
+    help: "Mining steps applied."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>TransactionsCommitted'
+    name: oracle_cdc_transactions_committed_total
+    type: COUNTER
+    help: "Committed transactions handed to the sink."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>TransactionsDiscarded'
+    name: oracle_cdc_transactions_discarded_total
+    type: COUNTER
+    help: "Transactions dropped by cdc.transaction.max.age.action=discard."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>TransactionsSkipped'
+    name: oracle_cdc_transactions_skipped_total
+    type: COUNTER
+    help: "Committed transactions already delivered before a restart, skipped whole."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>UndoneEvents'
+    name: oracle_cdc_undone_events_total
+    type: COUNTER
+    help: "Changes removed or downgraded by savepoint and statement rollbacks."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>UnmatchedUndo'
+    name: oracle_cdc_unmatched_undo_total
+    type: COUNTER
+    help: "Undo rows that matched no buffered change."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>WindowLogs'
+    name: oracle_cdc_window_logs
+    type: GAUGE
+    help: "Redo logs in the last step's window."
+    labels:
+      server: "$1"
