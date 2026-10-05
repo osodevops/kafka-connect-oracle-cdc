@@ -64,9 +64,10 @@ import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
 /**
  * Invariant: when the redo holding the start of an open transaction has been purged, a restart
  * stops with the purge named (CORE-LOG-4) instead of resuming later and publishing the transaction
- * without its early changes. Debezium users hit the opposite with DBZ-2713.
+ * without its early changes. Debezium warns and continues in that case; the issue asks for a
+ * fail-fast option.
  *
- * @see <a href="https://issues.redhat.com/browse/DBZ-2713">DBZ-2713</a>
+ * @see <a href="https://github.com/debezium/dbz/issues/2713">dbz#2713</a>
  */
 @Tag("engine")
 @Tag("dbz-2713")

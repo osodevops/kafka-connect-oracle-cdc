@@ -158,7 +158,13 @@ class HeapTransactionBufferTest {
     assertThat(b.metrics().committedTransactions()).isEqualTo(3);
   }
 
+  /**
+   * Regression for <a href="https://github.com/debezium/dbz/issues/2683">dbz#2683</a>: an all-zero
+   * XID START row opens no transaction (the engine-level case is {@code
+   * IgnoresAllZeroXidStartRowsTest} in the regression corpus).
+   */
   @Test
+  @org.junit.jupiter.api.Tag("dbz-2683")
   void startRowsNeverCreateEntriesAndZeroXidsAreIgnored() {
     HeapTransactionBuffer b = new HeapTransactionBuffer();
     TxKey k = key(3, 9);

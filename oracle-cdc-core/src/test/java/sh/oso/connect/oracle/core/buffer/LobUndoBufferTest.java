@@ -39,8 +39,13 @@ import sh.oso.connect.oracle.core.model.TxKey;
 /**
  * Undo of changes that carry a synthetic ROWID (ADR-0015), with the savepoint sequences of
  * reference/lob-redo-shapes.md: Oracle undoes newest first, and its undo rows name the real ROWID
- * while the changes they undo only had the placeholder.
+ * while the changes they undo only had the placeholder. The savepoint bugs with LOB columns fixed
+ * in Debezium 3.7 (dbz#1422, dbz#1735, dbz#1917) are these invariants; the engine-level suite is
+ * {@code RollsBackToSavepointExactlyEngineIT} in the regression corpus.
  */
+@org.junit.jupiter.api.Tag("dbz-1422")
+@org.junit.jupiter.api.Tag("dbz-1735")
+@org.junit.jupiter.api.Tag("dbz-1917")
 class LobUndoBufferTest {
 
   static final TableId OTHER = new TableId("FREEPDB1", "APP", "OTHER");

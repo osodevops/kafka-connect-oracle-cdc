@@ -39,11 +39,12 @@ import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
 /**
  * Invariant: on a database with no changes to captured tables the committed offset still advances
  * (CORE-POS-5, SRC-HB-1), so archived logs older than the position can be purged and a restart does
- * not re-mine hours of redo. Debezium users hit the opposite with DBZ-2781 (offset never moves on
- * an idle database) and DBZ-2475 (heartbeat emitted only with captured changes).
+ * not re-mine hours of redo. Debezium users hit the opposite with dbz#2781 (no periodic heartbeats
+ * for quiet tables) and dbz#2475 (the {@code scn} in the offset stuck while the commit SCN moved
+ * on).
  *
- * @see <a href="https://issues.redhat.com/browse/DBZ-2781">DBZ-2781</a>
- * @see <a href="https://issues.redhat.com/browse/DBZ-2475">DBZ-2475</a>
+ * @see <a href="https://github.com/debezium/dbz/issues/2781">dbz#2781</a>
+ * @see <a href="https://github.com/debezium/dbz/issues/2475">dbz#2475</a>
  */
 @Tag("connector")
 @Tag("dbz-2781")

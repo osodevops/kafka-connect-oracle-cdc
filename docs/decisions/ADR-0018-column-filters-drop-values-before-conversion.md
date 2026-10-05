@@ -52,8 +52,10 @@ quote, and what happens when a key column matches a pattern.
 ## Evidence
 
 `ColumnFilterTest`, `ColumnFilterDecodeTest`, `ColumnFilterEngineTest` (spill files and journal
-chunks free of an excluded value, undo of a LOB statement on an excluded column, reselect), and
-the connector's configuration, envelope, DLQ and task tests.
+chunks free of an excluded value, undo of a LOB statement on an excluded column, reselect), the
+connector's configuration, envelope, DLQ and task tests, and the regression suites for dbz#1599:
+`ExcludedColumnsStayOutAcrossDdlConnectorIT` (snapshot, streaming across ALTER TABLE, validation
+of a key column) and `ExcludesColumnsOfRowsReplayedAfterDdlEngineIT` (rows replayed after DDL).
 
 ## PRD edits
 

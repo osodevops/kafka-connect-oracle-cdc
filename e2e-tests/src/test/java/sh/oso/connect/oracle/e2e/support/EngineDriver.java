@@ -65,6 +65,10 @@ public final class EngineDriver implements AutoCloseable {
   public final SchemaRegistry registry;
   private final LogMinerEventSource source;
   private volatile ResolvedObjects objects;
+  private volatile Set<String> excludedUsers = Set.of();
+
+  /** No step mines past this SCN, so a suite can force many small steps (each its own window). */
+  public volatile long safeEndCap = Long.MAX_VALUE;
 
   /**
    * What a suite may change in the engine the driver builds: the LogMiner query timeout, the engine
@@ -192,7 +196,7 @@ public final class EngineDriver implements AutoCloseable {
     java.util.function.Supplier<Long> safeEnd =
         () -> {
           try {
-            return catalog.currentScn();
+            return Math.min(safeEndCap, catalog.currentScn());
           } catch (SQLException e) {
             throw new OraErrorClassifier().toException(e, "safe end");
           }
@@ -213,7 +217,7 @@ public final class EngineDriver implements AutoCloseable {
                 objects.owners(),
                 () -> {
                   objects = resolver.resolve();
-                  source.update(objects, objects.filter(Set.of(), 1000));
+                  source.update(objects, objects.filter(excludedUsers, 1000));
                   return objects.owners();
                 },
                 cause -> {
@@ -222,6 +226,13 @@ public final class EngineDriver implements AutoCloseable {
                 Instant::now)
             .withReselector(new JdbcLobReselector(() -> reselect))
             .withCapturedTables(t -> objects.tables().contains(t));
+  }
+
+  /** {@code cdc.users.exclude}: these users' transactions are dropped in the mining query. */
+  public EngineDriver excludeUsers(Set<String> users) {
+    this.excludedUsers = Set.copyOf(users);
+    source.update(objects, objects.filter(excludedUsers, 1000));
+    return this;
   }
 
   /** Mines until the cursor reaches {@code scn} (at most two minutes). */
