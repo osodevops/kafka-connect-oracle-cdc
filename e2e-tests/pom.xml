@@ -21,6 +21,12 @@
     <docker.api.version>1.44</docker.api.version>
     <oracle.image.tag>23.26.3-slim-faststart</oracle.image.tag>
     <e2e.groups/>
+    <!-- DebeziumCutoverConnectorIT (PRD-04): the Debezium Oracle connector (Apache-2.0) from Maven
+         Central, unpacked from its own plugin archive (its runtime jars and the Oracle JDBC driver it
+         ships, no Kafka or Connect jars) into a plugin directory the Connect worker mounts next to
+         ours. Never on the test classpath. -->
+    <debezium.version>3.7.0.Final</debezium.version>
+    <debezium.plugin.root>${project.build.directory}/debezium-plugin</debezium.plugin.root>
   </properties>
 
   <dependencies>
@@ -112,6 +118,33 @@
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.8.1</version>
+        <executions>
+          <execution>
+            <id>debezium-plugin</id>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <phase>pre-integration-test</phase>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>io.debezium</groupId>
+                  <artifactId>debezium-connector-oracle</artifactId>
+                  <version>${debezium.version}</version>
+                  <classifier>plugin</classifier>
+                  <type>tar.gz</type>
+                  <outputDirectory>${debezium.plugin.root}</outputDirectory>
+                </artifactItem>
+              </artifactItems>
+              <overWriteReleases>false</overWriteReleases>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <systemPropertyVariables>
@@ -132,6 +165,8 @@
             <repo.root>${project.basedir}/..</repo.root>
             <api.version>${docker.api.version}</api.version>
             <oracle.image.tag>${oracle.image.tag}</oracle.image.tag>
+            <debezium.version>${debezium.version}</debezium.version>
+            <debezium.plugin.dir>${debezium.plugin.root}/debezium-connector-oracle</debezium.plugin.dir>
           </systemPropertyVariables>
         </configuration>
         <executions>
@@ -163,6 +198,19 @@
             <configuration>
               <skipITs>true</skipITs>
             </configuration>
+          </plugin>
+          <plugin>
+            <!-- no Debezium download when no integration test runs -->
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>debezium-plugin</id>
+                <configuration>
+                  <skip>true</skip>
+                </configuration>
+              </execution>
+            </executions>
           </plugin>
         </plugins>
       </build>

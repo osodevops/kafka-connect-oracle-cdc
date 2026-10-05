@@ -71,6 +71,31 @@ jobs:
           fi
           echo "licence gate correctly rejected the GPL dependency (exit $status)"
 
+  migration-tools:
+    name: migration tools (ruff, pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/migration
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv and Python 3.11
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.26'
+          python-version: '3.11'
+          enable-cache: true
+          cache-dependency-glob: tools/migration/uv.lock
+      - name: Install the locked environment
+        run: uv sync --locked
+      - name: ruff check
+        run: uv run --locked ruff check .
+      - name: ruff format --check
+        run: uv run --locked ruff format --check .
+      - name: pytest
+        run: uv run --locked pytest -q
+
   t1-engine:
     name: T1 engine (Oracle Database Free)
     runs-on: ubuntu-latest
@@ -125,6 +150,13 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Set up uv and Python 3.11 (DebeziumCutoverConnectorIT runs the migration tools)
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.26'
+          python-version: '3.11'
+          enable-cache: true
+          cache-dependency-glob: tools/migration/uv.lock
       - name: Build modules without tests
         run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
       - name: Oracle, Kafka and Connect worker integration tests
@@ -136,6 +168,14 @@ jobs:
           name: t1-connector-reports
           path: e2e-tests/target/failsafe-reports/
           retention-days: 7
+      - name: Upload the Debezium cutover evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-evidence
+          path: e2e-tests/target/migration-evidence.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   central-dry-run:
     name: Maven Central dry run (no secrets)

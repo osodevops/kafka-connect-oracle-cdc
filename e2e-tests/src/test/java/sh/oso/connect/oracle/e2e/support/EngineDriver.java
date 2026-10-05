@@ -62,8 +62,37 @@ public final class EngineDriver implements AutoCloseable {
   public final CaptureEngine engine;
   public final List<CommittedTransaction> committed = new ArrayList<>();
   public final List<TableSchema> schemaChanges = new ArrayList<>();
+  public final SchemaRegistry registry;
   private final LogMinerEventSource source;
   private volatile ResolvedObjects objects;
+
+  /**
+   * What a suite may change in the engine the driver builds: the LogMiner query timeout, the engine
+   * settings (null for the driver's), and the sink (null for the collecting sink, which fills
+   * {@link #committed}); the sink is built from the driver's schema registry, as the task builds
+   * its record queue.
+   */
+  public record Options(
+      Duration queryTimeout,
+      EngineSettings settings,
+      java.util.function.Function<SchemaRegistry, EventSink> sink) {
+
+    public static Options defaults() {
+      return new Options(Duration.ofMinutes(5), null, null);
+    }
+
+    public Options withQueryTimeout(Duration d) {
+      return new Options(d, settings, sink);
+    }
+
+    public Options withSettings(EngineSettings s) {
+      return new Options(queryTimeout, s, sink);
+    }
+
+    public Options withSink(java.util.function.Function<SchemaRegistry, EventSink> f) {
+      return new Options(queryTimeout, settings, f);
+    }
+  }
 
   public EngineDriver(
       Connection meta,
@@ -89,6 +118,20 @@ public final class EngineDriver implements AutoCloseable {
       LobAssembler.Mode mode,
       sh.oso.connect.oracle.core.schema.SchemaStore store)
       throws SQLException {
+    this(meta, mining, reselect, include, startScn, mode, store, Options.defaults());
+  }
+
+  /** As the other constructors, with the query timeout, settings or sink of {@code options}. */
+  public EngineDriver(
+      Connection meta,
+      Connection mining,
+      Connection reselect,
+      String include,
+      long startScn,
+      LobAssembler.Mode mode,
+      sh.oso.connect.oracle.core.schema.SchemaStore store,
+      Options options)
+      throws SQLException {
     JdbcCatalogSource catalog = new JdbcCatalogSource(() -> meta);
     ObjectIdResolver resolver =
         new ObjectIdResolver(
@@ -103,16 +146,16 @@ public final class EngineDriver implements AutoCloseable {
     source =
         new LogMinerEventSource(
             inventory,
-            new JdbcLogMinerSession(mining, 2000, Duration.ofMinutes(5)),
+            new JdbcLogMinerSession(mining, 2000, options.queryTimeout()),
             objects,
             objects.filter(Set.of(), 1000),
             DictionaryMode.ONLINE_CATALOG);
-    SchemaRegistry registry =
+    registry =
         new SchemaRegistry(
             store,
             new JdbcDictionaryReader(() -> meta),
             new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.ROWID));
-    EventSink sink =
+    EventSink collecting =
         new EventSink() {
           public void committed(CommittedTransaction tx, int skip, RedoRecordId resume) {
             // read now, as RecordQueueSink does: reselect runs inside the engine's step
@@ -135,6 +178,17 @@ public final class EngineDriver implements AutoCloseable {
             schemaChanges.add(schema);
           }
         };
+    EventSink sink = options.sink() == null ? collecting : options.sink().apply(registry);
+    EngineSettings settings =
+        options.settings() != null
+            ? options.settings()
+            : new EngineSettings(
+                Duration.ofSeconds(2),
+                8,
+                Duration.ofHours(1),
+                Duration.ofMillis(50),
+                3,
+                CoreConfig.DecodeErrorAction.FAIL);
     java.util.function.Supplier<Long> safeEnd =
         () -> {
           try {
@@ -154,14 +208,7 @@ public final class EngineDriver implements AutoCloseable {
                 registry,
                 ChangeDecoder.rowDecoder(),
                 sink,
-                new EngineSettings(
-                        Duration.ofSeconds(2),
-                        8,
-                        Duration.ofHours(1),
-                        Duration.ofMillis(50),
-                        3,
-                        CoreConfig.DecodeErrorAction.FAIL)
-                    .withLobs(mode, 1L << 20, true),
+                settings.withLobs(mode, 1L << 20, true),
                 new OraErrorClassifier(),
                 objects.owners(),
                 () -> {

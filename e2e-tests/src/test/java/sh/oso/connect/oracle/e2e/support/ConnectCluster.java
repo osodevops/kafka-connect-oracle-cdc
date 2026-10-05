@@ -91,6 +91,37 @@ public final class ConnectCluster implements AutoCloseable {
             .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("connect"));
   }
 
+  /**
+   * Mounts another connector plugin directory next to ours, as {@code /plugins/<name>}; call before
+   * {@link #start}. The Debezium cutover suite mounts the Debezium Oracle connector this way.
+   */
+  public ConnectCluster withPlugin(Path dir, String name) {
+    if (!Files.isDirectory(dir)) {
+      throw new IllegalStateException("plugin directory missing: " + dir);
+    }
+    connect.withCopyFileToContainer(MountableFile.forHostPath(dir), "/plugins/" + name);
+    return this;
+  }
+
+  /**
+   * The Debezium Oracle connector plugin unpacked by the e2e-tests build (pre-integration-test).
+   */
+  public static Path debeziumPluginDir() {
+    String dir = System.getProperty("debezium.plugin.dir");
+    if (dir == null) {
+      throw new IllegalStateException(
+          "debezium.plugin.dir is not set; run the suite through Maven failsafe");
+    }
+    Path p = Path.of(dir);
+    if (!Files.isDirectory(p)) {
+      throw new IllegalStateException(
+          "Debezium plugin directory missing (the e2e-tests build unpacks it in"
+              + " pre-integration-test): "
+              + p);
+    }
+    return p;
+  }
+
   public ConnectCluster start() {
     kafka.start();
     connect.start();
@@ -349,6 +380,67 @@ public final class ConnectCluster implements AutoCloseable {
       Thread.sleep(500);
     }
     throw new AssertionError("connector " + name + " task not " + state + ": " + last);
+  }
+
+  /** The connector's own state (RUNNING, PAUSED, STOPPED, FAILED), or null when unknown. */
+  public String connectorState(String name) throws IOException, InterruptedException {
+    JsonNode s = status(name);
+    return s.path("connector").path("state").isMissingNode()
+        ? null
+        : s.path("connector").path("state").asText();
+  }
+
+  /** Waits until the connector itself (not its task) reports {@code state}. */
+  public void awaitConnectorState(String name, String state, Duration timeout) throws Exception {
+    long deadline = System.currentTimeMillis() + timeout.toMillis();
+    String last = null;
+    while (System.currentTimeMillis() < deadline) {
+      last = connectorState(name);
+      if (state.equals(last)) {
+        return;
+      }
+      Thread.sleep(500);
+    }
+    throw new AssertionError("connector " + name + " not " + state + ": " + last);
+  }
+
+  /** GET /connectors/{name}: the name and the configuration as the worker holds them. */
+  public JsonNode connectorInfo(String name) throws IOException, InterruptedException {
+    HttpResponse<String> r =
+        http.send(
+            HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name)).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+    if (r.statusCode() != 200) {
+      throw new IllegalStateException("GET connector " + name + ": HTTP " + r.statusCode());
+    }
+    return MAPPER.readTree(r.body());
+  }
+
+  /** GET /connectors/{name}/offsets as returned, whatever it holds. */
+  public JsonNode offsets(String name) throws IOException, InterruptedException {
+    HttpResponse<String> r =
+        http.send(
+            HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name + "/offsets"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    if (r.statusCode() != 200) {
+      throw new IllegalStateException(
+          "GET offsets " + name + ": HTTP " + r.statusCode() + " " + r.body());
+    }
+    return MAPPER.readTree(r.body());
+  }
+
+  /** DELETE /connectors/{name}. */
+  public void delete(String name) throws IOException, InterruptedException {
+    HttpResponse<String> r =
+        http.send(
+            HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name)).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString());
+    if (r.statusCode() / 100 != 2 && r.statusCode() != 404) {
+      throw new IllegalStateException(
+          "delete " + name + ": HTTP " + r.statusCode() + " " + r.body());
+    }
   }
 
   public JsonNode status(String name) throws IOException, InterruptedException {
