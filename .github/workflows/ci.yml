@@ -136,3 +136,40 @@ jobs:
           name: t1-connector-reports
           path: e2e-tests/target/failsafe-reports/
           retention-days: 7
+
+  central-dry-run:
+    name: Maven Central dry run (no secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Release profile, throwaway signature, upload to a loopback stub, bundle checked
+        env:
+          # a short keyring path: gpg-agent sockets live in it and Unix socket paths are limited
+          CENTRAL_DRY_RUN_GNUPGHOME: ${{ runner.temp }}/dry-run-gnupg
+        run: release/central-dry-run.sh
+
+  workflows:
+    name: workflow lint and release guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+      - name: Only release-please creates releases and tags
+        run: |
+          set -euo pipefail
+          # the bracketed letters stop this line from matching itself
+          if grep -nE 'git ([t]ag|[p]ush)|gh release [c]reate|action-gh-[r]elease|actions/[c]reate-release|/git/[r]efs' .github/workflows/*.yml; then
+            echo "::error::a workflow creates a tag, release or pushes; only release-please may create releases (CLAUDE.md, Releasing)"
+            exit 1
+          fi
+          echo "No workflow creates tags or releases"

@@ -1,0 +1,68 @@
+name: Debezium Oracle issue watch
+
+# Weekly and read-only: lists the Oracle connector issues closed recently in debezium/dbz (label
+# component/oracle-connector) so a maintainer can triage them for the regression corpus
+# (docs/testing_strategy.md section 5). Rows whose titles mention loss, duplication, offsets, SCNs,
+# restarts, rollbacks, LOBs or wrong values are flagged. The list goes to the run summary and a
+# Markdown artefact; the workflow creates nothing in either repository and needs no secret.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Days to look back
+        required: false
+        default: '8'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DAYS: ${{ inputs.days || '8' }}
+      FLAG: 'loss|lost|los(e|ing)|miss|skip|duplicat|offset|scn|restart|rollback|savepoint|lob|wrong|incorrect|corrupt|stuck|purge|archive'
+    steps:
+      - name: List recently closed Debezium Oracle issues
+        run: |
+          set -euo pipefail
+          case "$DAYS" in
+            ''|*[!0-9]*) echo "::error::days must be a whole number, got '${DAYS}'"; exit 1 ;;
+          esac
+          since=$(date -u -d "-${DAYS} days" +%Y-%m-%d)
+          gh search issues --repo debezium/dbz --label component/oracle-connector --state closed \
+            --closed ">=${since}" --limit 200 --json number,title,url,labels,closedAt > dbz-oracle-issues.json
+          count=$(jq 'length' dbz-oracle-issues.json)
+          flagged=$(jq --arg re "$FLAG" '[.[] | select(.title | test($re; "i"))] | length' dbz-oracle-issues.json)
+          {
+            echo "## Debezium Oracle issues closed since ${since}"
+            echo
+            echo "${count} closed issues with the component/oracle-connector label in debezium/dbz, ${flagged} flagged for triage."
+            echo "Flagged rows mention loss, duplication, offsets, SCNs, restarts, rollbacks, LOBs or wrong values."
+            echo "Add a regression suite for any issue that describes data loss, duplication, pinned offsets or wrong values."
+            echo
+            if [ "$count" -gt 0 ]; then
+              echo "| Issue | Title | Labels | Closed | Triage |"
+              echo "|---|---|---|---|---|"
+              jq -r --arg re "$FLAG" '
+                sort_by(.closedAt) | reverse | .[]
+                | "| [#\(.number)](\(.url)) | \(.title | gsub("\\|"; "\\|")) | \([.labels[].name] | join(", ")) | \(.closedAt[0:10]) | \(if (.title | test($re; "i")) then "flagged" else "" end) |"
+              ' dbz-oracle-issues.json
+            fi
+          } > dbz-oracle-issues.md
+          cat dbz-oracle-issues.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the list as an artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbz-oracle-issues
+          path: |
+            dbz-oracle-issues.md
+            dbz-oracle-issues.json
+          retention-days: 90

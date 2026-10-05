@@ -1,0 +1,167 @@
+name: Nightly
+
+# T2 fault and correctness tier (docs/testing_strategy.md sections 1, 3 and 4) on both Oracle
+# Database Free versions in the matrix, plus the T1 engine and connector tiers on each version,
+# because ci.yml runs T1 on the default image only (section 6).
+#
+# Every job uploads the evidence JSON the suites write (e2e-tests/target/*-evidence.json) and the
+# failsafe reports. T2 evidence artefacts are named evidence-t2-<image tag>; release.yml requires
+# them from the latest nightly run on the default branch before it publishes. While e2e-tests has no
+# *NightlyIT suite the T2 jobs record that in the run summary and produce no T2 evidence, so the
+# release gate stays closed until T2 suites exist and pass.
+#
+# A failure on the default branch opens an issue labelled nightly-failure, or comments on the one
+# already open. Secrets: none required; DOCKERHUB_USERNAME and DOCKERHUB_TOKEN avoid anonymous pull
+# limits when set.
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  suites:
+    name: ${{ matrix.label }} on ${{ matrix.oracle }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        oracle: ['23.26.3-slim-faststart', '23.9-faststart']
+        tier: [nightly, engine, connector]
+        include:
+          - tier: nightly
+            label: t2
+            timeout: 330
+          - tier: engine
+            label: t1-engine
+            timeout: 60
+          - tier: connector
+            label: t1-connector
+            timeout: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space for the Oracle images
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Log in to Docker Hub (avoids anonymous pull limits)
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Count the suites in this tier
+        id: tier
+        env:
+          TIER: ${{ matrix.tier }}
+          ORACLE_TAG: ${{ matrix.oracle }}
+        run: |
+          set -euo pipefail
+          case "$TIER" in
+            nightly) suffix=NightlyIT ;;
+            engine) suffix=EngineIT ;;
+            connector) suffix=ConnectorIT ;;
+            *) echo "::error::unknown tier ${TIER}"; exit 1 ;;
+          esac
+          count=$(find e2e-tests/src/test/java -name "*${suffix}.java" | wc -l | tr -d ' ')
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          if [ "$count" -eq 0 ] && [ "$TIER" = "nightly" ]; then
+            echo "::warning::no *NightlyIT suites in e2e-tests yet: T2 did not run on ${ORACLE_TAG} and produced no evidence, so the release gate stays closed"
+            echo "T2 on ${ORACLE_TAG}: no *NightlyIT suites in e2e-tests yet; nothing ran and no T2 evidence was produced." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$count" -eq 0 ]; then
+            echo "::error::no *${suffix} suites found"
+            exit 1
+          else
+            echo "${count} *${suffix} suites on ${ORACLE_TAG}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build modules without tests
+        if: steps.tier.outputs.count != '0'
+        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+
+      - name: Run the ${{ matrix.label }} tier
+        if: steps.tier.outputs.count != '0'
+        run: >-
+          mvn -pl e2e-tests verify
+          -De2e.groups=${{ matrix.tier }}
+          -Doracle.image.tag=${{ matrix.oracle }}
+          --batch-mode --no-transfer-progress
+
+      - name: Upload evidence JSON
+        if: always() && steps.tier.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ matrix.label }}-${{ matrix.oracle }}
+          path: e2e-tests/target/*-evidence.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload failsafe reports
+        if: always() && steps.tier.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ matrix.label }}-${{ matrix.oracle }}
+          path: e2e-tests/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  report-failure:
+    name: open or update the nightly failure issue
+    needs: suites
+    if: ${{ failure() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      COMMIT: ${{ github.sha }}
+      LABEL: nightly-failure
+    steps:
+      - name: Open or update the issue
+        run: |
+          set -euo pipefail
+          failed=$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs \
+            --jq '.jobs[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "skipped") | "- " + .name + " (" + .conclusion + ")"')
+          body=$(printf '%s\n' \
+            "The nightly run on $(date -u +%Y-%m-%d) failed." \
+            "" \
+            "Run: ${RUN_URL}" \
+            "Commit: ${COMMIT}" \
+            "" \
+            "Failed jobs:" \
+            "${failed:-- see the run}" \
+            "" \
+            "Evidence JSON and failsafe reports are attached to the run as artefacts. Treat a missed or" \
+            "duplicated change as a product bug until proven otherwise. Close this issue once a nightly run passes.")
+          gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color B60205 \
+            --description "The scheduled nightly workflow failed" --force >/dev/null
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+            echo "Commented on issue #${number}"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Nightly run failing" --label "$LABEL" --body "$body"
+          fi

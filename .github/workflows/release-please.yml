@@ -1,16 +1,24 @@
 name: release-please
 
+# release-please is the only thing that creates releases. Conventional commits on main keep a
+# release pull request open; merging it creates the vX.Y.Z release, and this workflow then calls
+# release.yml, which enforces the release gate and publishes. After a release, release-please
+# opens a pull request that moves every POM to the next -SNAPSHOT version.
+
 on:
   push:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -23,9 +31,16 @@ jobs:
           manifest-file: .release-please-manifest.json
 
   # A release created with GITHUB_TOKEN does not trigger other workflows, so call release.yml directly.
+  # A called workflow cannot hold more than its caller grants, so this job grants what release.yml uses.
   publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+      packages: write
     uses: ./.github/workflows/release.yml
     with:
       version: ${{ needs.release-please.outputs.version }}

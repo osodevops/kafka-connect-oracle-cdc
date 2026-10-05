@@ -10,11 +10,11 @@
       "package-name": "kafka-connect-oracle-cdc",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        "oracle-cdc-core/pom.xml",
-        "kafka-connect-oracle-cdc/pom.xml",
-        "oracle-cdc-doctor/pom.xml",
-        "bench/pom.xml",
-        "e2e-tests/pom.xml"
+        {"type": "pom", "path": "oracle-cdc-core/pom.xml"},
+        {"type": "pom", "path": "kafka-connect-oracle-cdc/pom.xml"},
+        {"type": "pom", "path": "oracle-cdc-doctor/pom.xml"},
+        {"type": "pom", "path": "bench/pom.xml"},
+        {"type": "pom", "path": "e2e-tests/pom.xml"}
       ]
     }
   }

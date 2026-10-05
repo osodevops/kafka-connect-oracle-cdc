@@ -2,7 +2,7 @@
   "name": "kafka-connect-oracle-cdc",
   "version": "${project.version}",
   "title": "OSO CDC Connector for Oracle Database",
-  "description": "Apache-2.0 change data capture source connector for Oracle Database, built on LogMiner. Exactly-once delivery aligned to Oracle transactions, durable transaction journal, bounded memory with spill to disk, SCN-anchored resumable snapshots and multi-PDB capture. Drop-in replacement for Confluent Oracle CDC Source and Debezium Oracle.",
+  "description": "Apache-2.0 change data capture source connector for Oracle Database, built on LogMiner. Exactly-once delivery aligned to Oracle transactions, durable transaction journal, bounded memory with spill to disk, SCN-anchored resumable snapshots and multi-PDB capture. Drop-in replacement for Confluent Oracle CDC Source and Debezium Oracle. Oracle and Java are registered trademarks of Oracle and/or its affiliates. This project is not affiliated with or endorsed by Oracle.",
   "owner": {
     "username": "osodevops",
     "type": "organization",

@@ -494,7 +494,8 @@
             <extensions>true</extensions>
             <configuration>
               <publishingServerId>central</publishingServerId>
-              <deploymentName>${project.artifactId}-${project.version}</deploymentName>
+              <!-- literal name: the plugin uploads from the last reactor module, whose artifactId is e2e-tests -->
+              <deploymentName>kafka-connect-oracle-cdc-${project.version}</deploymentName>
               <autoPublish>true</autoPublish>
               <waitUntil>published</waitUntil>
             </configuration>

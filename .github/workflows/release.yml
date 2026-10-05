@@ -1,14 +1,27 @@
 name: Release
 
+# Publishes a release that release-please has already created. release-please.yml calls this
+# workflow when it creates the release, because a release made with GITHUB_TOKEN starts no other
+# workflow. Manual dispatch reruns it for an existing release-please release. This workflow never
+# creates a Git ref or a GitHub Release: it refuses a version whose release does not exist, whose
+# commit is not on the default branch, or whose POM, manifest and release name disagree.
+#
+# Release gate (docs/testing_strategy.md section 9) enforced here, on the released commit:
+#   T0     mvn clean verify -DskipE2E on Java 17 and 21 (includes the Hub manifest and ZIP layout tests)
+#   T1     engine and connector tiers against Oracle Database Free
+#   T2     the latest nightly run on the default branch passed, recently, with T2 evidence attached
+#   Bundle Central dry run: release profile, throwaway signature, bundle contents checked
+# T3 soak and T4 qualification stay a maintainer sign-off before the release pull request is merged;
+# add required reviewers to the `release` environment to record that sign-off on every release.
+#
+# Secrets (check them with verify-release-secrets.yml): CENTRAL_USERNAME, CENTRAL_TOKEN,
+# MAVEN_GPG_PRIVATE_KEY, MAVEN_GPG_PASSPHRASE. GHCR uses GITHUB_TOKEN. DOCKERHUB_USERNAME and
+# DOCKERHUB_TOKEN are optional and only avoid anonymous pull limits in the T1 jobs.
+#
+# If a job fails after Maven Central has published, use "Re-run failed jobs". Re-running the whole
+# workflow would deploy the same version again, which Central refuses.
+
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Version to release (must match the POM, no -SNAPSHOT)
-        required: true
-      tag_name:
-        description: Git tag (vX.Y.Z)
-        required: true
   workflow_call:
     inputs:
       version:
@@ -17,44 +30,200 @@ on:
       tag_name:
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Released version as release-please recorded it (X.Y.Z, no -SNAPSHOT)
+        required: true
+        type: string
+      tag_name:
+        description: The release-please release name (vX.Y.Z); it must already exist
+        required: true
+        type: string
 
 permissions:
-  contents: write
-  packages: write
-  id-token: write
-  attestations: write
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag_name }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/osodevops/oracle-cdc-doctor
+  NIGHTLY_MAX_AGE_DAYS: '7'
 
 jobs:
   validate:
+    name: validate release and versions
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
+    env:
+      TAG: ${{ inputs.tag_name }}
+      VERSION: ${{ inputs.version }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag_name }}
+          ref: refs/tags/${{ inputs.tag_name }}
+          fetch-depth: 0
+
+      - name: Release name, POMs and release-please manifest agree
+        run: python3 release/check_release_version.py "$TAG" "$VERSION"
+
+      - name: Released commit is on the default branch
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor HEAD "origin/${DEFAULT_BRANCH}"; then
+            echo "::error::${TAG} points at a commit that is not on ${DEFAULT_BRANCH}"
+            exit 1
+          fi
+
+      - name: The GitHub Release exists (release-please creates it)
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name --jq .name >/dev/null; then
+            echo "::error::no GitHub Release ${TAG}; only release-please creates releases"
+            exit 1
+          fi
+
+  gate-t0:
+    name: gate T0 (Java ${{ matrix.java }})
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        java: ['17', '21']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+      - name: Quality gates, unit tests, Hub manifest and plugin ZIP layout
+        run: mvn clean verify -DskipE2E --batch-mode --no-transfer-progress
+
+  gate-t1:
+    name: gate T1 ${{ matrix.tier }}
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        tier: [engine, connector]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: temurin
           cache: maven
-      - name: Refuse snapshots and mismatched versions
-        run: |
-          set -euo pipefail
-          POM_VERSION=$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)
-          echo "POM version: $POM_VERSION, requested: ${{ inputs.version }}"
-          case "$POM_VERSION" in *-SNAPSHOT) echo "refusing to release a SNAPSHOT" >&2; exit 1;; esac
-          [ "$POM_VERSION" = "${{ inputs.version }}" ] || { echo "version mismatch" >&2; exit 1; }
-      - name: Full build (unit tests and quality gates)
-        run: mvn clean verify -DskipE2E --batch-mode --no-transfer-progress
+      - name: Log in to Docker Hub (avoids anonymous pull limits)
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build modules without tests
+        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+      - name: T1 ${{ matrix.tier }} tier
+        run: mvn -pl e2e-tests verify -De2e.groups=${{ matrix.tier }} --batch-mode --no-transfer-progress
+      - name: Upload failsafe reports and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-t1-${{ matrix.tier }}
+          path: |
+            e2e-tests/target/failsafe-reports/
+            e2e-tests/target/*-evidence.json
+          if-no-files-found: ignore
+          retention-days: 90
 
-  publish:
+  gate-t2:
+    name: gate T2 (latest nightly green with evidence)
     needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Latest completed nightly passed with T2 evidence
+        run: |
+          set -euo pipefail
+          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly.yml \
+            --branch "$DEFAULT_BRANCH" --status completed --limit 1 \
+            --json databaseId,conclusion,createdAt,url)
+          if [ "$(jq 'length' <<<"$runs")" -eq 0 ]; then
+            echo "::error::no completed nightly run on ${DEFAULT_BRANCH}; run nightly.yml first"
+            exit 1
+          fi
+          id=$(jq -r '.[0].databaseId' <<<"$runs")
+          conclusion=$(jq -r '.[0].conclusion' <<<"$runs")
+          created=$(jq -r '.[0].createdAt' <<<"$runs")
+          url=$(jq -r '.[0].url' <<<"$runs")
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::the latest nightly run concluded ${conclusion}: ${url}"
+            exit 1
+          fi
+          age_days=$(( ( $(date -u +%s) - $(date -u -d "$created" +%s) ) / 86400 ))
+          if [ "$age_days" -gt "$NIGHTLY_MAX_AGE_DAYS" ]; then
+            echo "::error::the latest nightly run is ${age_days} days old (limit ${NIGHTLY_MAX_AGE_DAYS}): ${url}"
+            exit 1
+          fi
+          evidence=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${id}/artifacts?per_page=100" \
+            --jq '[.artifacts[] | select(.name | startswith("evidence-t2-")) | select(.expired | not)] | length')
+          if [ "$evidence" -eq 0 ]; then
+            echo "::error::the latest nightly run has no T2 evidence artefacts (evidence-t2-*): ${url}"
+            exit 1
+          fi
+          echo "Nightly ${url} passed ${age_days} days ago with ${evidence} T2 evidence artefacts" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+  gate-bundle:
+    name: gate Central bundle (dry run)
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag_name }}
+          ref: refs/tags/${{ inputs.tag_name }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Release profile with a throwaway signature, bundle checked, nothing uploaded
+        env:
+          CENTRAL_DRY_RUN_GNUPGHOME: ${{ runner.temp }}/dry-run-gnupg
+        run: release/central-dry-run.sh
+
+  publish-central:
+    name: sign and deploy to Maven Central
+    needs: [gate-t0, gate-t1, gate-t2, gate-bundle]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: release
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -65,20 +234,142 @@ jobs:
           server-password: CENTRAL_TOKEN
           gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
-      - name: Deploy to Maven Central and build the plugin ZIP
+      - name: Sign and deploy (waits until Central has published)
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: mvn clean deploy -Prelease -DskipTests -DskipE2E --batch-mode --no-transfer-progress
-      - name: Attest plugin ZIP provenance
+      - name: Stage the release files from this build
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Confluent Hub archive name: <owner>-<name>-<version>.zip, matching its top-level directory
+          cp "kafka-connect-oracle-cdc/target/kafka-connect-oracle-cdc-${VERSION}-kafka-connect-plugin.zip" \
+            "dist/osodevops-kafka-connect-oracle-cdc-${VERSION}.zip"
+          cp "oracle-cdc-doctor/target/oracle-cdc-doctor-${VERSION}-cli.jar" dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  release-assets:
+    name: attach plugin ZIP, CLI, SBOM and checksums
+    needs: publish-central
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ inputs.tag_name }}
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: dist
+      - name: Unpack the plugin for the SBOM scan
+        run: unzip -q "dist/osodevops-kafka-connect-oracle-cdc-${VERSION}.zip" -d sbom-input
+      - name: SBOM of the plugin ZIP (syft, SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: sbom-input
+          format: spdx-json
+          output-file: dist/osodevops-kafka-connect-oracle-cdc-${{ inputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: SHA-256 checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS
+      - name: Provenance attestation for the plugin ZIP and the CLI
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: kafka-connect-oracle-cdc/target/*-kafka-connect-plugin.zip
-      - name: Attach artefacts to the GitHub Release
-        uses: softprops/action-gh-release@v2
+          subject-path: |
+            dist/osodevops-kafka-connect-oracle-cdc-*.zip
+            dist/oracle-cdc-doctor-*-cli.jar
+      - name: SBOM attestation for the plugin ZIP
+        uses: actions/attest-sbom@v2
         with:
-          tag_name: ${{ inputs.tag_name }}
-          files: |
-            kafka-connect-oracle-cdc/target/*-kafka-connect-plugin.zip
-            oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar
+          subject-path: dist/osodevops-kafka-connect-oracle-cdc-${{ inputs.version }}.zip
+          sbom-path: dist/osodevops-kafka-connect-oracle-cdc-${{ inputs.version }}.spdx.json
+      - name: Upload to the existing GitHub Release
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish-image:
+    name: oracle-cdc-doctor image to GHCR
+    needs: publish-central
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: dist
+      - name: Put the released CLI jar in the build context
+        id: context
+        run: |
+          set -euo pipefail
+          mkdir -p oracle-cdc-doctor/target
+          cp "dist/oracle-cdc-doctor-${VERSION}-cli.jar" oracle-cdc-doctor/target/
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build for the runner and smoke test before pushing
+        uses: docker/build-push-action@v6
+        with:
+          context: oracle-cdc-doctor
+          file: oracle-cdc-doctor/src/main/docker/Dockerfile
+          build-args: |
+            VERSION=${{ inputs.version }}
+            REVISION=${{ steps.context.outputs.revision }}
+          load: true
+          tags: oracle-cdc-doctor:smoke
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          out=$(docker run --rm oracle-cdc-doctor:smoke --version)
+          echo "$out"
+          grep -qx "oracle-cdc-doctor ${VERSION}" <<<"$out"
+          docker run --rm oracle-cdc-doctor:smoke setup-sql --profile lab > /dev/null
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push (amd64 and arm64) with SBOM and provenance
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: oracle-cdc-doctor
+          file: oracle-cdc-doctor/src/main/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ inputs.version }}
+            REVISION=${{ steps.context.outputs.revision }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ inputs.version }}
+            ${{ env.IMAGE }}:latest
+          sbom: true
+          provenance: mode=max
+      - name: Provenance attestation for the image
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

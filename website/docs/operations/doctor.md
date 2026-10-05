@@ -43,3 +43,19 @@ the full doctor in Phase 1d.
 
 The `setup-sql --profile lab` output is the exact script that builds the test database image,
 and a test asserts they stay identical.
+
+## Container image
+
+From the first release, each release also publishes the CLI as a container image,
+`ghcr.io/osodevops/oracle-cdc-doctor:<version>`, for amd64 and arm64, with an SBOM and a build
+provenance attestation. No release has been published yet. The image runs as an unprivileged
+user with `/work` as its working directory and contains no Oracle Database software, so mount the
+directory that holds the connector configuration:
+
+```bash
+docker run --rm -v "$PWD:/work" ghcr.io/osodevops/oracle-cdc-doctor:<version> check --config connector.json
+gh attestation verify oci://ghcr.io/osodevops/oracle-cdc-doctor:<version> --repo osodevops/kafka-connect-oracle-cdc
+```
+
+Add `--network host` when the database listens only on the host's loopback address. Exit codes
+are the same as for the jar.
