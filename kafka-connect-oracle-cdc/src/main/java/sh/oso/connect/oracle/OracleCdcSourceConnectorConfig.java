@@ -66,6 +66,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public static final String SCHEMA_TOPIC = "cdc.schema.topic";
   public static final String TRANSACTIONS_TOPIC_ENABLED = "cdc.transactions.topic.enabled";
   public static final String TRANSACTIONS_TOPIC = "cdc.transactions.topic";
+  public static final String DLQ_TOPIC = "cdc.dlq.topic";
   public static final String KAFKA_BOOTSTRAP_SERVERS = "cdc.kafka.bootstrap.servers";
   public static final String KAFKA_CLIENT_PREFIX = "cdc.kafka.";
   public static final String INTERNAL_TOPIC_REPLICATION = "cdc.internal.topic.replication.factor";
@@ -196,6 +197,10 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
   public String schemaTopic() {
     return expand(SCHEMA_TOPIC);
+  }
+
+  public String dlqTopic() {
+    return expand(DLQ_TOPIC);
   }
 
   public boolean transactionsTopicEnabled() {
@@ -457,6 +462,19 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++o,
         Width.MEDIUM,
         "Schema topic");
+    def.define(
+        DLQ_TOPIC,
+        Type.STRING,
+        "${prefix}.cdc.dlq",
+        Importance.LOW,
+        "Dead letter topic for rows that could not be decoded or that LogMiner marked unsupported"
+            + " (used only with cdc.on.decode.error=dlq) and for transactions discarded by"
+            + " cdc.transaction.max.age.action=discard. Records carry the raw SQL_REDO, SCN, XID,"
+            + " table and exception.",
+        GROUP_TOPICS,
+        ++o,
+        Width.MEDIUM,
+        "DLQ topic");
     def.define(
         TRANSACTIONS_TOPIC_ENABLED,
         Type.BOOLEAN,

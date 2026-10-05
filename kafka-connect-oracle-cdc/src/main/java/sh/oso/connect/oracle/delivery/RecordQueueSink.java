@@ -57,6 +57,7 @@ public final class RecordQueueSink
   private final HeartbeatEmitter heartbeats;
   private final OpsEventWriter ops;
   private final sh.oso.connect.oracle.journal.JournalRecords journal;
+  private final sh.oso.connect.oracle.dlq.DecodeDlqWriter dlq;
   private final long heartbeatIntervalMs;
   private final LongSupplier clock;
   private volatile long lastMinedTo;
@@ -68,6 +69,7 @@ public final class RecordQueueSink
   private long opsEvents;
   private long journalChunks;
   private long journalTombstones;
+  private long dlqRecords;
 
   public RecordQueueSink(
       DebeziumEnvelope envelope,
@@ -77,6 +79,7 @@ public final class RecordQueueSink
       HeartbeatEmitter heartbeats,
       OpsEventWriter ops,
       sh.oso.connect.oracle.journal.JournalRecords journal,
+      sh.oso.connect.oracle.dlq.DecodeDlqWriter dlq,
       long heartbeatIntervalMs,
       LongSupplier clock) {
     this.envelope = envelope;
@@ -86,6 +89,7 @@ public final class RecordQueueSink
     this.heartbeats = heartbeats;
     this.ops = ops;
     this.journal = journal;
+    this.dlq = dlq;
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.clock = clock;
     this.lastEmittedCommit = base;
@@ -175,6 +179,36 @@ public final class RecordQueueSink
         r.reason());
   }
 
+  /** CORE-TX-6: the discard is recorded on the ops topic and the DLQ, and the ledger travels on. */
+  @Override
+  public synchronized void transactionDiscarded(
+      sh.oso.connect.oracle.core.buffer.TransactionBuffer.OpenTransaction t,
+      java.time.Duration age,
+      List<String> released) {
+    base = base.withReleased(released);
+    lastEmittedCommit = lastEmittedCommit.withReleased(released);
+    if (dlq != null) {
+      put(dlq.discarded(t, age, safePosition(), clock.getAsLong()));
+      dlqRecords++;
+    }
+    ops(
+        OpsEvent.Type.TRANSACTION_DISCARDED,
+        "xid",
+        t.key().xid().toString(),
+        "con_id",
+        Integer.toString(t.key().srcConId()),
+        "user",
+        t.username(),
+        "first_scn",
+        Long.toString(t.firstScn()),
+        "last_scn",
+        Long.toString(t.lastScn()),
+        "events",
+        Integer.toString(t.events()),
+        "age_ms",
+        Long.toString(age.toMillis()));
+  }
+
   /** The stop event (SRC-OPS): exception class, error code, runbook link and operator action. */
   public void stopped(Throwable t) {
     String code = null;
@@ -219,6 +253,13 @@ public final class RecordQueueSink
   public void decodeFailed(
       sh.oso.connect.oracle.core.mining.event.MiningEvent.Dml dml,
       sh.oso.connect.oracle.core.errors.DecodeException cause) {
+    if (dlq != null) {
+      synchronized (this) {
+        Position at = safePosition();
+        put(dlq.decodeError(dml, cause, at.schemaEpoch(), at, clock.getAsLong()));
+        dlqRecords++;
+      }
+    }
     ops(
         OpsEvent.Type.DECODE_ERROR_DLQ,
         "table",
@@ -235,6 +276,12 @@ public final class RecordQueueSink
 
   @Override
   public void unsupported(sh.oso.connect.oracle.core.mining.event.MiningEvent.Unsupported u) {
+    if (dlq != null) {
+      synchronized (this) {
+        put(dlq.unsupported(u, safePosition(), clock.getAsLong()));
+        dlqRecords++;
+      }
+    }
     ops(
         OpsEvent.Type.UNSUPPORTED_ROW,
         "table",
@@ -384,5 +431,9 @@ public final class RecordQueueSink
 
   public synchronized long journalTombstones() {
     return journalTombstones;
+  }
+
+  public synchronized long dlqRecords() {
+    return dlqRecords;
   }
 }

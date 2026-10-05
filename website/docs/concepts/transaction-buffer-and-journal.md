@@ -63,3 +63,12 @@ order with the data.
   tombstoned. A gap in chunk numbers stops the task with `CDC-4002`.
 - The journal needs `cdc.kafka.bootstrap.servers`. Without it the task logs a warning at start,
   journals nothing, and long transactions pin the resume position as before.
+
+## Long transactions
+
+`cdc.transaction.max.age.ms` (default unlimited) bounds how long a transaction may stay open in the
+buffer. On breach, `cdc.transaction.max.age.action=fail` stops the task with `CDC-4004`;
+`discard` drops the transaction after writing a `transaction-discarded` event to the ops topic and a
+record to the DLQ topic. A discarded transaction joins the released ledger carried in the offsets,
+so if its COMMIT arrives later the task stops with `CDC-7001` instead of publishing the part of the
+transaction mined after the discard. Nothing is ever discarded silently.

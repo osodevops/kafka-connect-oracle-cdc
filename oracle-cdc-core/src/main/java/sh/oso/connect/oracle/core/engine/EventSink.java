@@ -69,6 +69,16 @@ public interface EventSink {
    * An orphaned transaction was released (CORE-TX-7, ADR-0006); {@code released} is the whole
    * ledger the position must carry from now on.
    */
+  /**
+   * A transaction open longer than cdc.transaction.max.age.ms was discarded (CORE-TX-6); like an
+   * orphan release it joins the released ledger, so a later COMMIT for it stops the task rather
+   * than publishing a partial transaction.
+   */
+  default void transactionDiscarded(
+      sh.oso.connect.oracle.core.buffer.TransactionBuffer.OpenTransaction tx,
+      java.time.Duration age,
+      java.util.List<String> released) {}
+
   default void orphanReleased(
       sh.oso.connect.oracle.core.orphan.OrphanDetector.Release release,
       java.util.List<String> released) {}

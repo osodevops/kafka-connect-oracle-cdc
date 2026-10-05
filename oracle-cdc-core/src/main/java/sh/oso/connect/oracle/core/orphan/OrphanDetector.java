@@ -83,6 +83,14 @@ public class OrphanDetector {
     return new ArrayList<>(released);
   }
 
+  /** Adds a key the engine discarded by policy (CORE-TX-6) to the bounded ledger. */
+  public void releasedByPolicy(TxKey key) {
+    released.add(key.toString());
+    while (released.size() > LEDGER_MAX) {
+      released.remove(released.iterator().next());
+    }
+  }
+
   public boolean wasReleased(TxKey key) {
     return released.contains(key.toString());
   }

@@ -22,6 +22,7 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | `cdc.ops.topic` | string | `${prefix}.cdc.ops` | low | Topic for the connector's operational events (task start and stop, DDL seen, decode failures, reconnects, discarded or released transactions, signal acknowledgements); $\{prefix\} expands to the topic prefix. |
 | `cdc.signals.topic` | string | `${prefix}.cdc.signals` | low | Topic the connector reads signals from (snapshot, refresh-tables, log-state). |
 | `cdc.schema.topic` | string | `${prefix}.cdc.schema` | low | Compacted topic holding table schema versions. |
+| `cdc.dlq.topic` | string | `${prefix}.cdc.dlq` | low | Dead letter topic for rows that could not be decoded or that LogMiner marked unsupported (used only with cdc.on.decode.error=dlq) and for transactions discarded by cdc.transaction.max.age.action=discard. Records carry the raw SQL_REDO, SCN, XID, table and exception. |
 | `cdc.transactions.topic.enabled` | boolean | `false` | low | Write BEGIN and END records per Oracle transaction to the transaction metadata topic. |
 | `cdc.transactions.topic` | string | `${prefix}.cdc.transactions` | low | Transaction metadata topic. |
 | `cdc.kafka.bootstrap.servers` | string | none | medium | Bootstrap servers for the connector's own Kafka clients: the admin client that creates the internal topics with the right cleanup policy, and the readers of the schema and journal topics. Other client settings go under cdc.kafka.*. When unset the connector relies on the worker's topic creation and on pre-created topics. |

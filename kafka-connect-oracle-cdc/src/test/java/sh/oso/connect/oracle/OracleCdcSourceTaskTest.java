@@ -442,4 +442,89 @@ class OracleCdcSourceTaskTest {
       assertThat(h.pollUntil(1, 500)).as("nothing repeats").isEmpty();
     }
   }
+
+  @Test
+  void decodeErrorsGoToTheDlqWithAnOpsEventUnderTheDlqPolicy() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.ON_DECODE_ERROR, "dlq");
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake
+          .start(a, "APP")
+          .insert(a, TaskHarness.T, "a1")
+          .insert(a, TaskHarness.T, "bad")
+          .insert(a, TaskHarness.T, "a3")
+          .commit(a);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> all = h.pollUntil(6, 5000, true);
+      List<String> kinds = all.stream().map(TaskHarness::sql).toList();
+      assertThat(kinds).contains("c:a1", "c:a3", "<ops:decode-error-dlq>").doesNotContain("c:bad");
+      SourceRecord dlq =
+          all.stream().filter(r -> r.topic().equals("cdc.cdc.dlq")).findFirst().orElseThrow();
+      org.apache.kafka.connect.data.Struct v = (org.apache.kafka.connect.data.Struct) dlq.value();
+      assertThat(v.getString("kind")).isEqualTo("decode-error");
+      assertThat(v.getString("sql_redo")).isEqualTo("bad");
+      assertThat(v.getString("xid")).isEqualTo(a.xid().toString());
+      assertThat(v.getString("exception")).endsWith("DecodeException");
+      // the DLQ record's offset never passes the open transaction's first change
+      assertThat(PositionCodec.read(dlq.sourceOffset()).resumeScn()).isLessThanOrEqualTo(1001);
+    }
+  }
+
+  @Test
+  void aTransactionOlderThanTheLimitIsDiscardedWithAnOpsEventAndADlqRecord() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.TRANSACTION_MAX_AGE_MS, "1000");
+      h.props.put(CoreConfig.TRANSACTION_MAX_AGE_ACTION, "discard");
+      h.props.put(OracleCdcSourceConnectorConfig.HEARTBEAT_INTERVAL_MS, "200");
+      TxKey a = h.fake.tx(1, 1, 1);
+      TxKey b = h.fake.tx(2, 2, 2);
+      h.fake
+          .start(a, "APP")
+          .insert(a, TaskHarness.T, "a1")
+          .start(b, "APP")
+          .insert(b, TaskHarness.T, "b1")
+          .commit(b);
+      h.safeEnd = h.fake.nextScn() + 50;
+      h.start();
+      List<SourceRecord> first = h.pollUntil(1, 5000);
+      assertThat(TaskHarness.sqls(first)).containsExactly("c:b1");
+      // a stays open past the one-second limit: discarded, recorded, and the position moves on
+      long deadline = System.currentTimeMillis() + 10_000;
+      List<SourceRecord> seen = new java.util.ArrayList<>();
+      while (System.currentTimeMillis() < deadline
+          && seen.stream()
+              .noneMatch(r -> TaskHarness.sql(r).equals("<ops:transaction-discarded>"))) {
+        seen.addAll(h.pollUntil(1, 500, true));
+      }
+      SourceRecord ops =
+          seen.stream()
+              .filter(r -> TaskHarness.sql(r).equals("<ops:transaction-discarded>"))
+              .findFirst()
+              .orElseThrow();
+      assertThat(TaskHarness.opsDetails(ops))
+          .containsEntry("xid", a.xid().toString())
+          .containsEntry("events", "1");
+      SourceRecord dlq =
+          seen.stream().filter(r -> r.topic().equals("cdc.cdc.dlq")).findFirst().orElseThrow();
+      assertThat(((org.apache.kafka.connect.data.Struct) dlq.value()).getString("kind"))
+          .isEqualTo("transaction-discarded");
+      Position p = PositionCodec.read(ops.sourceOffset());
+      assertThat(p.released()).containsExactly(a.toString());
+      List<SourceRecord> later = h.pollUntil(1, 1500, true);
+      SourceRecord quiet =
+          later.stream().filter(TaskHarness::isHeartbeat).reduce((x, y) -> y).orElse(null);
+      if (quiet != null) {
+        assertThat(PositionCodec.read(quiet.sourceOffset()).resumeScn())
+            .as("the discarded transaction no longer pins the position")
+            .isGreaterThan(1001);
+      }
+      // its commit arriving afterwards is a typed stop, never a partial emission
+      h.fake.insert(a, TaskHarness.T, "a2").commit(a);
+      h.safeEnd = h.fake.nextScn() + 50;
+      assertThatThrownBy(() -> h.pollUntil(1, 5000))
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-7001");
+    }
+  }
 }

@@ -60,7 +60,7 @@ class CaptureEngineTest {
   static final TableId T = FakeLogMiner.DEFAULT_TABLE;
 
   /** Collects what the engine emits. */
-  static final class Sink implements EventSink {
+  static class Sink implements EventSink {
     final List<CommittedTransaction> committed = new ArrayList<>();
     final List<Integer> skipped = new ArrayList<>();
     final List<Long> resumes = new ArrayList<>();

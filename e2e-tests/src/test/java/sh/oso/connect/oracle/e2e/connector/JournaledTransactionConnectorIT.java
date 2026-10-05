@@ -69,6 +69,7 @@ class JournaledTransactionConnectorIT {
 
   @AfterAll
   void down() throws Exception {
+    OracleSql.restoreHiddenLogs(db);
     if (cluster != null) {
       cluster.close();
     }
@@ -157,7 +158,7 @@ class JournaledTransactionConnectorIT {
           .as("a log holding the start of A ended before the resume SCN")
           .isNotEmpty();
       for (String f : deleted) {
-        db.container().execInContainer("rm", "-f", f);
+        OracleSql.hideArchivedLog(db, f);
       }
 
       cluster.killAndRestartWorker();

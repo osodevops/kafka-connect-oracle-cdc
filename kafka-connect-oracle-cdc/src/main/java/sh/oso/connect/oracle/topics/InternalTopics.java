@@ -34,6 +34,18 @@ public final class InternalTopics {
     out.put("signals", new Spec(c.signalsTopic(), false, -1));
     out.put("schema", new Spec(c.schemaTopic(), true, -1));
     out.put("txjournal", new Spec(c.journalTopic(), true, -1));
+    boolean dlqUsed =
+        c.core().decodeErrorAction()
+                == sh.oso.connect.oracle.core.config.CoreConfig.DecodeErrorAction.DLQ
+            || "discard"
+                .equalsIgnoreCase(
+                    c.core()
+                        .getString(
+                            sh.oso.connect.oracle.core.config.CoreConfig
+                                .TRANSACTION_MAX_AGE_ACTION));
+    if (dlqUsed) {
+      out.put("dlq", new Spec(c.dlqTopic(), false, -1));
+    }
     if (c.transactionsTopicEnabled()) {
       out.put("transactions", new Spec(c.transactionsTopic(), false, -1));
     }

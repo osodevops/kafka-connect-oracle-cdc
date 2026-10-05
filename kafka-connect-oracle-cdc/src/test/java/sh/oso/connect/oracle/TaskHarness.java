@@ -62,6 +62,9 @@ final class TaskHarness implements AutoCloseable {
   /** The fake's SQL text becomes the row's single column; a numeric ID is derived from it. */
   static final ChangeDecoder DECODER =
       (d, schema) -> {
+        if ("bad".equals(d.sqlRedo())) {
+          throw new sh.oso.connect.oracle.core.errors.DecodeException("bad row", "none");
+        }
         Map<String, Object> after = new java.util.LinkedHashMap<>();
         after.put("ID", new java.math.BigDecimal(d.sqlRedo().hashCode() & 0x7fffffff));
         after.put("SQL", d.sqlRedo());
@@ -190,7 +193,9 @@ final class TaskHarness implements AutoCloseable {
                     java.time.Duration.ofHours(1),
                     java.time.Duration.ofMillis(10),
                     5,
-                    CoreConfig.DecodeErrorAction.FAIL),
+                    cfg.core().decodeErrorAction(),
+                    EngineSettings.from(cfg.core()).transactionMaxAge(),
+                    EngineSettings.from(cfg.core()).maxAgeAction()),
                 new OraErrorClassifier(),
                 Set.of("APP"),
                 () -> Set.of("APP"),
@@ -323,8 +328,12 @@ final class TaskHarness implements AutoCloseable {
     return r.topic().endsWith(".cdc.txjournal");
   }
 
+  static boolean isDlq(SourceRecord r) {
+    return r.topic().endsWith(".cdc.dlq");
+  }
+
   static boolean isInternal(SourceRecord r) {
-    return isHeartbeat(r) || isOps(r) || isJournal(r);
+    return isHeartbeat(r) || isOps(r) || isJournal(r) || isDlq(r);
   }
 
   static String opsType(SourceRecord r) {
@@ -348,6 +357,9 @@ final class TaskHarness implements AutoCloseable {
     if (isJournal(r)) {
       org.apache.kafka.connect.data.Struct k = (org.apache.kafka.connect.data.Struct) r.key();
       return (r.value() == null ? "<tombstone:" : "<chunk:") + k.getInt32("chunk") + ">";
+    }
+    if (isDlq(r)) {
+      return "<dlq:" + ((org.apache.kafka.connect.data.Struct) r.value()).getString("kind") + ">";
     }
     org.apache.kafka.connect.data.Struct v = (org.apache.kafka.connect.data.Struct) r.value();
     if (v == null) {

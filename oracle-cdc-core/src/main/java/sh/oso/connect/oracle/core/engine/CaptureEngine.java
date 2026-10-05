@@ -196,6 +196,7 @@ public final class CaptureEngine {
     if (end <= cursor.scn()) {
       metrics.idlePolls.incrementAndGet();
       buffer.flushJournal(clock.get()); // age-based journaling must not wait for new redo
+      enforceTransactionAge();
       checkOrphans();
       sink.idle(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
       return Progress.IDLE;
@@ -251,9 +252,54 @@ public final class CaptureEngine {
       scheduler.stepCompleted(elapsed);
     }
     buffer.flushJournal(clock.get()); // CORE-TX-4: chunks for due and journaled transactions
+    enforceTransactionAge();
     checkOrphans();
     sink.stepApplied(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
     return Progress.STEP_APPLIED;
+  }
+
+  /**
+   * CORE-TX-6: a transaction open longer than the limit either stops the task or is discarded with
+   * an ops event and a DLQ record; a discarded key joins the released ledger so its COMMIT, if it
+   * ever comes, is a stop rather than a partial emission.
+   */
+  private void enforceTransactionAge() {
+    if (settings.transactionMaxAge() == null) {
+      return;
+    }
+    Instant now = clock.get();
+    for (sh.oso.connect.oracle.core.buffer.TransactionBuffer.OpenTransaction t : buffer.open()) {
+      if (t.firstSeenAt() == null) {
+        continue;
+      }
+      Duration age = Duration.between(t.firstSeenAt(), now);
+      if (age.compareTo(settings.transactionMaxAge()) < 0) {
+        continue;
+      }
+      if (settings.maxAgeAction() == EngineSettings.MaxAgeAction.FAIL) {
+        throw new sh.oso.connect.oracle.core.errors.TransactionTooOldException(
+            "Transaction "
+                + t.key()
+                + " (user "
+                + t.username()
+                + ", "
+                + t.events()
+                + " events from SCN "
+                + t.firstScn()
+                + ") has been open for "
+                + age.toSeconds()
+                + " seconds, longer than cdc.transaction.max.age.ms allows.",
+            "Commit or roll back the transaction in the database, raise"
+                + " cdc.transaction.max.age.ms, or set cdc.transaction.max.age.action=discard to"
+                + " drop such transactions with an ops event and a DLQ record; then restart the"
+                + " task.");
+      }
+      coalescer.discard(t.key());
+      buffer.discard(t.key());
+      orphans.releasedByPolicy(t.key());
+      metrics.transactionsDiscarded.incrementAndGet();
+      sink.transactionDiscarded(t, age, orphans.released());
+    }
   }
 
   /** CORE-TX-7: release orphaned transactions the detector has confirmed, with an ops event. */

@@ -121,6 +121,8 @@ public class OracleCdcSourceTask extends SourceTask {
                   config.opsTopic(), config.topicPrefix(), envelope.partition()),
               new sh.oso.connect.oracle.journal.JournalRecords(
                   config.journalTopic(), config.topicPrefix(), envelope.partition()),
+              new sh.oso.connect.oracle.dlq.DecodeDlqWriter(
+                  config.dlqTopic(), config.topicPrefix(), envelope.partition()),
               config.heartbeatIntervalMs(),
               System::currentTimeMillis);
       ensureInternalTopics();

@@ -42,6 +42,8 @@ public enum ErrorCode {
   JOURNAL_CORRUPTION("CDC-4002", "journal-corruption", false),
   /** Mining queries keep timing out even at a single log window. */
   MINING_STALLED("CDC-4003", "mining-stalled", false),
+  /** cdc.transaction.max.age.action=fail found a transaction open longer than the limit. */
+  TRANSACTION_TOO_OLD("CDC-4004", "transaction-too-old", false),
   /** An unsupported topology change was detected. */
   TOPOLOGY("CDC-5001", "topology", false),
   /** ORA-01031 or ORA-00942 on a required view or package. */

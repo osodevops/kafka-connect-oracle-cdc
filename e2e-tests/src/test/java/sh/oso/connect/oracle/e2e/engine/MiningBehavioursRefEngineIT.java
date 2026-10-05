@@ -98,7 +98,7 @@ class MiningBehavioursRefEngineIT {
               root,
               "SELECT name FROM (SELECT name FROM v$archived_log WHERE dest_id = 1 AND name IS NOT"
                   + " NULL AND deleted = 'NO' ORDER BY sequence# DESC) WHERE ROWNUM = 1");
-      db.container().execInContainer("rm", "-f", victim);
+      OracleSql.hideArchivedLog(db, victim);
       try (Statement st = root.createStatement()) {
         st.execute(
             "BEGIN DBMS_LOGMNR.ADD_LOGFILE(LOGFILENAME => '"
@@ -208,6 +208,8 @@ class MiningBehavioursRefEngineIT {
                   + " this spike.")
           .assertUpToDate();
       assertThat(facts).hasSize(7);
+    } finally {
+      OracleSql.restoreHiddenLogs(db);
     }
   }
 

@@ -15,15 +15,52 @@
  */
 package sh.oso.connect.oracle.e2e.support;
 
+import java.io.IOException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+import org.testcontainers.containers.Container.ExecResult;
 
 /** Database-level helpers used by tests and fault injection, all through SYSDBA at CDB$ROOT. */
 public final class OracleSql {
 
+  private static final String HIDDEN = ".hidden-by-test";
+  private static final List<String> hidden = new ArrayList<>();
+
   private OracleSql() {}
+
+  /**
+   * Makes an archived log unreadable the way an rm outside RMAN does (the catalog still lists it),
+   * but keeps the file aside: the container is shared by every suite in the JVM, and a later suite
+   * mining an older range must still find every log the catalog lists. Restore with {@link
+   * #restoreHiddenLogs}.
+   */
+  public static synchronized void hideArchivedLog(OracleTestDatabase db, String path)
+      throws IOException, InterruptedException {
+    exec(db, "mv", path, path + HIDDEN);
+    hidden.add(path);
+  }
+
+  /** Puts back every log {@link #hideArchivedLog} moved aside; call it from a finally block. */
+  public static synchronized void restoreHiddenLogs(OracleTestDatabase db)
+      throws IOException, InterruptedException {
+    while (!hidden.isEmpty()) {
+      String path = hidden.remove(hidden.size() - 1);
+      exec(db, "mv", path + HIDDEN, path);
+    }
+  }
+
+  private static void exec(OracleTestDatabase db, String... command)
+      throws IOException, InterruptedException {
+    ExecResult r = db.container().execInContainer(command);
+    if (r.getExitCode() != 0) {
+      throw new IllegalStateException(
+          String.join(" ", command) + " failed: " + r.getStderr().trim());
+    }
+  }
 
   /** Forces a log switch and waits for the previous log to be archived. */
   public static void archiveLogCurrent(OracleTestDatabase db) throws SQLException {

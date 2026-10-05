@@ -28,16 +28,48 @@ public record EngineSettings(
     Duration sessionMaxAge,
     Duration idlePoll,
     int maxConsecutiveRetries,
-    DecodeErrorAction onDecodeError) {
+    DecodeErrorAction onDecodeError,
+    Duration transactionMaxAge,
+    MaxAgeAction maxAgeAction) {
+
+  /** CORE-TX-6: what happens to a transaction open longer than {@code transactionMaxAge}. */
+  public enum MaxAgeAction {
+    FAIL,
+    DISCARD
+  }
+
+  /** The pre-CORE-TX-6 shape: no age limit. */
+  public EngineSettings(
+      Duration targetLatency,
+      int maxLogsPerStep,
+      Duration sessionMaxAge,
+      Duration idlePoll,
+      int maxConsecutiveRetries,
+      DecodeErrorAction onDecodeError) {
+    this(
+        targetLatency,
+        maxLogsPerStep,
+        sessionMaxAge,
+        idlePoll,
+        maxConsecutiveRetries,
+        onDecodeError,
+        null,
+        MaxAgeAction.FAIL);
+  }
 
   public static EngineSettings from(CoreConfig c) {
+    long maxAge = c.getLong(CoreConfig.TRANSACTION_MAX_AGE_MS);
     return new EngineSettings(
         Duration.ofMillis(c.getLong(CoreConfig.MINING_TARGET_LATENCY_MS)),
         c.getInt(CoreConfig.MINING_MAX_LOGS_PER_STEP),
         Duration.ofMillis(c.getLong(CoreConfig.MINING_SESSION_MAX_AGE_MS)),
         Duration.ofMillis(Math.max(100, c.getLong(CoreConfig.MINING_TARGET_LATENCY_MS) / 4)),
         20,
-        c.decodeErrorAction());
+        c.decodeErrorAction(),
+        maxAge <= 0 ? null : Duration.ofMillis(maxAge),
+        "discard".equalsIgnoreCase(c.getString(CoreConfig.TRANSACTION_MAX_AGE_ACTION))
+            ? MaxAgeAction.DISCARD
+            : MaxAgeAction.FAIL);
   }
 
   public static EngineSettings defaults() {

@@ -37,12 +37,13 @@ committing one never moves the connector's position past an unacknowledged chang
 | `reconnected` | The database sessions were reopened after a transient error | `cause` |
 | `unsupported-row` | LogMiner returned an unsupported row for a captured table under the DLQ policy | `table`, `xid`, `scn`, `status`, `info` |
 | `decode-error-dlq` | A row could not be decoded and was written to the DLQ | `table`, `xid`, `scn`, `operation`, `error` |
+| `transaction-orphan-released` | The orphan detector released a transaction absent from the database (ADR-0006) | `xid`, `con_id`, `user`, `client_id`, `first_scn`, `last_scn`, `events`, `absent_at_scn`, `reason` |
+| `transaction-discarded` | A transaction older than `cdc.transaction.max.age.ms` was dropped under the `discard` action | `xid`, `con_id`, `user`, `first_scn`, `last_scn`, `events`, `age_ms` |
 
 The following types are reserved for features that are not yet in a published release. They do not
 appear on the topic today: `position-committed`, `log-switch-detected`, `thread-state-changed`,
-`ddl-applied`, `table-added`, `table-removed`, `transaction-journaled`, `transaction-discarded`,
-`transaction-orphan-released`, `transaction-split`, `snapshot-chunk-done`, `snapshot-complete`,
-`signal-ack`, `offsets-set`.
+`ddl-applied`, `table-added`, `table-removed`, `transaction-journaled`, `transaction-split`,
+`snapshot-chunk-done`, `snapshot-complete`, `signal-ack`, `offsets-set`.
 
 ## Internal topics
 
@@ -52,3 +53,15 @@ transaction journal topics compacted. Other client settings for that admin clien
 journal reader go under `cdc.kafka.*`, for example `cdc.kafka.security.protocol`. Without broker access the connector relies
 on the worker's topic creation (`topic.creation.enable`) or on topics you create in advance; the
 schema and journal topics must then be compacted.
+
+## Decode DLQ topic
+
+With `cdc.on.decode.error=dlq`, a row the connector cannot decode, or that LogMiner marks
+unsupported for a captured table, goes to `cdc.dlq.topic` (default `${prefix}.cdc.dlq`) instead of
+stopping the task, and so does a transaction discarded under `cdc.transaction.max.age.action=discard`.
+Records are keyed by server and transaction id; the value schema `io.oso.cdc.dlq.Record` version 1
+carries `kind` (`decode-error`, `unsupported-row` or `transaction-discarded`), the table, the redo
+position (`scn`, `rs_id`, `ssn`), the operation, LogMiner's `status` and `info`, the raw `sql_redo`
+and `sql_undo`, the exception class and message, and for a discarded transaction the user, first and
+last SCN, event count and age. The raw SQL contains column values, so protect the topic like the
+change topics.

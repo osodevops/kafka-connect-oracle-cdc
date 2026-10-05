@@ -102,7 +102,7 @@ class LogInventoryEngineIT {
       LogInventory inv = new LogInventory(catalog, CaptureMode.ARCHIVE_ONLY, 1);
       LogSet set = inv.forRange(start, end - 1);
       RedoLog victim = set.logs().get(0);
-      db.container().execInContainer("rm", "-f", victim.path());
+      OracleSql.hideArchivedLog(db, victim.path());
 
       assertThat(inv.forRange(start, end - 1).logs())
           .extracting(RedoLog::sequence)
@@ -112,6 +112,8 @@ class LogInventoryEngineIT {
           .hasMessageContaining("sequence " + victim.sequence())
           .hasMessageContaining("ORA-01284")
           .hasMessageContaining("never skips");
+    } finally {
+      OracleSql.restoreHiddenLogs(db);
     }
   }
 }
