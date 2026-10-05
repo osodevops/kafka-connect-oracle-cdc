@@ -108,6 +108,7 @@ public final class SnapshotCoordinator implements AutoCloseable {
   private volatile RuntimeException failure;
   private volatile boolean finished;
   private volatile boolean closed;
+  private boolean paused;
   private Thread thread;
   private ExecutorService readers;
 
@@ -226,6 +227,13 @@ public final class SnapshotCoordinator implements AutoCloseable {
       inFlight(IDLE);
       quietly(planner);
       readers.shutdownNow();
+      // every read has returned: the reader connections are not needed after the snapshot
+      synchronized (opened) {
+        for (SnapshotSource s : opened) {
+          quietly(s);
+        }
+        opened.clear();
+      }
     }
   }
 
@@ -379,9 +387,19 @@ public final class SnapshotCoordinator implements AutoCloseable {
   }
 
   private synchronized void awaitRoom() throws InterruptedException {
-    while (!closed && pendingChunks >= Math.max(1, settings.maxPendingChunks())) {
+    while (!closed && (paused || pendingChunks >= Math.max(1, settings.maxPendingChunks()))) {
       wait(500);
     }
+  }
+
+  /** SRC-SIG-1 snapshot-pause and snapshot-resume: no new batch is read while paused. */
+  public synchronized void pause(boolean pause) {
+    paused = pause;
+    notifyAll();
+  }
+
+  public synchronized boolean paused() {
+    return paused;
   }
 
   private static String firstLine(SQLException e) {

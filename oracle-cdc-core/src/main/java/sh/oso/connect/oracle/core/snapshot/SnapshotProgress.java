@@ -40,14 +40,32 @@ public final class SnapshotProgress {
   private final boolean complete;
   private final Map<String, TableState> tables;
 
-  private SnapshotProgress(boolean complete, Map<String, TableState> tables) {
+  /** SRC-SIG-1: the tables a snapshot by signal covers; null for every captured table. */
+  private final List<String> scope;
+
+  /** The signal's filter for its tables, or null. */
+  private final String where;
+
+  private SnapshotProgress(
+      boolean complete, Map<String, TableState> tables, List<String> scope, String where) {
     this.complete = complete;
     this.tables = Map.copyOf(tables);
+    this.scope = scope == null ? null : List.copyOf(scope);
+    this.where = where;
   }
 
   /** A snapshot of every captured table, nothing read yet. */
   public static SnapshotProgress begin() {
-    return new SnapshotProgress(false, Map.of());
+    return new SnapshotProgress(false, Map.of(), null, null);
+  }
+
+  /** A snapshot of {@code tables} by signal, filtered by {@code where} when it is not null. */
+  public static SnapshotProgress scoped(List<TableId> tables, String where) {
+    List<String> names = new ArrayList<>();
+    for (TableId t : tables) {
+      names.add(t.fqn());
+    }
+    return new SnapshotProgress(false, Map.of(), names, where);
   }
 
   /** The block of a stored position, or null when it has none (no snapshot was ever started). */
@@ -79,7 +97,19 @@ public final class SnapshotProgress {
             new TableState(Boolean.TRUE.equals(t.get("done")), frontier));
       }
     }
-    return new SnapshotProgress(Boolean.TRUE.equals(block.get("complete")), tables);
+    List<String> scope = null;
+    if (block.get("scope") instanceof List<?> l) {
+      scope = new ArrayList<>();
+      for (Object o : l) {
+        scope.add(String.valueOf(o));
+      }
+    }
+    Object where = block.get("where");
+    return new SnapshotProgress(
+        Boolean.TRUE.equals(block.get("complete")),
+        tables,
+        scope,
+        where == null ? null : where.toString());
   }
 
   public Map<String, Object> toMap() {
@@ -96,7 +126,27 @@ public final class SnapshotProgress {
       ts.put(e.getKey(), t);
     }
     out.put("tables", ts);
+    if (scope != null && !complete) {
+      out.put("scope", scope);
+      if (where != null) {
+        out.put("where", where);
+      }
+    }
     return out;
+  }
+
+  /** True for a snapshot by signal (SNAP-8 marks its records {@code incremental}). */
+  public boolean scoped() {
+    return scope != null;
+  }
+
+  /** Whether {@code t} belongs to this snapshot. */
+  public boolean covers(TableId t) {
+    return scope == null || scope.contains(t.fqn());
+  }
+
+  public String where() {
+    return where;
   }
 
   public boolean complete() {
@@ -123,17 +173,21 @@ public final class SnapshotProgress {
   public SnapshotProgress advance(TableId t, List<String> upper) {
     Map<String, TableState> next = new LinkedHashMap<>(tables);
     next.put(t.fqn(), upper == null ? new TableState(true, null) : new TableState(false, upper));
-    return new SnapshotProgress(false, next);
+    return new SnapshotProgress(false, next, scope, where);
   }
 
-  /** Every captured table is done; the block shrinks to the flag. */
+  /** Every table is done; the block shrinks to the flag. */
   public SnapshotProgress completed() {
-    return new SnapshotProgress(true, Map.of());
+    return new SnapshotProgress(true, Map.of(), null, null);
   }
 
   @Override
   public boolean equals(Object o) {
-    return o instanceof SnapshotProgress p && p.complete == complete && p.tables.equals(tables);
+    return o instanceof SnapshotProgress p
+        && p.complete == complete
+        && p.tables.equals(tables)
+        && java.util.Objects.equals(p.scope, scope)
+        && java.util.Objects.equals(p.where, where);
   }
 
   @Override

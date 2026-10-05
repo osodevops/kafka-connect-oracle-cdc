@@ -127,7 +127,10 @@ class OpsTopicConnectorIT {
       JsonNode startup = ConnectCluster.json(events.get(0).value());
       assertThat(startup.path("v").asInt()).isEqualTo(1);
       assertThat(startup.path("server").asText()).isEqualTo(PREFIX);
-      assertThat(startup.path("details").path("resume_scn").asLong()).isEqualTo(startScn);
+      // the start position is durable first; by the time the test reads the committed offset, the
+      // quiet heartbeats or the initial snapshot's events may have moved it on
+      long startupScn = startup.path("details").path("resume_scn").asLong();
+      assertThat(startupScn).isPositive().isLessThanOrEqualTo(startScn);
       assertThat(startup.path("details").path("database").asText()).isNotEmpty();
       assertThat(ConnectCluster.json(events.get(0).key()).path("server").asText())
           .isEqualTo(PREFIX);
@@ -140,7 +143,7 @@ class OpsTopicConnectorIT {
               .orElseThrow();
       assertThat(ddl.path("details").path("owner").asText()).isEqualTo(schema);
       assertThat(ddl.path("details").path("sql").asText()).startsWith("CREATE TABLE");
-      assertThat(ddl.path("resume_scn").asLong()).isGreaterThanOrEqualTo(startScn);
+      assertThat(ddl.path("resume_scn").asLong()).isGreaterThanOrEqualTo(startupScn);
     }
     // the table created after start is captured (SRC-SEL-4 in effect for new tables)
     try (KafkaConsumer<String, String> consumer =

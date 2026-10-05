@@ -291,6 +291,20 @@ public final class ConnectCluster implements AutoCloseable {
         "no committed offset for " + name + " within " + timeout + ": " + last);
   }
 
+  /** Produces one string record, as an operator would with a console producer. */
+  public void produce(String topic, String key, String value) throws Exception {
+    Properties p = new Properties();
+    p.put("bootstrap.servers", kafka.getBootstrapServers());
+    p.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+    p.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+    try (org.apache.kafka.clients.producer.KafkaProducer<String, String> producer =
+        new org.apache.kafka.clients.producer.KafkaProducer<>(p)) {
+      producer
+          .send(new org.apache.kafka.clients.producer.ProducerRecord<>(topic, key, value))
+          .get();
+    }
+  }
+
   public KafkaConsumer<String, String> consumer(String group, String... topics) {
     Properties p = new Properties();
     p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());

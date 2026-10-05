@@ -75,6 +75,7 @@ const sidebars = {
       items: [
         'operations/doctor',
         'operations/admin',
+        'operations/signals',
         'operations/dashboards-and-alerts',
         {
           type: 'category',

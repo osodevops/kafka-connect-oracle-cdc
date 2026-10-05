@@ -104,6 +104,19 @@ final class TaskHarness implements AutoCloseable {
 
   List<TableId> captured = List.of(T);
 
+  /** The signal topic as Kafka would hold it; offsets are list positions. */
+  final List<sh.oso.connect.oracle.signals.SignalReader.RawSignal> signalTopic =
+      java.util.Collections.synchronizedList(new ArrayList<>());
+
+  /** Appends a signal for this connector (keyed by its topic prefix). */
+  void signal(String json) {
+    synchronized (signalTopic) {
+      signalTopic.add(
+          new sh.oso.connect.oracle.signals.SignalReader.RawSignal(
+              signalTopic.size(), "cdc", json));
+    }
+  }
+
   /** Stands in for the Kafka admin client when cdc.kafka.bootstrap.servers is set. */
   final sh.oso.connect.oracle.topics.FakeTopicAdmin topicAdmin =
       new sh.oso.connect.oracle.topics.FakeTopicAdmin();
@@ -262,6 +275,21 @@ final class TaskHarness implements AutoCloseable {
           sh.oso.connect.oracle.topics.TopicAdmin topicAdmin(java.util.Properties clientProps) {
             topicAdmin.closed = false;
             return topicAdmin;
+          }
+
+          @Override
+          sh.oso.connect.oracle.signals.SignalReader signalReader(
+              java.util.Properties clientProps, String topic, long after) {
+            long[] next = {after + 1};
+            return () -> {
+              List<sh.oso.connect.oracle.signals.SignalReader.RawSignal> out = new ArrayList<>();
+              synchronized (signalTopic) {
+                while (next[0] < signalTopic.size()) {
+                  out.add(signalTopic.get((int) next[0]++));
+                }
+              }
+              return out;
+            };
           }
 
           @Override

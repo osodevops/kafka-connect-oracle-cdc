@@ -14,7 +14,7 @@ decides whether it takes one:
 | `initial` (default) | Every captured table is read, then the connector streams on. Streaming starts at the same moment: changes made during the snapshot are not missed. |
 | `none` | No snapshot; the connector streams from the current SCN. |
 | `snapshot_only` | Every captured table is read; then the task stays idle and does not stream. |
-| `on_signal` | No snapshot by itself. Snapshots by signal are not in this release. |
+| `on_signal` | No snapshot by itself; tables are snapshotted when a `snapshot` signal names them (see [signals](../operations/signals.md)). |
 
 A snapshot that the stored offset records as unfinished resumes in every mode. An offset written
 before snapshots existed, or with a finished snapshot, starts none.
@@ -45,7 +45,8 @@ wait in memory for streaming to reach their SCN; reads pause beyond that.
 ## Records
 
 Snapshot records have `op` `r`, no `before`, and a `source` block with `snapshot` set to `first`
-for the first record, `last` for the last and `true` otherwise; `source.scn` is the chunk's SCN,
+for the first record, `last` for the last and `true` otherwise (`incremental` for every record of
+a snapshot started by signal); `source.scn` is the chunk's SCN,
 and `txId` and `commit_scn` are empty. They carry the header `cdc.snapshot`.
 
 ## Restarts

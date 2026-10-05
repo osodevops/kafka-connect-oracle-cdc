@@ -269,7 +269,9 @@ class TypeRoundTripEngineIT {
       assertThat(pkUpdate.after()).containsEntry("V", new BigDecimal("11")).doesNotContainKey("W");
 
       // PRD-02: a snapshot read of the same row yields exactly the values the stream decoded, so
-      // a snapshot record and a change record of one row render the same
+      // a snapshot record and a change record of one row render the same. AS OF SCN needs the
+      // SCN-to-time mapping past the CREATE TABLE (ORA-01466 otherwise).
+      Thread.sleep(3500);
       try (Connection snap = db.capture(OracleTestDatabase.CDB_SERVICE)) {
         SessionInitializer.apply(snap, ConnectionRole.SNAPSHOT);
         sh.oso.connect.oracle.core.snapshot.JdbcSnapshotSource reader =

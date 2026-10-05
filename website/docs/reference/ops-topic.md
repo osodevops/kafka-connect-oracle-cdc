@@ -44,11 +44,12 @@ committing one never moves the connector's position past an unacknowledged chang
 | `transaction-discarded` | A transaction older than `cdc.transaction.max.age.ms` was dropped under the `discard` action | `xid`, `con_id`, `user`, `first_scn`, `last_scn`, `events`, `age_ms` |
 | `snapshot-chunk-done` | A snapshot chunk was published | `table`, `scn`, `rows` |
 | `snapshot-complete` | A table's snapshot is complete, or with `table` `*`, the whole snapshot | `table` |
+| `signal-ack` | A signal was handled ([signals](../operations/signals.md)) | `id`, `type`, `outcome`, `message`; `log-state` adds `mined_to_scn`, `open_transactions`, `buffered_events`, `oldest_open_scn`, `largest`, `snapshot_running` |
 | `transaction-split` | In exactly-once mode, an Oracle transaction above the `cdc.eos.split.*` limits was delivered in several Kafka transactions | `xid`, `commit_scn`, `events`, `kafka_transactions` |
 
 The following types are reserved for features that are not yet in a published release. They do not
 appear on the topic today: `position-committed`, `log-switch-detected`, `thread-state-changed`,
-`table-added`, `table-removed`, `transaction-journaled`, `signal-ack`, `offsets-set`.
+`table-added`, `table-removed`, `transaction-journaled`, `offsets-set`.
 
 ## Internal topics
 

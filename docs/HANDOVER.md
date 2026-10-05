@@ -29,14 +29,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `bda83e4` | P1-16a DDL flow in the engine: `DdlClassifier`, versioned `TableSchema` (`version`, `validFromScn`), `SchemaRegistry.applyDdl` and `forget`, CDC-6002 on unknown DDL for captured tables, `ddl-applied` ops event, `EngineDriver` for engine suites | full gate, connector tier 8 suites plus the two surefire tests, engine tier 39 tests, all green |
 | `67a878c` | P1-16b schema topic: `SchemaTopicStore` and `SchemaRecords` (compacted `${prefix}.cdc.schema`, one record per table holding its versions, tombstone on drop or rename), loaded at start, SCH-6 check against the dictionary with `CDC-6003` | full gate, connector tier 9 suites plus the two surefire tests, engine tier 39 tests, all green |
 | `07e9ef6` | P1-17 lag case (ADR-0016): STATUS 2 rows with generic names trigger a replay of the step with the redo dictionary from the newest usable build; replayed rows decode with the version valid at their SCN (`SchemaRegistry.at`), rows carry `schemaVersion` and render with it; `TableSchema.exact`; `CDC-6001` when no build or no exact version; scheduled builds (`cdc.dictionary.build.*`) with a build at start when none exists; `dictionary-replay` and `dictionary-build` ops events, `LagReplays` metric | full gate, connector tier 10 suites plus the two surefire tests, engine tier 41 tests, all green |
-| next after `07e9ef6` (hash recorded at the following commit) | P1-19 snapshots (ADR-0017): `cdc.snapshot.*` (mode initial by default, none, snapshot_only, on_signal), chunks by key, ROWID or whole table, batches sharing one SCN published in key order with streaming held at an in-flight batch's SCN, a frontier per table in the offset's snapshot block, retries and halving to `CDC-8001`, `op=r` records, snapshot metrics and ops events | full gate, connector tier 11 suites plus the two surefire tests, engine tier 42 tests, all green |
+| `ca46304` | P1-19 snapshots (ADR-0017): `cdc.snapshot.*` (mode initial by default, none, snapshot_only, on_signal), chunks by key, ROWID or whole table, batches sharing one SCN published in key order with streaming held at an in-flight batch's SCN, a frontier per table in the offset's snapshot block, retries and halving to `CDC-8001`, `op=r` records, snapshot metrics and ops events | full gate, connector tier 11 suites plus the two surefire tests, engine tier 42 tests, all green |
+| next after `ca46304` (hash recorded at the following commit) | P1-20 signals: `cdc.signals.topic` read from `poll()` and handled on the engine thread (`CaptureEngine.submit`); `snapshot` (tables, predicate; records `incremental`), `snapshot-pause`, `snapshot-resume`, `snapshot-stop`, `refresh-tables`, `log-state`; `signal-ack` for each; the last handled signal's offset in the position extras | full gate, connector tier 12 suites plus the two surefire tests, engine tier 42 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-20 (signals), section 5.
+Nothing. The next increment is P1-22 (multi-PDB and new-table detection), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -231,6 +232,18 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 - `TaskHarness` defaults to `cdc.snapshot.mode=none`; snapshot task tests set it and fill
   `h.snapshots` (`FakeSnapshotSource`, core testkit).
 
+### Signals (P1-20, SRC-SIG)
+
+- `signals/KafkaSignalReader` (no group, partition 0, seeks past `signal_offset` from the
+  position's extras) is polled from `poll()` at most once a second; each record goes to the engine
+  thread through `CaptureEngine.submit`, so handlers may use the metadata connection and buffer.
+  `RecordQueueSink.signalProcessed` puts the offset in every later offset before the ack.
+- `snapshot` builds `SnapshotProgress.scoped(tables, predicate)` (persisted `scope` and `where`)
+  and reuses `startSnapshot`; `RecordQueueSink.snapshot` carries the block at once, so an
+  acknowledged signal snapshot resumes after a crash. Pause is `SnapshotCoordinator.pause`; stop is
+  `RecordQueueSink.snapshotStopped`.
+- Signals are off in `snapshot_only` (no engine thread) and without `cdc.kafka.bootstrap.servers`.
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -277,10 +290,10 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-19: connector tier 11 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-20: connector tier 12 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-`ExactlyOnce`, `SchemaTopic`, `LagCase`, `Snapshot` with two tests) plus the two surefire tests,
-engine tier 42 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+`ExactlyOnce`, `SchemaTopic`, `LagCase`, `Snapshot` with two tests, `Signal`) plus the two surefire
+tests, engine tier 42 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
@@ -409,14 +422,12 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 - Chunks are held in memory: `cdc.snapshot.chunk.rows` times `cdc.snapshot.max.pending.chunks` rows
   (100,000 times 8 by default). Measure on the AWS lab before 1.0 and consider lower defaults.
 
-### P1-20 Signals (SRC-SIG)
+### P1-20 follow-ups
 
-- `signals/SignalConsumer` reading `${prefix}.cdc.signals` (JSON commands keyed by connector name):
-  `snapshot` (tables, predicate), `snapshot-stop`, `snapshot-pause`, `snapshot-resume`,
-  `refresh-tables`, `log-state` (dump buffer `largest(20)` and position to the ops topic). Every
-  signal ends in a `signal-ack` ops event with outcome. Reader pattern as the journal (consumer on
-  `cdc.kafka.*`), polled from `poll()` between batches.
-- Tests: `SignalSnapshotConnectorIT` (archive-only, no source writes), `SignalAckConnectorIT`.
+- Signals while another snapshot runs are rejected, not queued. A queue would need the queued
+  signals in the offset too.
+- `refresh-tables` re-resolves ids; snapshotting tables it adds belongs to P1-22.
+- The signal topic is read from partition 0 only; `InternalTopics` creates it with one partition.
 
 ### P1-22 Multi-PDB and new-table detection (ADR-0002)
 

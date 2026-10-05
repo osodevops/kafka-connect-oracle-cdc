@@ -742,4 +742,83 @@ class OracleCdcSourceTaskTest {
           .contains("snapshot-chunk-done", "snapshot-complete");
     }
   }
+
+  @Test
+  void aSnapshotSignalReadsTheNamedTablesAndIsAcknowledgedOnce() throws Exception {
+    // SRC-SIG-1, SRC-SIG-3, SNAP-8: no automatic snapshot; one by signal, marked incremental
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+      h.snapshots.rows(TaskHarness.T, 1, 3).scn = 1000;
+      h.start();
+      h.signal(
+          "{\"id\": \"s1\", \"type\": \"snapshot\", \"data\": {\"tables\":"
+              + " [\"FREEPDB1.APP.ORDERS\", \"FREEPDB1.APP.NOT_CAPTURED\"]}}");
+      List<SourceRecord> all = h.pollUntil(12, 8000, true);
+      List<SourceRecord> acks =
+          all.stream()
+              .filter(TaskHarness::isOps)
+              .filter(r -> TaskHarness.opsType(r).equals("signal-ack"))
+              .toList();
+      assertThat(acks).hasSize(1);
+      assertThat(TaskHarness.opsDetails(acks.get(0)))
+          .containsEntry("id", "s1")
+          .containsEntry("type", "snapshot")
+          .containsEntry("outcome", "ok");
+      assertThat(TaskHarness.opsDetails(acks.get(0)).get("message"))
+          .contains("FREEPDB1.APP.NOT_CAPTURED");
+      List<SourceRecord> rows = all.stream().filter(TaskHarness::isSnapshot).toList();
+      assertThat(TaskHarness.sqls(rows)).containsExactly("r:row1", "r:row2", "r:row3");
+      assertThat(
+              ((org.apache.kafka.connect.data.Struct) rows.get(0).value())
+                  .getStruct("source")
+                  .getString("snapshot"))
+          .isEqualTo("incremental");
+      assertThat(PositionCodec.read(acks.get(0).sourceOffset()).extras())
+          .containsEntry("signal_offset", 0L);
+      h.acknowledge(all);
+
+      // acknowledged: a restart neither repeats the signal nor the snapshot
+      h.restart();
+      List<SourceRecord> after = h.pollUntil(20, 2500, true);
+      assertThat(after).noneMatch(TaskHarness::isSnapshot);
+      assertThat(after.stream().filter(TaskHarness::isOps).map(TaskHarness::opsType))
+          .doesNotContain("signal-ack");
+    }
+  }
+
+  @Test
+  void signalsForOtherConnectorsAreIgnoredAndTheRestAreAcknowledgedWithAnOutcome()
+      throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+      h.start();
+      synchronized (h.signalTopic) {
+        h.signalTopic.add(
+            new sh.oso.connect.oracle.signals.SignalReader.RawSignal(
+                0, "another-connector", "{\"id\": \"x\", \"type\": \"log-state\"}"));
+      }
+      h.signal("{\"id\": \"a\", \"type\": \"snapshot-pause\"}");
+      h.signal("{\"id\": \"b\", \"type\": \"log-state\"}");
+      h.signal("{\"id\": \"c\", \"type\": \"refresh-tables\"}");
+      h.signal("{\"id\": \"d\", \"type\": \"frobnicate\"}");
+      h.signal("not json");
+      List<String> outcomes = new java.util.ArrayList<>();
+      long deadline = System.currentTimeMillis() + 8000;
+      Map<String, String> logState = null;
+      while (outcomes.size() < 5 && System.currentTimeMillis() < deadline) {
+        for (SourceRecord r : h.pollUntil(1, 500, true)) {
+          if (TaskHarness.isOps(r) && TaskHarness.opsType(r).equals("signal-ack")) {
+            Map<String, String> d = TaskHarness.opsDetails(r);
+            outcomes.add(d.get("id") + ":" + d.get("outcome"));
+            if ("b".equals(d.get("id"))) {
+              logState = d;
+            }
+          }
+        }
+      }
+      assertThat(outcomes)
+          .containsExactly("a:rejected", "b:ok", "c:ok", "d:unknown", "null:invalid");
+      assertThat(logState).containsKeys("mined_to_scn", "open_transactions", "largest");
+    }
+  }
 }

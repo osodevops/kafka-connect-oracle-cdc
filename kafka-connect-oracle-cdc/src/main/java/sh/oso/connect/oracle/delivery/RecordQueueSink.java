@@ -398,7 +398,33 @@ public final class RecordQueueSink
     this.snapshot = coordinator;
     this.snapshotProgress = progress;
     this.snapshotStarted = !progress.untouched();
+    carrySnapshot(); // the next offset records that this snapshot runs
   }
+
+  /** A snapshot is running: started and not yet complete or stopped. */
+  public synchronized boolean snapshotRunning() {
+    return snapshot != null;
+  }
+
+  /** SRC-SIG-1 snapshot-stop: the running snapshot ends here, its remaining chunks unread. */
+  public synchronized void snapshotStopped() {
+    snapshot = null;
+    snapshotProgress = snapshotProgress.completed();
+    carrySnapshot();
+    ops(OpsEvent.Type.SNAPSHOT_COMPLETE, "table", "*", "stopped", "true");
+  }
+
+  /**
+   * SRC-SIG-3: the signal at {@code offset} of the signal topic is handled; every offset from here
+   * on records it, so an acknowledged signal is never handled again.
+   */
+  public synchronized void signalProcessed(long offset) {
+    base = base.withExtra(SIGNAL_OFFSET, offset);
+    lastEmittedCommit = lastEmittedCommit.withExtra(SIGNAL_OFFSET, offset);
+  }
+
+  /** The key of the last handled signal's offset in the position's extras. */
+  public static final String SIGNAL_OFFSET = "signal_offset";
 
   /** The first snapshot record has gone out (SNAP-8 marks it {@code first}). */
   private boolean snapshotStarted;
@@ -428,11 +454,13 @@ public final class RecordQueueSink
         for (int i = 0; i < rows.size(); i++) {
           boolean lastRow = i + 1 == rows.size();
           String marker =
-              !snapshotStarted
-                  ? "first"
-                  : b.last() && lastRow && c == b.chunks().get(b.chunks().size() - 1)
-                      ? "last"
-                      : "true";
+              snapshotProgress.scoped()
+                  ? "incremental"
+                  : !snapshotStarted
+                      ? "first"
+                      : b.last() && lastRow && c == b.chunks().get(b.chunks().size() - 1)
+                          ? "last"
+                          : "true";
           snapshotStarted = true;
           Position at = safePosition().withSnapshot((lastRow ? after : snapshotProgress).toMap());
           SourceRecord rec =

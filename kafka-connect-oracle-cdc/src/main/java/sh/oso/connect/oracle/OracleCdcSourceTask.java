@@ -52,8 +52,12 @@ public class OracleCdcSourceTask extends SourceTask {
   private EngineFactory.Session session;
   private RecordQueueSink sink;
   private EngineLifecycle lifecycle;
-  private sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator snapshot;
+  // the task thread starts and stops it; signals on the engine thread replace it
+  private volatile sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator snapshot;
   private Thread snapshotOnly;
+  private CaptureEngine engine;
+  private sh.oso.connect.oracle.signals.SignalReader signals;
+  private long lastSignalPoll;
   private volatile Throwable snapshotOnlyFailure;
   private sh.oso.connect.oracle.schema.SchemaTopicStore schemaStore;
   private javax.management.ObjectName metricsName;
@@ -226,8 +230,17 @@ public class OracleCdcSourceTask extends SourceTask {
                   message);
             }
           });
+      this.engine = engine;
       if (progress != null && !progress.complete()) {
         startSnapshot(progress, engine);
+      }
+      if (config.kafkaBootstrapServers() != null
+          && snapshotMode != CoreConfig.SnapshotMode.SNAPSHOT_ONLY) {
+        java.util.Properties p = config.kafkaClientProperties();
+        p.put("bootstrap.servers", config.kafkaBootstrapServers());
+        Object last = position.extras().get(RecordQueueSink.SIGNAL_OFFSET);
+        signals =
+            signalReader(p, config.signalsTopic(), last instanceof Number n ? n.longValue() : -1);
       }
       if (snapshotMode == CoreConfig.SnapshotMode.SNAPSHOT_ONLY) {
         startSnapshotOnly();
@@ -260,6 +273,7 @@ public class OracleCdcSourceTask extends SourceTask {
 
   @Override
   public List<SourceRecord> poll() throws InterruptedException {
+    pollSignals();
     Throwable failure = lifecycle != null ? lifecycle.failure() : snapshotOnlyFailure;
     List<SourceRecord> records =
         transactions == null
@@ -287,6 +301,14 @@ public class OracleCdcSourceTask extends SourceTask {
 
   @Override
   public void stop() {
+    if (signals != null) {
+      try {
+        signals.close();
+      } catch (Exception e) {
+        LOG.debug("closing the signal reader: {}", e.getMessage());
+      }
+      signals = null;
+    }
     if (snapshot != null) {
       snapshot.close();
     }
@@ -459,11 +481,18 @@ public class OracleCdcSourceTask extends SourceTask {
         ordered.add(t);
       }
     }
+    ordered.removeIf(t -> !progress.covers(t)); // a snapshot by signal reads its tables only
     Map<sh.oso.connect.oracle.core.model.TableId, String> overrides = new java.util.HashMap<>();
     Map<String, String> wanted = config.core().snapshotSelectOverrides();
     for (sh.oso.connect.oracle.core.model.TableId t : ordered) {
-      if (wanted.containsKey(t.fqnUpper())) {
-        overrides.put(t, wanted.get(t.fqnUpper()));
+      String configured = wanted.get(t.fqnUpper());
+      String signalled = progress.where();
+      if (configured != null || signalled != null) {
+        overrides.put(
+            t,
+            configured == null
+                ? signalled
+                : signalled == null ? configured : configured + ") AND (" + signalled);
       }
       if (!progress.done(t)) {
         try {
@@ -472,6 +501,9 @@ public class OracleCdcSourceTask extends SourceTask {
           LOG.warn("Snapshot: no schema for {} ({}); it is skipped", t.fqn(), e.getMessage());
         }
       }
+    }
+    if (snapshot != null) {
+      snapshot.close(); // a finished or stopped one
     }
     snapshot =
         new sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator(
@@ -494,6 +526,165 @@ public class OracleCdcSourceTask extends SourceTask {
         "Snapshot of {} tables{}",
         snapshot.tables().size(),
         progress.untouched() ? "" : ", resumed from the stored offset");
+  }
+
+  /** Overridable for tests. */
+  sh.oso.connect.oracle.signals.SignalReader signalReader(
+      java.util.Properties clientProps, String topic, long after) {
+    return new sh.oso.connect.oracle.signals.KafkaSignalReader(clientProps, topic, after);
+  }
+
+  /**
+   * SRC-SIG-1: reads new signals at most once a second and hands each to the engine thread, which
+   * may use the metadata connection and the buffer.
+   */
+  private void pollSignals() {
+    if (signals == null || engine == null || lifecycle == null) {
+      return;
+    }
+    long now = System.currentTimeMillis();
+    if (now - lastSignalPoll < 1000) {
+      return;
+    }
+    lastSignalPoll = now;
+    List<sh.oso.connect.oracle.signals.SignalReader.RawSignal> got;
+    try {
+      got = signals.poll();
+    } catch (RuntimeException e) {
+      LOG.warn("Reading the signal topic failed: {}", e.getMessage());
+      return;
+    }
+    for (sh.oso.connect.oracle.signals.SignalReader.RawSignal r : got) {
+      engine.submit(() -> handleSignal(r));
+    }
+  }
+
+  /** On the engine thread: one signal, ending in a signal-ack ops event (SRC-SIG-3). */
+  private void handleSignal(sh.oso.connect.oracle.signals.SignalReader.RawSignal r) {
+    sink.signalProcessed(r.offset());
+    String name = config.originalsStrings().getOrDefault("name", config.topicPrefix());
+    if (r.key() == null || !(r.key().equals(name) || r.key().equals(config.topicPrefix()))) {
+      return; // another connector's signal
+    }
+    sh.oso.connect.oracle.signals.Signal s;
+    try {
+      s = sh.oso.connect.oracle.signals.Signal.parse(r.value());
+    } catch (IllegalArgumentException e) {
+      ack(null, null, "invalid", e.getMessage());
+      return;
+    }
+    try {
+      switch (s.type()) {
+        case "snapshot" -> signalSnapshot(s);
+        case "snapshot-pause", "snapshot-resume" -> {
+          if (sink.snapshotRunning() && snapshot != null) {
+            snapshot.pause(s.type().equals("snapshot-pause"));
+            ack(s, "ok", null);
+          } else {
+            ack(s, "rejected", "no snapshot is running");
+          }
+        }
+        case "snapshot-stop" -> {
+          if (sink.snapshotRunning() && snapshot != null) {
+            snapshot.close();
+            snapshot = null;
+            sink.snapshotStopped();
+            ack(s, "ok", null);
+          } else {
+            ack(s, "rejected", "no snapshot is running");
+          }
+        }
+        case "refresh-tables" -> {
+          engine.requestRefresh();
+          ack(s, "ok", null);
+        }
+        case "log-state" -> logState(s);
+        default -> ack(s, "unknown", "unknown signal type " + s.type());
+      }
+    } catch (RuntimeException e) {
+      LOG.warn("Signal {} failed: {}", s.type(), e.getMessage(), e);
+      ack(s, "failed", e.getMessage());
+    }
+  }
+
+  private void signalSnapshot(sh.oso.connect.oracle.signals.Signal s) {
+    if (sink.snapshotRunning()) {
+      ack(s, "rejected", "a snapshot is running");
+      return;
+    }
+    List<sh.oso.connect.oracle.core.model.TableId> tables = new java.util.ArrayList<>();
+    List<String> unknown = new java.util.ArrayList<>();
+    for (String wanted : s.tables()) {
+      sh.oso.connect.oracle.core.model.TableId match = null;
+      for (sh.oso.connect.oracle.core.model.TableId t : session.capturedTables()) {
+        if (t.fqnUpper().equals(wanted.trim().toUpperCase(java.util.Locale.ROOT))) {
+          match = t;
+        }
+      }
+      if (match == null) {
+        unknown.add(wanted);
+      } else {
+        tables.add(match);
+      }
+    }
+    if (tables.isEmpty()) {
+      ack(s, "rejected", "none of " + s.tables() + " is a captured table");
+      return;
+    }
+    startSnapshot(
+        sh.oso.connect.oracle.core.snapshot.SnapshotProgress.scoped(tables, s.predicate()), engine);
+    ack(s, "ok", unknown.isEmpty() ? null : "not captured, skipped: " + unknown);
+  }
+
+  /** SRC-SIG-1 log-state: the buffer and the position, on the ops topic. */
+  private void logState(sh.oso.connect.oracle.signals.Signal s) {
+    sh.oso.connect.oracle.core.buffer.BufferMetricsSnapshot b = engine.metrics().buffer;
+    StringBuilder largest = new StringBuilder();
+    List<sh.oso.connect.oracle.core.buffer.TransactionBuffer.OpenTransaction> top =
+        engine.metrics().largest;
+    if (top != null) {
+      for (sh.oso.connect.oracle.core.buffer.TransactionBuffer.OpenTransaction t : top) {
+        largest.append(largest.length() == 0 ? "" : ",").append(t.key()).append(':');
+        largest.append(t.firstScn());
+      }
+    }
+    sink.ops(
+        sh.oso.connect.oracle.ops.OpsEvent.Type.SIGNAL_ACK,
+        "id",
+        s.id(),
+        "type",
+        s.type(),
+        "outcome",
+        "ok",
+        "mined_to_scn",
+        Long.toString(engine.cursor().scn()),
+        "open_transactions",
+        b == null ? "0" : Integer.toString(b.openTransactions()),
+        "buffered_events",
+        b == null ? "0" : Long.toString(b.bufferedEvents()),
+        "oldest_open_scn",
+        b == null ? "-1" : Long.toString(b.oldestOpenScn()),
+        "largest",
+        largest.toString(),
+        "snapshot_running",
+        Boolean.toString(sink.snapshotRunning()));
+  }
+
+  private void ack(sh.oso.connect.oracle.signals.Signal s, String outcome, String message) {
+    ack(s == null ? null : s.id(), s == null ? null : s.type(), outcome, message);
+  }
+
+  private void ack(String id, String type, String outcome, String message) {
+    sink.ops(
+        sh.oso.connect.oracle.ops.OpsEvent.Type.SIGNAL_ACK,
+        "id",
+        id,
+        "type",
+        type,
+        "outcome",
+        outcome,
+        "message",
+        message);
   }
 
   /** SNAP-1 snapshot_only: no streaming; chunks are published as soon as they are read. */

@@ -1,0 +1,31 @@
+/*
+ * Copyright 2026 OSO DevOps Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package sh.oso.connect.oracle.signals;
+
+import java.util.List;
+
+/** SRC-SIG-1: the signal topic, read from just after the last handled signal. */
+public interface SignalReader extends AutoCloseable {
+
+  /** A record of the signal topic, key and value as text. */
+  record RawSignal(long offset, String key, String value) {}
+
+  /** The signals that arrived since the last call; empty when there are none. */
+  List<RawSignal> poll();
+
+  @Override
+  default void close() {}
+}

@@ -76,7 +76,7 @@ public final class CaptureEngine {
   private LogInventory inventory;
   private Supplier<Long> safeEnd;
   private final Reconnector reconnector;
-  private boolean pendingRefresh;
+  private volatile boolean pendingRefresh;
   private final MiningScheduler scheduler;
   private StepRunner runner;
   private final OraErrorClassifier classifier;
@@ -93,7 +93,7 @@ public final class CaptureEngine {
   private LobReselector reselector;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
-  private int decodeThreads = 1;
+  private volatile int decodeThreads = 1; // set before start, read on the engine thread
   private java.util.concurrent.ForkJoinPool decodePool;
   private java.util.Map<MiningEvent.Dml, Object> decoded = java.util.Map.of();
 
@@ -183,6 +183,22 @@ public final class CaptureEngine {
     return metrics;
   }
 
+  private final java.util.concurrent.ConcurrentLinkedQueue<Runnable> actions =
+      new java.util.concurrent.ConcurrentLinkedQueue<>();
+
+  /**
+   * Runs {@code action} on the engine thread before the next step, so it may use the engine's
+   * metadata connection and buffer (SRC-SIG-1 signals). An action handles its own errors.
+   */
+  public void submit(Runnable action) {
+    actions.add(action);
+  }
+
+  /** SRC-SIG-1 refresh-tables: the object ids are re-resolved before the next step. */
+  public void requestRefresh() {
+    pendingRefresh = true;
+  }
+
   public StepCursor cursor() {
     return cursor;
   }
@@ -196,6 +212,9 @@ public final class CaptureEngine {
    * the task; a transient database error leads to a reconnect instead (CORE-CONN-6).
    */
   public Progress runOnce() throws SQLException, InterruptedException {
+    for (Runnable a = actions.poll(); a != null; a = actions.poll()) {
+      a.run();
+    }
     try {
       return step();
     } catch (TransientDatabaseException e) {

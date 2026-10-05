@@ -190,6 +190,33 @@ public record Position(
         id.hasRba() ? id.ssn() : 0);
   }
 
+  /** {@code extras} with {@code key} set to {@code value}; null removes it. */
+  public Position withExtra(String key, Object value) {
+    Map<String, Object> next = new java.util.LinkedHashMap<>(extras);
+    if (value == null) {
+      next.remove(key);
+    } else {
+      next.put(key, value);
+    }
+    return new Position(
+        version,
+        resumeScn,
+        lastCommitScn,
+        lastCommitKey,
+        lastCommitThread,
+        eventIndex,
+        journalGeneration,
+        schemaEpoch,
+        identity,
+        released,
+        snapshot,
+        next,
+        resumeRsId,
+        resumeSsn,
+        lastCommitRsId,
+        lastCommitSsn);
+  }
+
   /** PRD-02 SNAP-3: the snapshot block, null when no snapshot was ever started. */
   public Position withSnapshot(Map<String, Object> block) {
     return new Position(
