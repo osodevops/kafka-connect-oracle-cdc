@@ -52,6 +52,8 @@ public class OracleCdcSourceTask extends SourceTask {
   private RecordQueueSink sink;
   private EngineLifecycle lifecycle;
   private javax.management.ObjectName metricsName;
+  private org.apache.kafka.connect.source.TransactionContext transactions;
+  private sh.oso.connect.oracle.delivery.EosBoundaries boundaries;
   private final AckTracker acks = new AckTracker();
   private volatile Position startPosition;
 
@@ -126,6 +128,16 @@ public class OracleCdcSourceTask extends SourceTask {
                   config.dlqTopic(), config.topicPrefix(), envelope.partition()),
               config.heartbeatIntervalMs(),
               System::currentTimeMillis);
+      // SRC-EOS: the worker hands out a transaction context only with
+      // transaction.boundary=connector
+      transactions = context.transactionContext();
+      if (transactions != null) {
+        sink.exactlyOnce(config.eosSplitMaxRecords(), config.eosSplitMaxBytes());
+        boundaries =
+            new sh.oso.connect.oracle.delivery.EosBoundaries(
+                config.eosBatchMaxRecords(), config.eosBatchMaxBytes(), config.eosBatchMaxMs());
+        LOG.info("Exactly-once: Kafka transactions end only at Oracle commit boundaries");
+      }
       ensureInternalTopics();
       sh.oso.connect.oracle.journal.BufferSetup bufferSetup = loadJournal(position, generation);
       // SRC-HB-1: the start position becomes durable with the first offset flush, before any
@@ -169,7 +181,16 @@ public class OracleCdcSourceTask extends SourceTask {
   @Override
   public List<SourceRecord> poll() throws InterruptedException {
     Throwable failure = lifecycle.failure();
-    List<SourceRecord> records = sink.drain(config.pollMaxRecords(), config.pollLingerMs());
+    List<SourceRecord> records =
+        transactions == null
+            ? sink.drain(config.pollMaxRecords(), config.pollLingerMs())
+            : boundaries.next(
+                boundaries.holding()
+                    ? List.of()
+                    : sink.drainQueued(config.pollMaxRecords(), config.pollLingerMs()),
+                transactions,
+                System.currentTimeMillis(),
+                sink.queued() == 0);
     if (!records.isEmpty()) {
       return records;
     }

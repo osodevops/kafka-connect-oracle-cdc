@@ -29,7 +29,8 @@ the current code, is being built, or is planned. Nothing on this site is a bench
 | Orphan detection, long-transaction policy, decode DLQ | Implemented |
 | LOB columns: `skip`, `inline` assembly from redo, `reselect` as of the commit SCN | Implemented |
 | JMX metrics, Prometheus exporter rules, Grafana dashboard and alert rules; parallel decoding | Implemented |
-| Exactly-once delivery, snapshots, DDL replay, multi-PDB | Planned (Phase 1c) |
+| Exactly-once delivery with Kafka transactions at Oracle commit boundaries | Implemented |
+| Snapshots, DDL replay, multi-PDB | Planned (Phase 1c) |
 | RAC, Confluent record format, RDS, Autonomous Database | Planned (Phase 2 and 3) |
 
 ## Design in one paragraph

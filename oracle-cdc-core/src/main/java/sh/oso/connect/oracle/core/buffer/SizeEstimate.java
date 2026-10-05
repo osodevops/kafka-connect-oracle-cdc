@@ -19,14 +19,14 @@ import java.util.Map;
 import sh.oso.connect.oracle.core.model.RowChange;
 
 /** Rough heap cost of a change, for the memory budget; exact enough to decide what to spill. */
-final class SizeEstimate {
+public final class SizeEstimate {
 
   private static final long BASE = 160;
   private static final long PER_ENTRY = 48;
 
   private SizeEstimate() {}
 
-  static long of(RowChange c) {
+  public static long of(RowChange c) {
     long n = BASE + (c.rowId() == null ? 0 : c.rowId().length() * 2L);
     n += of(c.before());
     n += of(c.after());

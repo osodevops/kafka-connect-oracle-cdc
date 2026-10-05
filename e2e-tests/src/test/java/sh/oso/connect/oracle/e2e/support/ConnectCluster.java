@@ -130,6 +130,12 @@ public final class ConnectCluster implements AutoCloseable {
     return "http://" + connect.getHost() + ":" + connect.getMappedPort(8083);
   }
 
+  /** Runs a Kafka command-line tool inside the broker container and returns its output. */
+  public String kafkaTool(String... command) throws Exception {
+    var r = kafka.execInContainer(command);
+    return r.getStdout() + r.getStderr();
+  }
+
   public String bootstrapServers() {
     return kafka.getBootstrapServers();
   }

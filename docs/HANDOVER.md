@@ -24,14 +24,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `cafbccc` | P1-11 ops topic and internal topics, P1-06 spill store, P1-14 transaction journal, P1-15 orphan detection, ADR-0014 redo-address cursor | full gate, connector tier 7 suites, engine tier 31 tests, all green |
 | `ddb4c4d` | P1-21 decode DLQ (`cdc.dlq.topic`), long-transaction policy (`cdc.transaction.max.age.ms`, `CDC-4004`), archive-only coverage, `dbz-2713` regression | full gate, connector tier 7 suites plus the two surefire tests, engine tier 33 tests, all green |
 | `5d152a5` | P1-18 LOBs: `cdc.lob.mode` skip, inline, reselect; `cdc.lob.max.bytes`, `cdc.lob.oversize.action` (`CDC-3003`), `cdc.unavailable.placeholder`; per-statement assembly and newest-change undo (ADR-0015); LOB_ERASE code 29 | full gate, connector tier 7 suites plus the two surefire tests (oracle suite with LOBs in reselect mode), engine tier 37 tests, all green |
-| next after `5d152a5` (hash recorded at the following commit) | P1-23 task MXBean (41 attributes, top 20 transactions), generated metrics page and JMX exporter rules, Grafana dashboard, Prometheus alert rules, parallel decoding (`cdc.mining.decode.threads`) | full gate, connector tier 7 suites plus the two surefire tests, engine tier 38 tests, all green |
+| `daaacd6` | P1-23 task MXBean (41 attributes, top 20 transactions), generated metrics page and JMX exporter rules, Grafana dashboard, Prometheus alert rules, parallel decoding (`cdc.mining.decode.threads`) | full gate, connector tier 7 suites plus the two surefire tests, engine tier 38 tests, all green |
+| next after `daaacd6` (hash recorded at the following commit) | P1-12 exactly-once: `exactlyOnceSupport` and `canDefineTransactionBoundaries` SUPPORTED, Kafka transactions at Oracle commit boundaries with `cdc.eos.batch.*` bounds, splits at `cdc.eos.split.*` with the `cdc.split` header and a `transaction-split` ops event | full gate, connector tier 8 suites plus the two surefire tests, engine tier 38 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-12 (exactly-once), section 5.
+Nothing. The next increment is P1-16 (schema topic and DDL flow), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -154,6 +155,18 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
   decoded on a fork-join pool; results (and decode exceptions) are consumed in order by `apply`.
   Any new per-row decoding must stay a pure function of the row and its `TableSchema`.
 
+### Exactly-once (P1-12, ADR-0007 amendment)
+
+- `RecordQueueSink.Queued(record, boundary, force, bytes)`: every record put on the queue says whether
+  a Kafka transaction may end after it. `put(SourceRecord)` is a boundary; inside `committed()` only
+  the last record of the transaction is, plus forced split points. Any new record type queued inside
+  an Oracle transaction must not be a boundary.
+- The task sees a `TransactionContext` only with `transaction.boundary=connector`; then `poll()` goes
+  through `EosBoundaries.next`, which cuts the batch at the chosen boundary, calls
+  `commitTransaction()` (batch level) and holds the rest for the next poll.
+- `TaskHarness.exactlyOnce = true` gives a recording transaction context; `kafkaCommits` holds the last
+  record of each batch a commit was requested for.
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -200,15 +213,17 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-23: connector tier 8 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-12: connector tier 10 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-plus the two surefire tests), engine tier 38 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+`ExactlyOnce`, plus the two surefire tests), engine tier 38 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
 
 ## 4. Pitfalls met on this workstation (read before debugging a red run)
 
+- A plain `NUMBER` column is a Connect Decimal; with the JSON converter it arrives as a base64 string,
+  so `asInt()` reads 0. Connector suites that parse values set `cdc.decimal.mode=string`.
 - A flashback query within about three seconds of a DDL on the table raises ORA-01466; reselect
   treats it as unavailable. Suites that reselect sleep 3.5 s after creating their tables.
 - Spikes that filter LogMiner rows by `SEG_OWNER` miss the code 9 rows and anything else without an
@@ -277,23 +292,11 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 - The connector tier cannot read the worker's JMX (the worker runs in a container); `MetricsEngineIT`
   proves the MXBean at the engine level.
 
-### P1-12 Exactly-once (ADR-0007)
+### P1-12 follow-ups
 
-- `OracleCdcSourceConnector.exactlyOnceSupport()` returns SUPPORTED and
-  `canDefineTransactionBoundaries()` SUPPORTED; `OracleCdcSourceTask` uses
-  `context.transactionContext()` to commit a Kafka transaction after the last record of each Oracle
-  commit (`RecordQueueSink.committed` marks the last record: add a `TransactionBoundary` marker list
-  the task consults in `poll()`), batching several Oracle commits per Kafka transaction within
-  `cdc.eos.batch.max.records`, `cdc.eos.batch.max.ms`, `cdc.eos.batch.max.bytes` (16 MiB), and
-  splitting a single huge transaction at `cdc.eos.split.max.bytes` (256 MiB) with a
-  `transaction-split` ops event (SRC-EOS-4). Heartbeats, ops, journal and DLQ records ride inside
-  whichever transaction is open; a quiet heartbeat alone commits a small transaction.
-- DOC-18 in the doctor: read `transaction.max.timeout.ms` from the broker through the admin client
-  and validate `cdc.eos.*`.
-- Tests: `ExactlyOnceConnectorIT` (read_committed consumer never sees a partial Oracle
-  transaction), `WorkerKillEosConnectorIT` (ten kills, zero duplicates with read_committed),
-  `SplitTransactionConnectorIT`. The worker in `ConnectCluster` already has
-  `exactly.once.source.support=enabled`.
+- DOC-18 (broker `transaction.max.timeout.ms` against the `cdc.eos.*` bounds) moved to P1-24.
+- The thousand-kill exactly-once run belongs to the nightly tier (P1-27); `ExactlyOnceConnectorIT`
+  kills the worker twice.
 
 ### P1-16 Schema topic and DDL flow (PRD-03)
 

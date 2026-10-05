@@ -35,6 +35,51 @@ import sh.oso.connect.oracle.core.position.PositionCodec;
 class OracleCdcSourceTaskTest {
 
   @Test
+  void exactlyOnceEndsKafkaTransactionsOnlyAtOracleCommitsAndSplitsLargeOnes() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.exactlyOnce = true;
+      h.props.put(OracleCdcSourceConnectorConfig.EOS_SPLIT_MAX_RECORDS, "3");
+      TxKey a = h.fake.tx(1, 1, 1);
+      TxKey b = h.fake.tx(1, 1, 2);
+      h.fake
+          .start(a, "APP")
+          .insert(a, TaskHarness.T, "a1")
+          .insert(a, TaskHarness.T, "a2")
+          .commit(a);
+      h.fake.start(b, "APP");
+      for (int i = 1; i <= 7; i++) {
+        h.fake.insert(b, TaskHarness.T, "b" + i);
+      }
+      h.fake.commit(b);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> all = new java.util.ArrayList<>(h.pollUntil(12, 5000, true));
+      long deadline = System.currentTimeMillis() + 5000;
+      while (System.currentTimeMillis() < deadline
+          && !TaskHarness.sqls(all).contains("<ops:transaction-split>")) {
+        all.addAll(h.pollUntil(1, 200, true));
+      }
+      List<String> labels = TaskHarness.sqls(all);
+      assertThat(labels)
+          .containsSubsequence(
+              "c:a1", "c:a2", "c:b1", "c:b3", "c:b6", "c:b7", "<ops:transaction-split>");
+      List<String> committed = TaskHarness.sqls(h.kafkaCommits);
+      // a Kafka transaction ends at an Oracle commit, or at a forced split of a large transaction
+      assertThat(committed.stream().filter(l -> l.startsWith("c:")))
+          .isSubsetOf("c:a2", "c:b3", "c:b6", "c:b7")
+          .contains("c:b3", "c:b6");
+      // everything delivered so far has been committed in a Kafka transaction
+      int lastCommitted = all.indexOf(h.kafkaCommits.get(h.kafkaCommits.size() - 1));
+      assertThat(lastCommitted).isGreaterThanOrEqualTo(labels.indexOf("c:b7"));
+      for (SourceRecord r : all) {
+        String l = TaskHarness.sqls(List.of(r)).get(0);
+        boolean splitHeader = r.headers().lastWithName("cdc.split") != null;
+        assertThat(splitHeader).as(l).isEqualTo(l.startsWith("c:b"));
+      }
+    }
+  }
+
+  @Test
   void multiRowTransactionAndRollbackProduceRecordsInOrderWithOffsets() throws Exception {
     try (TaskHarness h = new TaskHarness()) {
       TxKey a = h.fake.tx(1, 1, 1);
@@ -427,15 +472,23 @@ class OracleCdcSourceTaskTest {
       h.start();
       assertThat(h.task().startPosition().resumeScn()).isEqualTo(p.resumeScn());
       assertThat(h.task().startPosition().journalGeneration()).isEqualTo(2);
-      List<SourceRecord> second = h.pollUntil(4, 5000);
-      assertThat(TaskHarness.sqls(second)).containsExactly("c:a1", "c:a2", "c:a3", "c:a4");
-      Position last = PositionCodec.read(second.get(3).sourceOffset());
+      // internal records are kept: the tombstone often shares a batch with the last change
+      List<SourceRecord> second = new java.util.ArrayList<>();
+      long until = System.currentTimeMillis() + 5000;
+      while (System.currentTimeMillis() < until
+          && second.stream().filter(r -> !TaskHarness.isInternal(r)).count() < 4) {
+        second.addAll(h.pollUntil(1, 500, true));
+      }
+      List<SourceRecord> changes = second.stream().filter(r -> !TaskHarness.isInternal(r)).toList();
+      assertThat(TaskHarness.sqls(changes)).containsExactly("c:a1", "c:a2", "c:a3", "c:a4");
+      Position last = PositionCodec.read(changes.get(3).sourceOffset());
       assertThat(last.lastCommitKey()).isEqualTo(a);
       assertThat(last.eventIndex()).isEqualTo(4);
       // the journal entries are tombstoned once the commit is consumed
       List<SourceRecord> tail = h.pollUntil(2, 3000, true);
-      List<String> tailKinds = tail.stream().map(TaskHarness::sql).toList();
-      assertThat(tailKinds).anyMatch(k -> k.startsWith("<tombstone:"));
+      List<String> after = new java.util.ArrayList<>(TaskHarness.sqls(second));
+      after.addAll(TaskHarness.sqls(tail));
+      assertThat(after).anyMatch(k -> k.startsWith("<tombstone:"));
       h.acknowledge(second);
       h.acknowledge(tail);
       h.restart();

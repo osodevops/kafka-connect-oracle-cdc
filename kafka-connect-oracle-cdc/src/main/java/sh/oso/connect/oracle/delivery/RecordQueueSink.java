@@ -55,7 +55,18 @@ public final class RecordQueueSink
   private final DebeziumEnvelope envelope;
   private final SchemaRegistry schemas;
   private Position base;
-  private final BlockingQueue<SourceRecord> queue;
+  private final BlockingQueue<Queued> queue;
+  private boolean eos;
+  private long splitMaxRecords = Long.MAX_VALUE;
+  private long splitMaxBytes = Long.MAX_VALUE;
+
+  /**
+   * A queued record. {@code boundary}: a Kafka transaction may end after it (it is not inside an
+   * Oracle transaction); {@code force}: it must end there (a split, SRC-EOS-4); {@code bytes}: the
+   * change data it carries, for cdc.eos.batch.max.bytes.
+   */
+  public record Queued(SourceRecord record, boolean boundary, boolean force, long bytes) {}
+
   private final HeartbeatEmitter heartbeats;
   private final OpsEventWriter ops;
   private final sh.oso.connect.oracle.journal.JournalRecords journal;
@@ -318,6 +329,12 @@ public final class RecordQueueSink
       millisBehindSource = Math.max(0, clock.getAsLong() - lastCommitTimestamp);
     }
     Map<TableId, Long> perTable = new HashMap<>();
+    // SRC-EOS-4: a transaction above the record limit is split; one above the byte limit is split
+    // from the point it crosses it
+    boolean split = eos && tx.size() - skipped > splitMaxRecords;
+    long sinceRecords = 0;
+    long sinceBytes = 0;
+    int splits = 0;
     for (int i = 0; i < tx.size(); i++) {
       RowChange c = tx.events().get(i);
       long order = perTable.merge(c.table(), 1L, Long::sum);
@@ -336,14 +353,44 @@ public final class RecordQueueSink
           i + 1 < tx.size() ? earlier(resumeCandidate, tx.firstCaptured()) : resumeCandidate;
       Position offset =
           base.withCommit(tx.commitId(), tx.thread(), tx.key(), i + 1).withResume(resume);
-      for (SourceRecord r : envelope.records(tx, i, order, schema, offset)) {
-        put(r);
+      List<SourceRecord> records = envelope.records(tx, i, order, schema, offset);
+      long bytes = sh.oso.connect.oracle.core.buffer.SizeEstimate.of(c);
+      sinceRecords++;
+      sinceBytes += bytes;
+      boolean last = i + 1 == tx.size();
+      boolean cut =
+          eos && !last && (sinceRecords >= splitMaxRecords || sinceBytes >= splitMaxBytes);
+      if (cut) {
+        split = true;
+        splits++;
+        sinceRecords = 0;
+        sinceBytes = 0;
+      }
+      for (int r = 0; r < records.size(); r++) {
+        SourceRecord rec = records.get(r);
+        if (split) {
+          rec.headers().addBoolean("cdc.split", true);
+        }
+        boolean end = r + 1 == records.size();
+        put(new Queued(rec, end && (last || cut), end && cut, r == 0 ? bytes : 0));
       }
       lastQueuedAt = clock.getAsLong();
     }
     lastEmittedCommit =
         base.withCommit(tx.commitId(), tx.thread(), tx.key(), tx.size())
             .withResume(resumeCandidate);
+    if (splits > 0) {
+      ops(
+          OpsEvent.Type.TRANSACTION_SPLIT,
+          "xid",
+          tx.key().xid().toString(),
+          "commit_scn",
+          Long.toString(tx.commitScn()),
+          "events",
+          Integer.toString(tx.size()),
+          "kafka_transactions",
+          Integer.toString(splits + 1));
+    }
   }
 
   /** The earlier of two resume points in redo order, with the lower SCN as its floor. */
@@ -359,9 +406,20 @@ public final class RecordQueueSink
         : new RedoRecordId(scn, b.rsId(), b.ssn());
   }
 
+  /** SRC-EOS-4: split Oracle transactions above these sizes into several Kafka transactions. */
+  public synchronized void exactlyOnce(long maxRecords, long maxBytes) {
+    this.eos = true;
+    this.splitMaxRecords = maxRecords;
+    this.splitMaxBytes = maxBytes;
+  }
+
   private void put(SourceRecord r) {
+    put(new Queued(r, true, false, 0));
+  }
+
+  private void put(Queued q) {
     try {
-      queue.put(r);
+      queue.put(q);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ConnectException("interrupted while queueing records", e);
@@ -399,7 +457,16 @@ public final class RecordQueueSink
   /** Drains up to {@code max} records, waiting up to {@code lingerMs} for the first. */
   public List<SourceRecord> drain(int max, long lingerMs) throws InterruptedException {
     List<SourceRecord> out = new java.util.ArrayList<>();
-    SourceRecord first = queue.poll(lingerMs, TimeUnit.MILLISECONDS);
+    for (Queued q : drainQueued(max, lingerMs)) {
+      out.add(q.record());
+    }
+    return out;
+  }
+
+  /** As {@link #drain}, with each record's transaction boundary marks (SRC-EOS-2). */
+  public List<Queued> drainQueued(int max, long lingerMs) throws InterruptedException {
+    List<Queued> out = new java.util.ArrayList<>();
+    Queued first = queue.poll(lingerMs, TimeUnit.MILLISECONDS);
     if (first == null) {
       return out;
     }

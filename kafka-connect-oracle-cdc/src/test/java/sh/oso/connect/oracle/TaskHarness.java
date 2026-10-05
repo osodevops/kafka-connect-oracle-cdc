@@ -81,6 +81,13 @@ final class TaskHarness implements AutoCloseable {
       };
 
   final FakeLogMiner fake = new FakeLogMiner().startAt(1000);
+
+  /** With exactly-once on, the worker's transaction context records the commit requests. */
+  boolean exactlyOnce;
+
+  private volatile boolean commitRequested;
+
+  final List<SourceRecord> kafkaCommits = java.util.Collections.synchronizedList(new ArrayList<>());
   final FakeCatalog catalog = new FakeCatalog().archivedRun(1, 1, 50, 1000, 100);
   long safeEnd = 1000;
 
@@ -232,6 +239,25 @@ final class TaskHarness implements AutoCloseable {
             return props;
           }
 
+          public org.apache.kafka.connect.source.TransactionContext transactionContext() {
+            if (!exactlyOnce) {
+              return null;
+            }
+            return new org.apache.kafka.connect.source.TransactionContext() {
+              public void commitTransaction() {
+                commitRequested = true; // the batch poll() is returning ends the transaction
+              }
+
+              public void commitTransaction(SourceRecord record) {
+                throw new AssertionError("the task commits per batch");
+              }
+
+              public void abortTransaction() {}
+
+              public void abortTransaction(SourceRecord record) {}
+            };
+          }
+
           public OffsetStorageReader offsetStorageReader() {
             return new OffsetStorageReader() {
               @SuppressWarnings("unchecked")
@@ -270,6 +296,13 @@ final class TaskHarness implements AutoCloseable {
     long deadline = System.currentTimeMillis() + timeoutMillis;
     while (out.size() < n && System.currentTimeMillis() < deadline) {
       List<SourceRecord> batch = task.poll();
+      if (commitRequested) {
+        commitRequested = false;
+        if (batch == null || batch.isEmpty()) {
+          throw new AssertionError("a commit was requested for an empty batch");
+        }
+        kafkaCommits.add(batch.get(batch.size() - 1));
+      }
       if (batch != null) {
         for (SourceRecord r : batch) {
           if (keepInternal || !isInternal(r)) {

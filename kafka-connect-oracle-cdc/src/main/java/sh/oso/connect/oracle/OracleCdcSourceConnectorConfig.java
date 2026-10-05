@@ -41,6 +41,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public static final String GROUP_TOPICS = "Topics";
   public static final String GROUP_FORMAT = "Record format";
   public static final String GROUP_TASK = "Task";
+  public static final String GROUP_EOS = "Exactly-once";
 
   // table selection (PRD-01 SRC-SEL)
   public static final String TABLES_INCLUDE = "cdc.tables.include";
@@ -79,6 +80,13 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
   // task (SRC-LC)
   public static final String POLL_MAX_RECORDS = "cdc.poll.max.records";
+
+  // exactly-once (SRC-EOS, ADR-0007)
+  public static final String EOS_BATCH_MAX_RECORDS = "cdc.eos.batch.max.records";
+  public static final String EOS_BATCH_MAX_MS = "cdc.eos.batch.max.ms";
+  public static final String EOS_BATCH_MAX_BYTES = "cdc.eos.batch.max.bytes";
+  public static final String EOS_SPLIT_MAX_RECORDS = "cdc.eos.split.max.records";
+  public static final String EOS_SPLIT_MAX_BYTES = "cdc.eos.split.max.bytes";
   public static final String POLL_LINGER_MS = "cdc.poll.linger.ms";
   public static final String SHUTDOWN_TIMEOUT_MS = "cdc.shutdown.timeout.ms";
 
@@ -169,6 +177,26 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
       out.put(entry.substring(0, colon).trim().toUpperCase(Locale.ROOT), cols);
     }
     return out;
+  }
+
+  public int eosBatchMaxRecords() {
+    return getInt(EOS_BATCH_MAX_RECORDS);
+  }
+
+  public long eosBatchMaxMs() {
+    return getLong(EOS_BATCH_MAX_MS);
+  }
+
+  public long eosBatchMaxBytes() {
+    return getLong(EOS_BATCH_MAX_BYTES);
+  }
+
+  public int eosSplitMaxRecords() {
+    return getInt(EOS_SPLIT_MAX_RECORDS);
+  }
+
+  public long eosSplitMaxBytes() {
+    return getLong(EOS_SPLIT_MAX_BYTES);
   }
 
   public boolean tombstonesOnDelete() {
@@ -590,6 +618,67 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++t,
         Width.SHORT,
         "Shutdown timeout");
+    int e = 0;
+    def.define(
+        EOS_BATCH_MAX_RECORDS,
+        Type.INT,
+        5000,
+        ConfigDef.Range.atLeast(1),
+        Importance.LOW,
+        "With exactly.once.support and transaction.boundary=connector: a Kafka transaction is"
+            + " committed at the first Oracle commit after this many records.",
+        GROUP_EOS,
+        ++e,
+        Width.SHORT,
+        "Batch records");
+    def.define(
+        EOS_BATCH_MAX_MS,
+        Type.LONG,
+        500L,
+        ConfigDef.Range.atLeast(1),
+        Importance.LOW,
+        "A Kafka transaction is committed at the first Oracle commit after it has been open this"
+            + " long, or as soon as no more records are waiting.",
+        GROUP_EOS,
+        ++e,
+        Width.SHORT,
+        "Batch time");
+    def.define(
+        EOS_BATCH_MAX_BYTES,
+        Type.LONG,
+        16777216L,
+        ConfigDef.Range.atLeast(1),
+        Importance.LOW,
+        "A Kafka transaction is committed at the first Oracle commit after about this many bytes"
+            + " of change data (ADR-0007).",
+        GROUP_EOS,
+        ++e,
+        Width.SHORT,
+        "Batch bytes");
+    def.define(
+        EOS_SPLIT_MAX_RECORDS,
+        Type.INT,
+        500000,
+        ConfigDef.Range.atLeast(1),
+        Importance.LOW,
+        "An Oracle transaction with more changes than this is split into consecutive Kafka"
+            + " transactions at exact event indexes, so none outlives transaction.max.timeout.ms;"
+            + " its records carry the cdc.split header and an ops event names it.",
+        GROUP_EOS,
+        ++e,
+        Width.SHORT,
+        "Split records");
+    def.define(
+        EOS_SPLIT_MAX_BYTES,
+        Type.LONG,
+        268435456L,
+        ConfigDef.Range.atLeast(1),
+        Importance.LOW,
+        "An Oracle transaction is also split after about this many bytes of change data.",
+        GROUP_EOS,
+        ++e,
+        Width.SHORT,
+        "Split bytes");
     return def;
   }
 }

@@ -83,4 +83,17 @@ public class OracleCdcSourceConnector extends SourceConnector {
   public String version() {
     return Version.VERSION;
   }
+
+  /** SRC-EOS-1: the task ends Kafka transactions only at Oracle commit boundaries. */
+  @Override
+  public org.apache.kafka.connect.source.ExactlyOnceSupport exactlyOnceSupport(
+      Map<String, String> connectorConfig) {
+    return org.apache.kafka.connect.source.ExactlyOnceSupport.SUPPORTED;
+  }
+
+  @Override
+  public org.apache.kafka.connect.source.ConnectorTransactionBoundaries
+      canDefineTransactionBoundaries(Map<String, String> connectorConfig) {
+    return org.apache.kafka.connect.source.ConnectorTransactionBoundaries.SUPPORTED;
+  }
 }
