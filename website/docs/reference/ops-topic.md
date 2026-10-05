@@ -34,6 +34,8 @@ committing one never moves the connector's position past an unacknowledged chang
 | `stop` | The capture engine stopped with an error; the task fails right after this record | `exception`, `message`, `code` (for example `CDC-2002`), `runbook`, `operator_action` |
 | `ddl-seen` | A DDL statement was mined for a non-Oracle owner | `pdb`, `owner`, `object`, `scn`, `sql` (truncated to 2,000 characters) |
 | `ddl-applied` | A DDL gave a captured table a new schema version, or dropped or renamed it away | `pdb`, `owner`, `object`, `scn`, `version` (the new version number, or `removed`), `columns` |
+| `dictionary-replay` | A step was mined again with a data dictionary from the redo, because rows of these tables were written before a later DDL on them | `from_scn`, `to_scn`, `tables` |
+| `dictionary-build` | A scheduled dictionary build into the redo ran, failed, or was switched off for lack of `EXECUTE ON DBMS_LOGMNR_D` | `status` (`built`, `failed` or `disabled`), `millis` when built, `message` otherwise |
 | `ids-refreshed` | The pushed-down object ids were re-resolved after a CREATE TABLE, DROP TABLE or partition DDL | `owners` |
 | `reconnected` | The database sessions were reopened after a transient error | `cause` |
 | `unsupported-row` | LogMiner returned an unsupported row for a captured table under the DLQ policy | `table`, `xid`, `scn`, `status`, `info` |

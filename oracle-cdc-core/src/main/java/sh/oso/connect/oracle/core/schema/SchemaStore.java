@@ -24,6 +24,14 @@ public interface SchemaStore {
 
   void save(TableSchema schema);
 
+  /**
+   * Every stored version of a table, oldest first. A store that keeps only the latest returns that
+   * one; replayed redo (P1-17) then decodes only with it.
+   */
+  default java.util.List<TableSchema> versions(TableId table) {
+    return load(table).map(java.util.List::of).orElse(java.util.List.of());
+  }
+
   /** Forgets a table (dropped, or renamed away). */
   default void remove(TableId table) {}
 }

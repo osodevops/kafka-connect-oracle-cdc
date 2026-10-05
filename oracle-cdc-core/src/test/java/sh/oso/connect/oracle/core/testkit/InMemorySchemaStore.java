@@ -25,6 +25,10 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
 /** Schema store for unit tests. */
 public final class InMemorySchemaStore implements SchemaStore {
   public final Map<TableId, TableSchema> schemas = new ConcurrentHashMap<>();
+
+  /** Every version saved per table, oldest first, as a durable store keeps them. */
+  public final Map<TableId, java.util.List<TableSchema>> history = new ConcurrentHashMap<>();
+
   public int saves;
 
   @Override
@@ -36,10 +40,22 @@ public final class InMemorySchemaStore implements SchemaStore {
   public void save(TableSchema schema) {
     saves++;
     schemas.put(schema.table(), schema);
+    java.util.List<TableSchema> l =
+        history.computeIfAbsent(
+            schema.table(), t -> new java.util.concurrent.CopyOnWriteArrayList<>());
+    l.removeIf(s -> s.version() == schema.version());
+    l.add(schema);
+    l.sort(java.util.Comparator.comparingInt(TableSchema::version));
+  }
+
+  @Override
+  public java.util.List<TableSchema> versions(TableId table) {
+    return java.util.List.copyOf(history.getOrDefault(table, java.util.List.of()));
   }
 
   @Override
   public void remove(TableId table) {
     schemas.remove(table);
+    history.remove(table);
   }
 }

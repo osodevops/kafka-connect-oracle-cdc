@@ -69,6 +69,12 @@ rules:
     help: "Open transactions written to the transaction journal."
     labels:
       server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>LagReplays'
+    name: oracle_cdc_lag_replays_total
+    type: COUNTER
+    help: "Steps mined again with a dictionary from the redo because rows predate a later DDL (PRD-03 lag case)."
+    labels:
+      server: "$1"
   - pattern: 'sh.oso.cdc<type=task, server=(.+)><>LastCommitTimestampMillis'
     name: oracle_cdc_last_commit_timestamp_millis
     type: GAUGE

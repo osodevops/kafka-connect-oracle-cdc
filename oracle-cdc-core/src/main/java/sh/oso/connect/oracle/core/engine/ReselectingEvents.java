@@ -106,7 +106,7 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
       return c;
     }
     try {
-      TableSchema schema = schemas.current(c.table());
+      TableSchema schema = schemas.version(c.table(), c.schemaVersion());
       List<String> missing = new ArrayList<>();
       for (ColumnSpec col : schema.columns()) {
         OracleType t = col.type();
@@ -157,7 +157,8 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
           c.rowId(),
           c.id(),
           c.tx(),
-          c.timestamp());
+          c.timestamp(),
+          c.schemaVersion());
     } catch (SQLException e) {
       throw classifier.toException(e, "reselecting LOB values of " + c.table().fqn());
     }

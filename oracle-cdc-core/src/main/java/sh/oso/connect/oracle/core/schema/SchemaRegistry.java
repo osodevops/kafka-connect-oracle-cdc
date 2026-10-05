@@ -27,7 +27,7 @@ import sh.oso.connect.oracle.core.model.TableId;
  * selected on load. A DDL on a captured table reads the dictionary again and stores a new version
  * effective from the DDL's SCN when the layout changed (PRD-03 section 3 step 3). The engine
  * applies rows in redo order, so the current version is the one valid at each row it decodes; redo
- * older than the dictionary (the lag case) is P1-17.
+ * older than the dictionary (the lag case) decodes with {@link #at} (P1-17).
  */
 public final class SchemaRegistry {
 
@@ -60,7 +60,9 @@ public final class SchemaRegistry {
                       new DecodeException(
                           "Table " + table.fqn() + " is not in the dictionary",
                           "Check the include pattern and that the table exists in the PDB."));
-      schema = keys.select(fromDictionary, dictionary.keyCandidates(table));
+      schema =
+          keys.select(fromDictionary, dictionary.keyCandidates(table))
+              .withVersion(1, layoutSince(table));
       store.save(schema);
     }
     cache.put(table, schema);
@@ -83,12 +85,102 @@ public final class SchemaRegistry {
     if (before == null) {
       before = store.load(table).orElse(null);
     }
-    if (before != null && before.sameLayout(fresh)) {
+    boolean ahead = dictionaryAhead(table, scn);
+    // an inexact version whose layout the dictionary now confirms at this DDL becomes exact
+    if (before != null && before.sameLayout(fresh) && (before.exact() || ahead)) {
       return Optional.empty();
     }
-    TableSchema next = fresh.withVersion(before == null ? 1 : before.version() + 1, scn);
+    TableSchema next =
+        fresh.withVersion(before == null ? 1 : before.version() + 1, scn).withExact(!ahead);
     put(next);
     return Optional.of(next);
+  }
+
+  /**
+   * P1-17: the version valid at {@code scn}, for a row mined again with a redo dictionary because
+   * the online catalog had moved past it. Only an exact version known to be valid at the SCN will
+   * do; anything else is a {@code CDC-6001} stop rather than a decode with a guessed layout.
+   */
+  public TableSchema at(TableId table, long scn) throws SQLException {
+    current(table);
+    TableSchema valid = null;
+    for (TableSchema v : store.versions(table)) {
+      if (v.validFromScn() <= scn) {
+        valid = v;
+      }
+    }
+    if (valid == null || !valid.exact()) {
+      throw new sh.oso.connect.oracle.core.errors.DictionaryUnavailableException(
+          "Rows of "
+              + table.fqn()
+              + " at SCN "
+              + scn
+              + " were written before a later DDL on the table, and "
+              + (valid == null
+                  ? "no stored version of the table is known to be valid there (the connector"
+                      + " first read the table after that DDL)"
+                  : "version "
+                      + valid.version()
+                      + ", valid there, was read after a further DDL had already changed the"
+                      + " table, so its layout is not known")
+              + ".",
+          "Keep cdc.kafka.bootstrap.servers set so versions persist across restarts, and avoid"
+              + " several DDLs on one table while the connector is stopped or lagging. To go on,"
+              + " move the offset past the DDL; the table's rows in between are not delivered.");
+    }
+    return valid;
+  }
+
+  /**
+   * The version a buffered row was decoded with ({@link
+   * sh.oso.connect.oracle.core.model.RowChange#schemaVersion()}), so it renders with the columns it
+   * has; 0 is the current version.
+   */
+  public TableSchema version(TableId table, int version) throws SQLException {
+    TableSchema latest = current(table);
+    if (version <= 0 || latest.version() == version) {
+      return latest;
+    }
+    for (TableSchema v : store.versions(table)) {
+      if (v.version() == version) {
+        return v;
+      }
+    }
+    throw new sh.oso.connect.oracle.core.errors.SchemaMismatchException(
+        "A buffered change of "
+            + table.fqn()
+            + " was decoded with schema version "
+            + version
+            + ", which is no longer stored (latest "
+            + latest.version()
+            + ").",
+        "Report the connector logs; restart the task so the transaction is mined again.");
+  }
+
+  /**
+   * A layout read from the dictionary has held since the table's last DDL: valid from that time
+   * (plus the slack of the SCN-to-time mapping), or from any SCN when the DDL is older than the
+   * mapping.
+   */
+  private long layoutSince(TableId table) throws SQLException {
+    Optional<java.time.Instant> ddl = dictionary.lastDdlTime(table);
+    if (ddl.isEmpty()) {
+      return 0;
+    }
+    return dictionary.scnAt(ddl.get().plus(SCN_TIME_SLACK)).orElse(0L);
+  }
+
+  /**
+   * True when the table's last DDL is later than the DDL at {@code scn}: the dictionary already
+   * reflects a further change. Unknown times count as ahead, unknown DDL times as not.
+   */
+  private boolean dictionaryAhead(TableId table, long scn) throws SQLException {
+    Optional<java.time.Instant> ddl = dictionary.lastDdlTime(table);
+    if (ddl.isEmpty()) {
+      return false;
+    }
+    Optional<java.time.Instant> at = dictionary.timeOfScn(scn);
+    return at.isEmpty() || ddl.get().isAfter(at.get().plus(SCN_TIME_SLACK));
   }
 
   /**

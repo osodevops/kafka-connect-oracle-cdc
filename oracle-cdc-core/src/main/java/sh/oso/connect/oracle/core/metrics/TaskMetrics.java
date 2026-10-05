@@ -171,6 +171,11 @@ public final class TaskMetrics implements TaskMetricsMXBean {
   }
 
   @Override
+  public long getLagReplays() {
+    return e.lagReplays.get();
+  }
+
+  @Override
   public long getTransactionsDiscarded() {
     return e.transactionsDiscarded.get();
   }

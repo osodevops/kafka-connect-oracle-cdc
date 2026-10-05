@@ -56,7 +56,8 @@ class SchemaRecordsTest {
             KeySource.PRIMARY_KEY,
             true,
             false)
-        .withVersion(2, 5000);
+        .withVersion(2, 5000)
+        .withExact(false); // P1-17: survives the round trip
   }
 
   @Test
@@ -88,6 +89,8 @@ class SchemaRecordsTest {
       assertThat(back).as("schemas %s", schemas).containsExactly(v1(), v2());
       assertThat(back.get(1).version()).isEqualTo(2);
       assertThat(back.get(1).validFromScn()).isEqualTo(5000);
+      assertThat(back.get(0).exact()).isTrue();
+      assertThat(back.get(1).exact()).isFalse();
     }
   }
 

@@ -97,6 +97,9 @@ public final class CaptureEngine {
   private java.util.concurrent.ForkJoinPool decodePool;
   private java.util.Map<MiningEvent.Dml, Object> decoded = java.util.Map.of();
 
+  /** P1-17: tables whose rows in the current step were mined with a redo dictionary. */
+  private java.util.Set<sh.oso.connect.oracle.core.model.TableId> replayed = java.util.Set.of();
+
   /** Below this many rows a step is decoded on the engine thread: the hand-off costs more. */
   static final int PARALLEL_DECODE_MIN_ROWS = 256;
 
@@ -242,6 +245,10 @@ public final class CaptureEngine {
     metrics.windowLogs.set(plan.windowLogs());
     Instant t0 = clock.get();
     StepOutcome outcome = runner.run(source, cursor, plan.endScn());
+    java.util.Set<sh.oso.connect.oracle.core.model.TableId> lag = lagTables(outcome);
+    if (!lag.isEmpty()) {
+      outcome = replay(plan.endScn(), lag);
+    }
     metrics.rowsMined.addAndGet(outcome.rowsSeen());
     switch (outcome.kind()) {
       case RETRY:
@@ -269,12 +276,13 @@ public final class CaptureEngine {
         break;
     }
     consecutiveRetries = 0;
-    warmSchemas(outcome); // every database read happens before the buffer changes
-    decoded = preDecode(outcome);
     try {
+      warmSchemas(outcome); // every database read happens before the buffer changes
+      decoded = preDecode(outcome);
       apply(outcome);
     } finally {
       decoded = java.util.Map.of();
+      replayed = java.util.Set.of();
     }
     cursor = outcome.next();
     Duration elapsed = Duration.between(t0, clock.get());
@@ -293,6 +301,74 @@ public final class CaptureEngine {
     sink.stepApplied(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
     publishBuffer();
     return Progress.STEP_APPLIED;
+  }
+
+  /**
+   * P1-17, ADR-0008: DML rows LogMiner could not map to today's dictionary (STATUS 2 with generic
+   * {@code "COL n"} names) were written before a later DDL on their table. LOB rows are STATUS 2
+   * for another reason (ADR-0015) and keep their names.
+   */
+  static java.util.Set<sh.oso.connect.oracle.core.model.TableId> lagTables(StepOutcome outcome) {
+    java.util.Set<sh.oso.connect.oracle.core.model.TableId> out = new java.util.LinkedHashSet<>();
+    for (MiningEvent e : outcome.events()) {
+      if (e instanceof MiningEvent.Dml d
+          && !d.undo()
+          && d.status() == 2
+          && !d.op().isLobOp()
+          && d.op() != sh.oso.connect.oracle.core.model.Operation.SELECT_LOB_LOCATOR
+          && d.sqlRedo() != null
+          && d.sqlRedo().contains("\"COL ")) {
+        out.add(d.table());
+      }
+    }
+    return out;
+  }
+
+  /**
+   * PRD-03 section 3 step 4: mines the step again with the dictionary from the newest build in the
+   * redo, with DDL tracking, so its rows carry the names of their moment; the next step returns to
+   * the online catalog. Rows of the lag tables decode with the version valid at their SCN ({@link
+   * SchemaRegistry#at}), and a DDL inside the step adds its version before the rows after it.
+   */
+  private StepOutcome replay(
+      long endScn, java.util.Set<sh.oso.connect.oracle.core.model.TableId> lag) {
+    metrics.lagReplays.incrementAndGet();
+    StepOutcome again;
+    try {
+      again = runner.run(source.redoDictionary(), cursor, endScn);
+    } catch (sh.oso.connect.oracle.core.errors.OracleCdcPurgedException e) {
+      // the online pass has just read the step's own logs: what is missing lies between the
+      // dictionary build and the step
+      throw new sh.oso.connect.oracle.core.errors.DictionaryUnavailableException(
+          "The logs from the last dictionary build up to SCN "
+              + cursor.scn()
+              + " cannot all be read: "
+              + e.getMessage(),
+          sh.oso.connect.oracle.core.mining.event.LogMinerEventSource.DICTIONARY_ACTION,
+          e);
+    }
+    if (again.kind() == StepOutcome.Kind.COMPLETE || again.kind() == StepOutcome.Kind.CUT) {
+      java.util.Set<sh.oso.connect.oracle.core.model.TableId> still = lagTables(again);
+      if (!still.isEmpty()) {
+        throw new sh.oso.connect.oracle.core.errors.DictionaryUnavailableException(
+            "Rows of "
+                + still
+                + " after SCN "
+                + cursor.scn()
+                + " still have generic column names with the dictionary from the redo.",
+            sh.oso.connect.oracle.core.mining.event.LogMinerEventSource.DICTIONARY_ACTION);
+      }
+      replayed = lag;
+      sink.dictionaryReplayed(cursor.scn(), again.next().scn(), lag);
+    }
+    return again;
+  }
+
+  /** The version a row decodes with: today's, or for a replayed row the one valid at its SCN. */
+  private TableSchema schemaFor(MiningEvent.Dml d) throws SQLException {
+    return replayed.contains(d.table())
+        ? schemas.at(d.table(), d.scn())
+        : schemas.current(d.table());
   }
 
   /** The buffer belongs to this thread; JMX readers see the snapshot taken here. */
@@ -369,6 +445,8 @@ public final class CaptureEngine {
   private void warmSchemas(StepOutcome outcome) throws SQLException {
     for (MiningEvent e : outcome.events()) {
       if (e instanceof MiningEvent.Dml d && !d.undo()) {
+        // the dictionary reads; a replayed row's version is chosen in redo order, after any DDL
+        // of the step before it has been applied
         schemas.current(d.table());
       }
     }
@@ -480,7 +558,7 @@ public final class CaptureEngine {
     }
     TableSchema[] tables = new TableSchema[rows.size()];
     for (int i = 0; i < tables.length; i++) {
-      tables[i] = schemas.current(rows.get(i).table());
+      tables[i] = schemaFor(rows.get(i));
     }
     Object[] results = new Object[rows.size()];
     if (decodePool == null) {
@@ -520,7 +598,7 @@ public final class CaptureEngine {
   }
 
   private void decodeAndBuffer(MiningEvent.Dml d) throws SQLException {
-    TableSchema schema = schemas.current(d.table());
+    TableSchema schema = schemaFor(d);
     RowChange change;
     try {
       Object pre = predecoded(d);
@@ -541,7 +619,7 @@ public final class CaptureEngine {
 
   /** CORE-DEC-6: a LOB_WRITE, LOB_TRIM or LOB_ERASE row joins the change of its statement. */
   private void decodeLobAndBuffer(MiningEvent.Dml d) throws SQLException {
-    TableSchema schema = schemas.current(d.table());
+    TableSchema schema = schemaFor(d);
     sh.oso.connect.oracle.core.decode.LobFragment f;
     try {
       if (d.undo()) {

@@ -202,7 +202,8 @@ public final class LobAssembler {
           RowIds.lobGroup(o.realRowId, unique),
           o.id,
           o.tx,
-          o.timestamp);
+          o.timestamp,
+          o.schema.version());
     }
     String rowId =
         locator != null && !RowIds.isPlaceholder(locator.rowId())
@@ -217,7 +218,8 @@ public final class LobAssembler {
         rowId,
         o.piece.id(),
         o.piece.tx(),
-        o.piece.timestamp());
+        o.piece.timestamp(),
+        o.piece.schemaVersion());
   }
 
   private String unique(RedoRecordId id) {

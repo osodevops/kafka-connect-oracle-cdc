@@ -176,4 +176,27 @@ class RowChangeCodecTest {
   static List<Object> bytesList(byte[] b) {
     return Arrays.asList((Object) b);
   }
+
+  @Test
+  void theSchemaVersionTravelsAndOlderPayloadsReadAsTheCurrentVersion() throws Exception {
+    RowChange c =
+        new RowChange(
+            T,
+            Operation.INSERT,
+            null,
+            Map.of("ID", new BigDecimal("1")),
+            false,
+            "R1",
+            new RedoRecordId(5L, "0x000001.00000002.0010", 0),
+            TX,
+            null,
+            3);
+    byte[] bytes = RowChangeCodec.encode(c);
+    assertThat(RowChangeCodec.decode(bytes)).isEqualTo(c);
+    // spill and journal payloads written before P1-17 end where the version now starts
+    byte[] older = java.util.Arrays.copyOf(bytes, bytes.length - Integer.BYTES);
+    RowChange read = RowChangeCodec.decode(older);
+    assertThat(read.schemaVersion()).isZero();
+    assertThat(read.after()).isEqualTo(c.after());
+  }
 }

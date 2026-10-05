@@ -49,8 +49,30 @@ only to within a few seconds, so a DDL within ten seconds of the resume point co
 Without broker access the topic is neither read nor written, and versions start from the dictionary
 at every start.
 
+## Redo written before a DDL (the lag case)
+
+LogMiner's online catalog describes tables as they are now. When the connector mines rows that were
+written before a later DDL on their table (because it was stopped, or behind when the DDL ran),
+LogMiner can no longer map them and returns them with generic `COL n` column names. The connector
+then mines that range again with a data dictionary that `DBMS_LOGMNR_D.BUILD` stored in the redo,
+reading every archived log from the newest build up to the range, with DDL tracking so the column
+names are those of each row's moment. The next range returns to the online catalog. Each such range
+writes a `dictionary-replay` event to the ops topic and counts in the `LagReplays` metric.
+
+Rows mined this way decode with the schema version valid at their SCN, and every record renders
+with the version its row was decoded with. A version read from the dictionary counts as valid from
+the table's last DDL, so a table the connector first saw after the DDL has no version for the
+earlier rows. When several DDLs on one table fall inside the range, the dictionary is already past
+the earlier ones when the connector applies them, so the layout between them is not known. In
+these cases, and when no usable build exists, the task stops with `CDC-6001` rather than decode
+with a guessed layout.
+
+The connector writes builds itself when its user has `EXECUTE ON DBMS_LOGMNR_D`: at start if the
+archived logs hold none, then at `cdc.dictionary.build.time` (02:00 database time by default) and
+every `cdc.dictionary.build.interval.ms` (a day by default) after that. Without the privilege, builds are switched off with a
+`dictionary-build` event. Mining a range again reads all redo since the last build, so more frequent
+builds make the lag case cheaper.
+
 ## Not yet in this release
 
 - Optional schema change events on a topic of their own.
-- Redo older than the dictionary: after a restart, rows written before a DDL that the connector has
-  not yet mined decode with a dictionary stored in the redo by `DBMS_LOGMNR_D.BUILD`.

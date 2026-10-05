@@ -119,6 +119,32 @@ public final class LogInventory {
     return set;
   }
 
+  /**
+   * P1-17: the newest dictionary build complete in a log that ends at or before {@code scn}, whose
+   * logs the catalog still holds. A redo-dictionary session that starts at {@code scn} reads it.
+   */
+  public java.util.Optional<DictionaryBuild> dictionaryBuildBefore(long scn) throws SQLException {
+    DictionaryBuild best = null;
+    RedoLog begin = null;
+    for (RedoLog l : catalog.dictionaryLogs(destId)) {
+      if (begin != null && begin.thread() != l.thread()) {
+        begin = null;
+      }
+      if (l.dictionaryBegin()) {
+        begin = l;
+      }
+      if (l.dictionaryEnd() && begin != null) {
+        DictionaryBuild b = new DictionaryBuild(l.thread(), begin.firstScn(), l.nextScn());
+        boolean readable = !begin.purgedInCatalog() && !l.purgedInCatalog();
+        if (readable && b.endNextScn() <= scn && (best == null || b.firstScn() > best.firstScn())) {
+          best = b;
+        }
+        begin = null;
+      }
+    }
+    return java.util.Optional.ofNullable(best);
+  }
+
   /** Archive-only safe end: the highest SCN every enabled thread has archived to (CORE-LOG-6). */
   public long archiveOnlySafeEnd(long fromScn) throws SQLException {
     long safe = Long.MAX_VALUE;

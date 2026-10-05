@@ -27,14 +27,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `daaacd6` | P1-23 task MXBean (41 attributes, top 20 transactions), generated metrics page and JMX exporter rules, Grafana dashboard, Prometheus alert rules, parallel decoding (`cdc.mining.decode.threads`) | full gate, connector tier 7 suites plus the two surefire tests, engine tier 38 tests, all green |
 | `c7602ed` | P1-12 exactly-once: `exactlyOnceSupport` and `canDefineTransactionBoundaries` SUPPORTED, Kafka transactions at Oracle commit boundaries with `cdc.eos.batch.*` bounds, splits at `cdc.eos.split.*` with the `cdc.split` header and a `transaction-split` ops event | full gate, connector tier 8 suites plus the two surefire tests, engine tier 38 tests, all green |
 | `bda83e4` | P1-16a DDL flow in the engine: `DdlClassifier`, versioned `TableSchema` (`version`, `validFromScn`), `SchemaRegistry.applyDdl` and `forget`, CDC-6002 on unknown DDL for captured tables, `ddl-applied` ops event, `EngineDriver` for engine suites | full gate, connector tier 8 suites plus the two surefire tests, engine tier 39 tests, all green |
-| next after `bda83e4` (hash recorded at the following commit) | P1-16b schema topic: `SchemaTopicStore` and `SchemaRecords` (compacted `${prefix}.cdc.schema`, one record per table holding its versions, tombstone on drop or rename), loaded at start, SCH-6 check against the dictionary with `CDC-6003` | full gate, connector tier 9 suites plus the two surefire tests, engine tier 39 tests, all green |
+| `67a878c` | P1-16b schema topic: `SchemaTopicStore` and `SchemaRecords` (compacted `${prefix}.cdc.schema`, one record per table holding its versions, tombstone on drop or rename), loaded at start, SCH-6 check against the dictionary with `CDC-6003` | full gate, connector tier 9 suites plus the two surefire tests, engine tier 39 tests, all green |
+| next after `67a878c` (hash recorded at the following commit) | P1-17 lag case (ADR-0016): STATUS 2 rows with generic names trigger a replay of the step with the redo dictionary from the newest usable build; replayed rows decode with the version valid at their SCN (`SchemaRegistry.at`), rows carry `schemaVersion` and render with it; `TableSchema.exact`; `CDC-6001` when no build or no exact version; scheduled builds (`cdc.dictionary.build.*`) with a build at start when none exists; `dictionary-replay` and `dictionary-build` ops events, `LagReplays` metric | full gate, connector tier 10 suites plus the two surefire tests, engine tier 41 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-17 (lag case and dictionary builds), section 5.
+Nothing. The next increment is P1-19 (snapshots), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -192,6 +193,22 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 - `TaskHarness` now has a fake dictionary (`dictionary`, `lastDdlTime`, `scnTime`) and serves the
   schema topic back like the journal; `ConnectCluster` gained `lifecycle(name, stop|resume|restart)`,
   `patchOffset` and `awaitTaskState`.
+- P1-17 (ADR-0016): `CaptureEngine.lagTables` finds DML rows with STATUS 2 and `"COL n"` names
+  after the online pass; `replay` mines the step again through `EventSource.redoDictionary()`
+  (`LogMinerEventSource`: logs from `LogInventory.dictionaryBuildBefore(startScn)` to the end,
+  `REDO_LOGS_WITH_DDL_TRACKING`). Purge errors there become `CDC-6001`. `schemaFor` picks
+  `SchemaRegistry.at(table, scn)` for replayed tables only; `warmSchemas` keeps `current`.
+- `SchemaRegistry`: a first-read version is valid from `scnAt(LAST_DDL_TIME + 10 s)`; `applyDdl`
+  marks a version inexact when the dictionary is already past the DDL, and makes it exact again
+  when a later DDL confirms the layout; `version(table, n)` serves the sink. `SchemaStore.versions`
+  (default: the latest only; `InMemorySchemaStore` keeps history in `history`).
+- `RowChange.schemaVersion` (10th component; the 9-argument constructor means 0, the current
+  version), trailing int in `RowChangeCodec`. `RecordQueueSink` and `ReselectingEvents` use
+  `schemas.version(table, n)`.
+- `DictionaryBuildScheduler` (core, `logs`): its own daemon thread; `JdbcSession.startDictionaryBuilds`
+  opens a METADATA connection per build; the task wires events to `dictionary-build` ops events.
+- `FakeLogMiner.lagged(...)` and `redoDictionaryFault`, `FakeCatalog.dictionaryBuild(...)` for unit
+  tests; `EngineDriver` takes a shared `SchemaStore` to model a restart with persisted versions.
 - `e2e/support/EngineDriver` builds the engine as the connector does; engine suites that change the
   database while mining call `runTo(scn)` after each step (see `DdlUnderLoadEngineIT`).
 
@@ -241,9 +258,9 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-16b: connector tier 9 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-17: connector tier 10 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-`ExactlyOnce`, `SchemaTopic`) plus the two surefire tests, engine tier 39 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+`ExactlyOnce`, `SchemaTopic`, `LagCase`) plus the two surefire tests, engine tier 41 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
@@ -328,10 +345,12 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 
 ### P1-16b follow-ups
 
-- Version lookup by SCN (`at(table, scn)`) moved to P1-17. With `DICT_FROM_ONLINE_CATALOG`,
-  LogMiner writes old redo in terms of today's dictionary (a renamed column already has its new
-  name in rows written before the rename), so decoding those rows with the older version would
-  break them. Historic versions are the right decode schema only under `DICT_FROM_REDO_LOGS`.
+- Version lookup by SCN (`at(table, scn)`) moved to P1-17 (done there). Under
+  `DICT_FROM_ONLINE_CATALOG`, rows written before a later DDL on their table come back as STATUS 2
+  with generic `COL n` names (`reference/dictionary-replay.md`), so no stored version can decode
+  them; historic versions are the decode schema only for rows mined with a redo dictionary. (The
+  `67a878c` commit message gives a different reason, that a renamed column already has its new
+  name; that reason is wrong, the conclusion stands.)
 - The lost-topic case (no stored version and a DDL after the resume SCN) is the lag case: P1-17's
   `LagCaseDetector` handles it. It was planned here as a stop with resnapshot guidance, but
   snapshots do not exist yet (P1-19).
@@ -344,21 +363,19 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
   `CDC-6003` after an offset is moved past a DDL. A separate rebuild suite was not needed: without
   stored versions the task reads the dictionary, as every task test without broker access does.
 
-### P1-17 Lag case and dictionary builds (ADR-0008)
+### P1-17 follow-ups (ADR-0016)
 
-- `LagCaseDetector`: STATUS 2 rows with generic `COL n` names after a DDL on the table; `RedoDictionaryReplay`:
-  reopen the range with `DICT_FROM_REDO_LOGS + DDL_DICT_TRACKING` adding every log from the last
-  `DBMS_LOGMNR_D.BUILD` (`V$ARCHIVED_LOG.DICTIONARY_BEGIN/END`); `DictionaryBuildScheduler`
-  (`cdc.dictionary.build.interval.ms`, needs `EXECUTE ON DBMS_LOGMNR_D`, the lab user has it).
-  Without a usable build: `DictionaryUnavailableException` (`CDC-6001`).
-- `LogMinerSource.start(startScn, endScn, DictionaryMode)` already takes the mode.
-- From P1-16b: the schema topic holds the version valid at the resume SCN and every later one
-  (`SchemaTopicStore.versions(table)`). Add `SchemaRegistry.at(table, scn)` for the redo-dictionary
-  mode only, and pass the row SCN from `CaptureEngine` (`current` call sites in `CaptureEngine`,
-  `ReselectingEvents` and `RecordQueueSink`). A stored version valid at the resume SCN that differs
-  from the dictionary is a cheap lag-case signal at start.
-- Tests: `LagCaseReplayEngineIT` (50 DML, drop and add column, 50 DML across a restart) and
-  `LagCaseNoBuildEngineIT`; `reference/dictionary-replay.md` records the current facts.
+- Replay cost: every lagging step reads all redo since the last build. Options for a later ADR:
+  keep one redo-dictionary session across consecutive lagging steps, or decode the `HEXTORAW`
+  values of STATUS 2 rows from the stored version (no replay). Measure on the AWS lab first.
+- Several DDLs on one table inside one lagging window stop with `CDC-6001` when rows fall between
+  them (the layout between them is unknown). A superset layout from the neighbouring versions
+  would decode most of them; it needs Sion's agreement, since PRD-03 forbids layouts from DDL text
+  and this would be a guess.
+- The doctor (P1-24) should report whether lag recovery is possible: the privilege, the newest
+  build and whether its logs are all still present.
+- `LagCaseConnectorIT` relies on the test image granting `EXECUTE ON DBMS_LOGMNR_D` to the capture
+  user; `docker/test-oracle` does.
 
 ### P1-19 Snapshots (PRD-02, ADR-0004)
 

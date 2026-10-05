@@ -22,6 +22,7 @@ Each capture task registers one MXBean, `sh.oso.cdc:type=task,server=<prefix>`, 
 | `JournalChunks` | `oracle_cdc_journal_chunks_total` | counter | Transaction journal chunks queued. |
 | `JournalTombstones` | `oracle_cdc_journal_tombstones_total` | counter | Transaction journal tombstones queued. |
 | `JournaledTransactions` | `oracle_cdc_journaled_transactions` | gauge | Open transactions written to the transaction journal. |
+| `LagReplays` | `oracle_cdc_lag_replays_total` | counter | Steps mined again with a dictionary from the redo because rows predate a later DDL (PRD-03 lag case). |
 | `LargestTransactions` | not exported (composite) | table | The 20 largest open transactions by bytes buffered (CORE-TX-8). |
 | `LastCommitTimestampMillis` | `oracle_cdc_last_commit_timestamp_millis` | gauge | Commit time of the last transaction queued, epoch milliseconds, or -1. |
 | `LastStepMillis` | `oracle_cdc_last_step_millis` | gauge | Duration of the last mining step, in milliseconds. |

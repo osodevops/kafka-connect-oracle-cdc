@@ -33,13 +33,36 @@ public record TableSchema(
     boolean supplementalAllColumns,
     boolean supplementalPrimaryKey,
     int version,
-    long validFromScn) {
+    long validFromScn,
+    boolean exact) {
 
   public TableSchema {
     Objects.requireNonNull(table, "table");
     columns = List.copyOf(columns);
     keyColumns = List.copyOf(keyColumns);
     Objects.requireNonNull(keySource, "keySource");
+  }
+
+  /** An exact version (see {@link #exact()}). */
+  public TableSchema(
+      TableId table,
+      List<ColumnSpec> columns,
+      List<String> keyColumns,
+      KeySource keySource,
+      boolean supplementalAllColumns,
+      boolean supplementalPrimaryKey,
+      int version,
+      long validFromScn) {
+    this(
+        table,
+        columns,
+        keyColumns,
+        keySource,
+        supplementalAllColumns,
+        supplementalPrimaryKey,
+        version,
+        validFromScn,
+        true);
   }
 
   /** The first version of a table, valid from any SCN (PRD-03). */
@@ -71,7 +94,27 @@ public record TableSchema(
         supplementalAllColumns,
         supplementalPrimaryKey,
         version,
-        scn);
+        scn,
+        exact);
+  }
+
+  /**
+   * {@code exact} is false when the dictionary had already moved past this version's DDL when it
+   * was read: the columns are a later DDL's, so redo replayed with a redo dictionary (P1-17) does
+   * not decode with this version. Rows mined with the online catalog are unaffected: LogMiner
+   * decodes them only when they match today's dictionary.
+   */
+  public TableSchema withExact(boolean exact) {
+    return new TableSchema(
+        table,
+        columns,
+        keyColumns,
+        keySource,
+        supplementalAllColumns,
+        supplementalPrimaryKey,
+        version,
+        validFromScn,
+        exact);
   }
 
   /**
@@ -112,6 +155,7 @@ public record TableSchema(
         supplementalAllColumns,
         supplementalPrimaryKey,
         version,
-        validFromScn);
+        validFromScn,
+        exact);
   }
 }

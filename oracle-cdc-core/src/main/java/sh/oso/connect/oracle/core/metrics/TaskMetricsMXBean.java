@@ -99,6 +99,13 @@ public interface TaskMetricsMXBean {
 
   @Description(
       kind = Description.Kind.COUNTER,
+      value =
+          "Steps mined again with a dictionary from the redo because rows predate a later DDL"
+              + " (PRD-03 lag case).")
+  long getLagReplays();
+
+  @Description(
+      kind = Description.Kind.COUNTER,
       value = "Transactions dropped by cdc.transaction.max.age.action=discard.")
   long getTransactionsDiscarded();
 

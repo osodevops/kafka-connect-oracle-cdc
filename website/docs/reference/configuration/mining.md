@@ -20,3 +20,5 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | `cdc.mining.catchup.threshold.ms` | long | `300000` | low | Lag that enables parallel catch-up mining (Phase 2). |
 | `cdc.mining.catchup.parallelism` | int | `2` | low | Catch-up sessions over adjacent SCN windows (Phase 2). |
 | `cdc.rac.safety.lag.ms` | long | `-1` | low | Hold-back from the cluster SCN on RAC so late-archiving threads are not missed; -1 means 3000 on RAC and 0 otherwise. |
+| `cdc.dictionary.build.interval.ms` | long | `86400000` | low | Interval between data dictionary builds into the redo (DBMS_LOGMNR_D.BUILD), which let the connector decode rows written before a later DDL on their table. Needs EXECUTE ON DBMS_LOGMNR_D; without it builds are switched off with an ops event. One build also runs at start when the archived logs hold none. 0 switches builds off. |
+| `cdc.dictionary.build.time` | string | `02:00` | low | Time of day, in the database's time, of the first scheduled dictionary build; later builds follow every cdc.dictionary.build.interval.ms. |

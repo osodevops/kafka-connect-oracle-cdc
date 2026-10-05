@@ -73,6 +73,22 @@ public final class EngineDriver implements AutoCloseable {
       long startScn,
       LobAssembler.Mode mode)
       throws SQLException {
+    this(meta, mining, reselect, include, startScn, mode, new InMemorySchemaStore());
+  }
+
+  /**
+   * With {@code store} shared between drivers, a second driver resumes with the versions the first
+   * stored, as a restarted task reads them back from the schema topic.
+   */
+  public EngineDriver(
+      Connection meta,
+      Connection mining,
+      Connection reselect,
+      String include,
+      long startScn,
+      LobAssembler.Mode mode,
+      sh.oso.connect.oracle.core.schema.SchemaStore store)
+      throws SQLException {
     JdbcCatalogSource catalog = new JdbcCatalogSource(() -> meta);
     ObjectIdResolver resolver =
         new ObjectIdResolver(
@@ -93,7 +109,7 @@ public final class EngineDriver implements AutoCloseable {
             DictionaryMode.ONLINE_CATALOG);
     SchemaRegistry registry =
         new SchemaRegistry(
-            new InMemorySchemaStore(),
+            store,
             new JdbcDictionaryReader(() -> meta),
             new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.ROWID));
     EventSink sink =

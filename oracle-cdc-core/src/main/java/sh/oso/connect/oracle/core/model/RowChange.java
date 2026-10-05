@@ -35,12 +35,27 @@ public record RowChange(
     String rowId,
     RedoRecordId id,
     TxKey tx,
-    Instant timestamp) {
+    Instant timestamp,
+    int schemaVersion) {
 
   public RowChange {
     Objects.requireNonNull(table, "table");
     Objects.requireNonNull(op, "op");
     before = before == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(before));
     after = after == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(after));
+  }
+
+  /** A change not tied to a schema version: it renders with the table's current one. */
+  public RowChange(
+      TableId table,
+      Operation op,
+      Map<String, Object> before,
+      Map<String, Object> after,
+      boolean partial,
+      String rowId,
+      RedoRecordId id,
+      TxKey tx,
+      Instant timestamp) {
+    this(table, op, before, after, partial, rowId, id, tx, timestamp, 0);
   }
 }

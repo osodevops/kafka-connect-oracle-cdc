@@ -28,6 +28,17 @@ public interface EventSource extends AutoCloseable {
       throws SQLException;
 
   /**
+   * P1-17: this source mining with a dictionary read from the redo (from the newest build before
+   * the range, with DDL tracking) instead of the online catalog. It shares this source's session;
+   * closing it releases nothing.
+   */
+  default EventSource redoDictionary() {
+    throw new sh.oso.connect.oracle.core.errors.DictionaryUnavailableException(
+        "This event source cannot mine with a dictionary from the redo.",
+        "Report the connector logs.");
+  }
+
+  /**
    * Releases server-side resources so the next {@link #open} starts a fresh session (CORE-MINE-7).
    */
   default void recycle() throws SQLException {}

@@ -180,6 +180,36 @@ public class OracleCdcSourceTask extends SourceTask {
           "version",
           Version.VERSION);
       CaptureEngine engine = session.engine(position, sink, bufferSetup);
+      RecordQueueSink opsSink = sink;
+      session.startDictionaryBuilds(
+          new sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.Events() {
+            public void built(Duration took) {
+              opsSink.ops(
+                  sh.oso.connect.oracle.ops.OpsEvent.Type.DICTIONARY_BUILD,
+                  "status",
+                  "built",
+                  "millis",
+                  Long.toString(took.toMillis()));
+            }
+
+            public void failed(String message) {
+              opsSink.ops(
+                  sh.oso.connect.oracle.ops.OpsEvent.Type.DICTIONARY_BUILD,
+                  "status",
+                  "failed",
+                  "message",
+                  message);
+            }
+
+            public void disabled(String message) {
+              opsSink.ops(
+                  sh.oso.connect.oracle.ops.OpsEvent.Type.DICTIONARY_BUILD,
+                  "status",
+                  "disabled",
+                  "message",
+                  message);
+            }
+          });
       lifecycle =
           new EngineLifecycle(
               engine,

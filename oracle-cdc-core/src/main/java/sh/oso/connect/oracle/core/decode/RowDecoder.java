@@ -79,8 +79,18 @@ public final class RowDecoder {
         break;
     }
     String rowId = p.rowId() != null ? p.rowId() : dml.rowId();
+    // PRD-03: the row renders with the version it was decoded with, even after later DDL
     return new RowChange(
-        schema.table(), p.op(), before, after, partial, rowId, dml.id(), dml.tx(), dml.timestamp());
+        schema.table(),
+        p.op(),
+        before,
+        after,
+        partial,
+        rowId,
+        dml.id(),
+        dml.tx(),
+        dml.timestamp(),
+        schema.version());
   }
 
   /**

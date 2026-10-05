@@ -53,18 +53,72 @@ public final class LogMinerEventSource implements EventSource {
       throws SQLException {
     LogSet logs = inventory.forRange(from.scn(), endScn);
     session.setLogs(logs.logs());
-    // ADR-0014: LogMiner's STARTSCN must not exclude redo bound late with an earlier SCN, so it is
-    // the start of the log holding the cursor rather than the cursor's own SCN
+    session.start(startScn(from, logs), endScn, mode);
+    adapter.reset();
+    return adapter.adapt(session.query(filter, from, endScn));
+  }
+
+  /**
+   * ADR-0014: LogMiner's STARTSCN must not exclude redo bound late with an earlier SCN, so with a
+   * redo byte address it is the start of the log holding the cursor rather than the cursor's SCN.
+   */
+  private static long startScn(
+      sh.oso.connect.oracle.core.mining.step.StepCursor from, LogSet logs) {
     long startScn = from.scn();
     for (sh.oso.connect.oracle.core.logs.RedoLog l : logs.logs()) {
       if (l.firstScn() <= from.scn() && l.firstScn() < startScn) {
         startScn = l.firstScn();
       }
     }
-    session.start(from.hasRba() ? startScn : from.scn(), endScn, mode);
-    adapter.reset();
-    return adapter.adapt(session.query(filter, from, endScn));
+    return from.hasRba() ? startScn : from.scn();
   }
+
+  @Override
+  public EventSource redoDictionary() {
+    return new EventSource() {
+      @Override
+      public EventCursor open(sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+          throws SQLException {
+        long start = startScn(from, inventory.forRange(from.scn(), endScn));
+        sh.oso.connect.oracle.core.logs.DictionaryBuild build =
+            inventory
+                .dictionaryBuildBefore(start)
+                .orElseThrow(
+                    () ->
+                        new sh.oso.connect.oracle.core.errors.DictionaryUnavailableException(
+                            "No dictionary build in the archived logs ends before SCN "
+                                + start
+                                + ", so redo written before a DDL cannot be decoded.",
+                            DICTIONARY_ACTION));
+        LogSet logs;
+        try {
+          logs = inventory.forRange(build.firstScn(), endScn);
+        } catch (sh.oso.connect.oracle.core.errors.OracleCdcPurgedException e) {
+          throw new sh.oso.connect.oracle.core.errors.DictionaryUnavailableException(
+              "The dictionary build starting at SCN "
+                  + build.firstScn()
+                  + " cannot be used: "
+                  + e.getMessage(),
+              DICTIONARY_ACTION,
+              e);
+        }
+        session.setLogs(logs.logs());
+        session.start(start, endScn, DictionaryMode.REDO_LOGS_WITH_DDL_TRACKING);
+        adapter.reset();
+        return adapter.adapt(session.query(filter, from, endScn));
+      }
+
+      @Override
+      public void close() {}
+    };
+  }
+
+  /** What the operator does when no dictionary build covers a lag case (CDC-6001). */
+  public static final String DICTIONARY_ACTION =
+      "Grant EXECUTE ON DBMS_LOGMNR_D to the connector user so it builds dictionaries"
+          + " (cdc.dictionary.build.interval.ms), and keep the archived logs from the last build."
+          + " To go on now, move the offset past the DDL; the table's rows in between are not"
+          + " delivered.";
 
   /** Swaps the pushed-down ids after a DDL step cut (ADR-0001). */
   public void update(ResolvedObjects objects, MiningFilter newFilter) {

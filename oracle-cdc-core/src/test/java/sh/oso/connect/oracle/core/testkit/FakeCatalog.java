@@ -107,10 +107,38 @@ public final class FakeCatalog implements CatalogSource {
                     "D",
                     true,
                     l.destId(),
-                    false,
-                    false)
+                    l.dictionaryBegin(),
+                    l.dictionaryEnd())
                 : l);
     return this;
+  }
+
+  /** A dictionary build beginning in log {@code begin} and complete in log {@code end}. */
+  public FakeCatalog dictionaryBuild(int thread, long begin, long end) {
+    archived.replaceAll(
+        l ->
+            l.thread() == thread && (l.sequence() == begin || l.sequence() == end)
+                ? new RedoLog(
+                    l.thread(),
+                    l.sequence(),
+                    l.firstScn(),
+                    l.nextScn(),
+                    l.path(),
+                    l.archived(),
+                    l.status(),
+                    l.deleted(),
+                    l.destId(),
+                    l.dictionaryBegin() || l.sequence() == begin,
+                    l.dictionaryEnd() || l.sequence() == end)
+                : l);
+    return this;
+  }
+
+  @Override
+  public List<RedoLog> dictionaryLogs(int destId) {
+    return archived.stream()
+        .filter(l -> l.destId() == destId && (l.dictionaryBegin() || l.dictionaryEnd()))
+        .toList();
   }
 
   public FakeCatalog removeArchived(int thread, long sequence) {

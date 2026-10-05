@@ -75,6 +75,7 @@ public final class SchemaTopicStore implements SchemaStore {
     return Set.copyOf(versions.keySet());
   }
 
+  @Override
   public List<TableSchema> versions(TableId table) {
     return List.copyOf(versions.getOrDefault(table, List.of()));
   }

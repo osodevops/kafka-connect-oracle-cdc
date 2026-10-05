@@ -66,6 +66,13 @@ public interface EventSink {
   /** An UNSUPPORTED row for a captured table under the DLQ policy. */
   default void unsupported(MiningEvent.Unsupported event) {}
 
+  /**
+   * P1-17: the step from {@code fromScn} to {@code toScn} was mined again with a dictionary from
+   * the redo because rows of {@code tables} predate a later DDL.
+   */
+  default void dictionaryReplayed(
+      long fromScn, long toScn, java.util.Set<sh.oso.connect.oracle.core.model.TableId> tables) {}
+
   /** The pushed-down object ids were re-resolved after a DDL step cut. */
   default void idsRefreshed(java.util.Set<String> owners) {}
 

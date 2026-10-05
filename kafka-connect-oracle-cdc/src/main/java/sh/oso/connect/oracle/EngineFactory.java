@@ -48,5 +48,12 @@ public interface EngineFactory {
     CaptureEngine engine(
         Position start, EventSink sink, sh.oso.connect.oracle.journal.BufferSetup buffer)
         throws Exception;
+
+    /**
+     * PRD-03 section 3 step 5: starts the scheduled dictionary builds when they are configured;
+     * closing the session stops them.
+     */
+    default void startDictionaryBuilds(
+        sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.Events events) throws Exception {}
   }
 }

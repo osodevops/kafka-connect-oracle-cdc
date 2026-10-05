@@ -30,6 +30,14 @@ public interface DictionaryReader {
     return Optional.empty();
   }
 
+  /**
+   * TIMESTAMP_TO_SCN of a time, or the current SCN for a time not yet reached; empty when the time
+   * is older than the database's SCN-to-time mapping (P1-17).
+   */
+  default Optional<Long> scnAt(java.time.Instant time) throws SQLException {
+    return Optional.empty();
+  }
+
   /** SCN_TO_TIMESTAMP of an SCN, when the database still maps it (SCH-6). */
   default Optional<java.time.Instant> timeOfScn(long scn) throws SQLException {
     return Optional.empty();

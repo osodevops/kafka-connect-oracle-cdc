@@ -107,4 +107,27 @@ class LogInventoryTest {
         .isInstanceOf(OracleCdcGapException.class)
         .hasMessageContaining("after the start SCN");
   }
+
+  @Test
+  void theNewestDictionaryBuildCompleteBeforeTheStartIsChosen() throws Exception {
+    // logs of 100 SCNs from 1000: sequence 3 holds a whole build, sequences 6 and 7 another
+    FakeCatalog cat =
+        new FakeCatalog()
+            .archivedRun(1, 1, 10, 1000, 100)
+            .dictionaryBuild(1, 3, 3)
+            .dictionaryBuild(1, 6, 7);
+    LogInventory inv = new LogInventory(cat, CaptureMode.ONLINE, 1);
+    assertThat(inv.dictionaryBuildBefore(1299)).isEmpty();
+    assertThat(inv.dictionaryBuildBefore(1300)).contains(new DictionaryBuild(1, 1200, 1300));
+    assertThat(inv.dictionaryBuildBefore(1650))
+        .as("the second build is not complete until log 7 ends")
+        .contains(new DictionaryBuild(1, 1200, 1300));
+    assertThat(inv.dictionaryBuildBefore(1700)).contains(new DictionaryBuild(1, 1500, 1700));
+    cat.markDeleted(1, 7);
+    assertThat(inv.dictionaryBuildBefore(5000))
+        .as("a build in a deleted log cannot be read")
+        .contains(new DictionaryBuild(1, 1200, 1300));
+    cat.markDeleted(1, 3);
+    assertThat(inv.dictionaryBuildBefore(5000)).isEmpty();
+  }
 }

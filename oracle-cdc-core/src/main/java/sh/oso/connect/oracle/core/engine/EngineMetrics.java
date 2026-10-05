@@ -44,6 +44,7 @@ public final class EngineMetrics {
 
   public final AtomicLong reconnects = new AtomicLong();
   public final AtomicLong orphansReleased = new AtomicLong();
+  public final AtomicLong lagReplays = new AtomicLong();
   public final AtomicLong transactionsDiscarded = new AtomicLong();
   public final AtomicLong lastStepMillis = new AtomicLong();
   public final AtomicLong minedToScn = new AtomicLong();

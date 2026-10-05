@@ -79,6 +79,29 @@ public final class JdbcDictionaryReader implements DictionaryReader {
   }
 
   @Override
+  public Optional<Long> scnAt(java.time.Instant time) throws SQLException {
+    try (PreparedStatement ps =
+            c().prepareStatement("SELECT SYSDATE, current_scn FROM v$database");
+        ResultSet rs = ps.executeQuery()) {
+      rs.next();
+      if (!time.isBefore(rs.getTimestamp(1).toInstant())) {
+        return Optional.of(rs.getLong(2)); // not reached yet: valid from now at the earliest
+      }
+    }
+    try (PreparedStatement ps = c().prepareStatement("SELECT TIMESTAMP_TO_SCN(?) FROM dual")) {
+      ps.setTimestamp(1, java.sql.Timestamp.from(time));
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next() ? Optional.of(rs.getLong(1)) : Optional.empty();
+      }
+    } catch (SQLException e) {
+      if (e.getErrorCode() == 8180) {
+        return Optional.empty(); // older than the SCN-to-time mapping keeps
+      }
+      throw e;
+    }
+  }
+
+  @Override
   public Optional<java.time.Instant> timeOfScn(long scn) throws SQLException {
     try (PreparedStatement ps = c().prepareStatement("SELECT SCN_TO_TIMESTAMP(?) FROM dual")) {
       ps.setLong(1, scn);

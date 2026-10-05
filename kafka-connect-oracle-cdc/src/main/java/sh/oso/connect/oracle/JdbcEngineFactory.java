@@ -89,6 +89,7 @@ public final class JdbcEngineFactory implements EngineFactory {
     private final Set<String> excludedUsers;
     private final int inlistMax;
     private final List<AutoCloseable> closeables = new ArrayList<>();
+    private volatile sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler builds;
 
     JdbcSession(
         OracleCdcSourceConnectorConfig config,
@@ -268,6 +269,51 @@ public final class JdbcEngineFactory implements EngineFactory {
       return engine;
     }
 
+    @Override
+    public void startDictionaryBuilds(
+        sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.Events events) throws Exception {
+      long intervalMs = core.getLong(CoreConfig.DICTIONARY_BUILD_INTERVAL_MS);
+      if (intervalMs <= 0) {
+        LOG.info("Dictionary builds are off (cdc.dictionary.build.interval.ms=0)");
+        return;
+      }
+      java.time.LocalDateTime databaseNow;
+      try (java.sql.Statement s = meta.createStatement();
+          java.sql.ResultSet rs = s.executeQuery("SELECT SYSDATE FROM dual")) {
+        rs.next();
+        databaseNow = rs.getTimestamp(1).toLocalDateTime();
+      }
+      boolean none =
+          new LogInventory(catalog, core.captureMode(), archiveDestination())
+              .dictionaryBuildBefore(Long.MAX_VALUE)
+              .isEmpty();
+      Duration delay =
+          sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.delayUntil(
+              databaseNow,
+              java.time.LocalTime.parse(core.getString(CoreConfig.DICTIONARY_BUILD_TIME)));
+      builds =
+          new sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler(
+              () -> {
+                try (Connection c = connections.open(ConnectionRole.METADATA);
+                    java.sql.Statement s = c.createStatement()) {
+                  s.execute(
+                      "BEGIN DBMS_LOGMNR_D.BUILD(OPTIONS => DBMS_LOGMNR_D.STORE_IN_REDO_LOGS);"
+                          + " END;");
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  throw new SQLException("interrupted while connecting for a dictionary build", e);
+                }
+              },
+              events,
+              Duration.ofMillis(intervalMs));
+      builds.start(delay, none);
+      LOG.info(
+          "Dictionary builds every {} ms, next in {} min{}",
+          intervalMs,
+          delay.toMinutes(),
+          none ? "; one now, as the archived logs hold none" : "");
+    }
+
     /** The configured destination by name, else the lowest valid local one (DOC-12). */
     private int archiveDestination() throws SQLException {
       String wanted = core.getString(CoreConfig.ARCHIVE_DESTINATION);
@@ -333,6 +379,10 @@ public final class JdbcEngineFactory implements EngineFactory {
 
     @Override
     public void close() throws Exception {
+      if (builds != null) {
+        builds.close();
+        builds = null;
+      }
       closeQuietly(source); // ends the LogMiner session and closes the mining connection
       closeQuietly(reselect);
       reselect = null;

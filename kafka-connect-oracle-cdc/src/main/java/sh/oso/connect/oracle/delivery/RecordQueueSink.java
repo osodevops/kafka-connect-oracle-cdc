@@ -363,6 +363,23 @@ public final class RecordQueueSink
     ops(OpsEvent.Type.IDS_REFRESHED, "owners", String.join(",", new java.util.TreeSet<>(owners)));
   }
 
+  /** P1-17: a step mined again with a dictionary from the redo (PRD-03 lag case). */
+  @Override
+  public void dictionaryReplayed(long fromScn, long toScn, java.util.Set<TableId> tables) {
+    java.util.TreeSet<String> names = new java.util.TreeSet<>();
+    for (TableId t : tables) {
+      names.add(t.fqn());
+    }
+    ops(
+        OpsEvent.Type.DICTIONARY_REPLAY,
+        "from_scn",
+        Long.toString(fromScn),
+        "to_scn",
+        Long.toString(toScn),
+        "tables",
+        String.join(",", names));
+  }
+
   @Override
   public void reconnected(String cause) {
     ops(OpsEvent.Type.RECONNECTED, "cause", cause);
@@ -390,7 +407,8 @@ public final class RecordQueueSink
       }
       TableSchema schema;
       try {
-        schema = schemas.current(c.table());
+        // PRD-03: the version the row was decoded with, so a later DDL never hides its values
+        schema = schemas.version(c.table(), c.schemaVersion());
       } catch (SQLException e) {
         throw new ConnectException("Reading the schema of " + c.table().fqn(), e);
       }

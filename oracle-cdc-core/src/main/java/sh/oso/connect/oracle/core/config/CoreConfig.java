@@ -77,6 +77,10 @@ public class CoreConfig extends AbstractConfig {
   public static final String MINING_CATCHUP_PARALLELISM = "cdc.mining.catchup.parallelism";
   public static final String RAC_SAFETY_LAG_MS = "cdc.rac.safety.lag.ms";
 
+  // PRD-03 section 3 step 5: dictionary builds into the redo for the lag case
+  public static final String DICTIONARY_BUILD_INTERVAL_MS = "cdc.dictionary.build.interval.ms";
+  public static final String DICTIONARY_BUILD_TIME = "cdc.dictionary.build.time";
+
   public static final String BUFFER_MEMORY_MAX_BYTES = "cdc.buffer.memory.max.bytes";
   public static final String BUFFER_SPILL_DIR = "cdc.buffer.spill.dir";
   public static final String BUFFER_SPILL_MAX_BYTES = "cdc.buffer.spill.max.bytes";
@@ -538,6 +542,39 @@ public class CoreConfig extends AbstractConfig {
         ++o,
         Width.SHORT,
         "RAC safety lag (ms)");
+    def.define(
+        DICTIONARY_BUILD_INTERVAL_MS,
+        Type.LONG,
+        86_400_000L,
+        Range.atLeast(0L),
+        Importance.LOW,
+        "Interval between data dictionary builds into the redo (DBMS_LOGMNR_D.BUILD), which let"
+            + " the connector decode rows written before a later DDL on their table. Needs EXECUTE"
+            + " ON DBMS_LOGMNR_D; without it builds are switched off with an ops event. One build"
+            + " also runs at start when the archived logs hold none. 0 switches builds off.",
+        GROUP_MINING,
+        ++o,
+        Width.SHORT,
+        "Dictionary build interval (ms)");
+    def.define(
+        DICTIONARY_BUILD_TIME,
+        Type.STRING,
+        "02:00",
+        (name, value) -> {
+          try {
+            java.time.LocalTime.parse(String.valueOf(value));
+          } catch (java.time.format.DateTimeParseException e) {
+            throw new org.apache.kafka.common.config.ConfigException(
+                name, value, "must be a time of day as HH:mm");
+          }
+        },
+        Importance.LOW,
+        "Time of day, in the database's time, of the first scheduled dictionary build; later"
+            + " builds follow every cdc.dictionary.build.interval.ms.",
+        GROUP_MINING,
+        ++o,
+        Width.SHORT,
+        "Dictionary build time");
     // Buffer
     def.define(
         BUFFER_MEMORY_MAX_BYTES,

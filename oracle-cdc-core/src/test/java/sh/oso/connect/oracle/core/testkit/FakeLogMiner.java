@@ -49,6 +49,15 @@ public final class FakeLogMiner implements EventSource {
   public int recycled;
   private SQLException openFault;
 
+  /** P1-17: what the redo dictionary makes of a lag row, by the row's position in the redo. */
+  private final Map<RedoRecordId, MiningEvent> withRedoDictionary = new HashMap<>();
+
+  /** Opens with the redo dictionary so far. */
+  public int replays;
+
+  /** Thrown by every redo-dictionary open, like a database without a usable build. */
+  public RuntimeException redoDictionaryFault;
+
   /** The next {@link #open} throws {@code e} once, like a mining connection that was dropped. */
   public FakeLogMiner failNextOpen(SQLException e) {
     this.openFault = e;
@@ -170,6 +179,38 @@ public final class FakeLogMiner implements EventSource {
             Instant.EPOCH));
   }
 
+  /**
+   * P1-17: a row written before a later DDL on its table. The online catalog gives it STATUS 2 and
+   * {@code generic} SQL; mined with the redo dictionary it is {@code real} with STATUS 0.
+   */
+  public FakeLogMiner lagged(
+      TxKey tx, Operation op, TableId t, String generic, String real, String rowId) {
+    dmlWithRowId(tx, op, t, real, rowId);
+    MiningEvent.Dml exact = (MiningEvent.Dml) events.remove(events.size() - 1);
+    events.add(
+        new MiningEvent.Dml(
+            exact.tx(),
+            exact.id(),
+            exact.thread(),
+            exact.op(),
+            exact.table(),
+            exact.dataObj(),
+            exact.dataObjd(),
+            exact.dataObjv(),
+            exact.rowId(),
+            generic,
+            null,
+            false,
+            2,
+            null,
+            exact.username(),
+            exact.timestamp()));
+    // still generic with the redo dictionary too: LogMiner keeps STATUS 2
+    withRedoDictionary.put(
+        exact.id(), real.equals(generic) ? events.get(events.size() - 1) : exact);
+    return this;
+  }
+
   public FakeLogMiner commit(TxKey tx) {
     return add(new MiningEvent.Commit(tx, id(), 1, Instant.EPOCH));
   }
@@ -234,6 +275,31 @@ public final class FakeLogMiner implements EventSource {
       openFault = null;
       throw e;
     }
+    return cursor(from, endScn, Map.of());
+  }
+
+  @Override
+  public EventSource redoDictionary() {
+    return new EventSource() {
+      @Override
+      public EventCursor open(sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+          throws SQLException {
+        replays++;
+        if (redoDictionaryFault != null) {
+          throw redoDictionaryFault;
+        }
+        return cursor(from, endScn, withRedoDictionary);
+      }
+
+      @Override
+      public void close() {}
+    };
+  }
+
+  private EventCursor cursor(
+      sh.oso.connect.oracle.core.mining.step.StepCursor from,
+      long endScn,
+      Map<RedoRecordId, MiningEvent> replaced) {
     return new EventCursor() {
       private int i = -1;
       private MiningEvent current;
@@ -266,7 +332,7 @@ public final class FakeLogMiner implements EventSource {
             }
             throw new IllegalStateException(fault);
           }
-          current = e;
+          current = replaced.getOrDefault(e.id(), e);
           return true;
         }
         current = null;

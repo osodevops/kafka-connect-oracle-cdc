@@ -36,6 +36,8 @@ public record OpsEvent(Type type, long tsMs, Long resumeScn, Map<String, String>
     THREAD_STATE_CHANGED("thread-state-changed"),
     DDL_SEEN("ddl-seen"),
     DDL_APPLIED("ddl-applied"),
+    DICTIONARY_REPLAY("dictionary-replay"),
+    DICTIONARY_BUILD("dictionary-build"),
     TABLE_ADDED("table-added"),
     TABLE_REMOVED("table-removed"),
     IDS_REFRESHED("ids-refreshed"),

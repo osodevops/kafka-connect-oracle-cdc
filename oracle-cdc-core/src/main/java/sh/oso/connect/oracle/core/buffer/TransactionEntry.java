@@ -180,7 +180,8 @@ final class TransactionEntry {
         RowIds.inert(c.rowId()),
         c.id(),
         c.tx(),
-        c.timestamp());
+        c.timestamp(),
+        c.schemaVersion());
   }
 
   /**

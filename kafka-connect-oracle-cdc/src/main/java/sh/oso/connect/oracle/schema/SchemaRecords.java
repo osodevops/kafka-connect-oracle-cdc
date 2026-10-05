@@ -68,6 +68,8 @@ public final class SchemaRecords {
           .field("supplemental_all", Schema.BOOLEAN_SCHEMA)
           .field("supplemental_pk", Schema.BOOLEAN_SCHEMA)
           .field("columns", SchemaBuilder.array(COLUMN_SCHEMA).build())
+          // P1-17: false when the dictionary was already past this version's DDL; absent is true
+          .field("exact", Schema.OPTIONAL_BOOLEAN_SCHEMA)
           .build();
 
   public static final Schema VALUE_SCHEMA =
@@ -134,7 +136,8 @@ public final class SchemaRecords {
               .put("key", s.keyColumns())
               .put("supplemental_all", s.supplementalAllColumns())
               .put("supplemental_pk", s.supplementalPrimaryKey())
-              .put("columns", cols));
+              .put("columns", cols)
+              .put("exact", s.exact()));
     }
     return new Struct(VALUE_SCHEMA).put("v", SCHEMA_VERSION).put("versions", vs);
   }
@@ -185,7 +188,8 @@ public final class SchemaRecords {
               Boolean.TRUE.equals(field(v, "supplemental_all")),
               Boolean.TRUE.equals(field(v, "supplemental_pk")),
               toInt(field(v, "version")),
-              ((Number) field(v, "valid_from_scn")).longValue()));
+              ((Number) field(v, "valid_from_scn")).longValue(),
+              !Boolean.FALSE.equals(field(v, "exact"))));
     }
     return out;
   }

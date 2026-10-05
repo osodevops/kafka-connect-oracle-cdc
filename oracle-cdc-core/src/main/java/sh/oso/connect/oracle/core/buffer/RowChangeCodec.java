@@ -88,6 +88,7 @@ final class RowChangeCodec {
         out.writeLong(c.timestamp().getEpochSecond());
         out.writeInt(c.timestamp().getNano());
       }
+      out.writeInt(c.schemaVersion()); // trailing: payloads written before P1-17 end above
     } catch (IOException e) {
       throw new IllegalStateException("in-memory encode failed", e);
     }
@@ -108,7 +109,8 @@ final class RowChangeCodec {
       if (in.readBoolean()) {
         ts = Instant.ofEpochSecond(in.readLong(), in.readInt());
       }
-      return new RowChange(table, op, before, after, partial, rowId, id, tx, ts);
+      int version = in.available() >= Integer.BYTES ? in.readInt() : 0;
+      return new RowChange(table, op, before, after, partial, rowId, id, tx, ts, version);
     }
   }
 

@@ -233,4 +233,83 @@ class SchemaTest {
     lastDdl[0] = null;
     reg.validate(T, 1000); // dropped since: the DROP is ahead
   }
+
+  @Test
+  void replayedRowsDecodeOnlyWithAnExactVersionValidAtTheirScn() throws Exception {
+    InMemorySchemaStore store = new InMemorySchemaStore();
+    TableSchema[] dictionary = {schema()};
+    java.time.Instant[] lastDdl = {java.time.Instant.parse("2026-10-05T09:00:00Z")};
+    Map<Long, java.time.Instant> times = new java.util.HashMap<>();
+    DictionaryReader dict =
+        new DictionaryReader() {
+          public Optional<TableSchema> read(TableId table) {
+            return Optional.ofNullable(dictionary[0]);
+          }
+
+          public KeySelector.Candidates keyCandidates(TableId table) {
+            return new KeySelector.Candidates(List.of("ID"), List.of());
+          }
+
+          @Override
+          public Optional<java.time.Instant> lastDdlTime(TableId table) {
+            return Optional.ofNullable(lastDdl[0]);
+          }
+
+          @Override
+          public Optional<java.time.Instant> timeOfScn(long scn) {
+            return Optional.ofNullable(times.get(scn));
+          }
+
+          @Override
+          public Optional<Long> scnAt(java.time.Instant time) {
+            return Optional.of(400L);
+          }
+        };
+    SchemaRegistry reg =
+        new SchemaRegistry(
+            store, dict, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
+
+    // first read: valid from the table's last DDL (as an SCN, with the mapping's slack)
+    TableSchema v1 = reg.current(T);
+    assertThat(v1.validFromScn()).isEqualTo(400);
+    assertThatThrownBy(() -> reg.at(T, 399))
+        .isInstanceOf(sh.oso.connect.oracle.core.errors.DictionaryUnavailableException.class)
+        .hasMessageContaining("CDC-6001")
+        .hasMessageContaining("first read the table after that DDL");
+    assertThat(reg.at(T, 400)).isEqualTo(v1);
+
+    // a DDL at 600 that is the table's last: exact
+    List<ColumnSpec> wider = new java.util.ArrayList<>(schema().columns());
+    wider.add(ColumnSpec.of("ADDED", wider.size() + 1, OracleType.VARCHAR2));
+    dictionary[0] = new TableSchema(T, wider, List.of(), KeySource.NONE, true, false);
+    times.put(600L, java.time.Instant.parse("2026-10-05T10:00:00Z"));
+    lastDdl[0] = java.time.Instant.parse("2026-10-05T10:00:01Z");
+    TableSchema v2 = reg.applyDdl(T, 600).orElseThrow();
+    assertThat(v2.exact()).isTrue();
+
+    // a DDL at 700, but the dictionary already shows one a minute later: the layout is a guess
+    List<ColumnSpec> wider2 = new java.util.ArrayList<>(wider);
+    wider2.add(ColumnSpec.of("MORE", wider2.size() + 1, OracleType.VARCHAR2));
+    dictionary[0] = new TableSchema(T, wider2, List.of(), KeySource.NONE, true, false);
+    times.put(700L, java.time.Instant.parse("2026-10-05T10:05:00Z"));
+    lastDdl[0] = java.time.Instant.parse("2026-10-05T10:06:00Z");
+    TableSchema v3 = reg.applyDdl(T, 700).orElseThrow();
+    assertThat(v3.exact()).isFalse();
+    assertThat(reg.at(T, 650)).isEqualTo(v2);
+    assertThatThrownBy(() -> reg.at(T, 750)).hasMessageContaining("was read after a further DDL");
+
+    // that later DDL, mined: the same layout, now confirmed, becomes an exact version
+    times.put(800L, java.time.Instant.parse("2026-10-05T10:06:00Z"));
+    TableSchema v4 = reg.applyDdl(T, 800).orElseThrow();
+    assertThat(v4.exact()).isTrue();
+    assertThat(v4.sameLayout(v3)).isTrue();
+    assertThat(reg.at(T, 900)).isEqualTo(v4);
+    assertThat(reg.applyDdl(T, 900)).as("nothing new").isEmpty();
+
+    // a buffered row renders with the version it was decoded with
+    assertThat(reg.version(T, 2)).isEqualTo(v2);
+    assertThat(reg.version(T, 0)).isEqualTo(v4);
+    assertThatThrownBy(() -> reg.version(T, 9))
+        .isInstanceOf(sh.oso.connect.oracle.core.errors.SchemaMismatchException.class);
+  }
 }

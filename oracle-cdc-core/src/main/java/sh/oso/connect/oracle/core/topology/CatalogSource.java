@@ -45,4 +45,12 @@ public interface CatalogSource {
 
   /** Archived-log completions per thread in the trailing window, for switch-rate metrics. */
   List<RedoLog> archivedSince(java.time.Instant since, int destId) throws SQLException;
+
+  /**
+   * Archived logs flagged DICTIONARY_BEGIN or DICTIONARY_END, ordered by thread and sequence: where
+   * dictionary builds lie in the redo (P1-17).
+   */
+  default List<RedoLog> dictionaryLogs(int destId) throws SQLException {
+    return List.of();
+  }
 }
