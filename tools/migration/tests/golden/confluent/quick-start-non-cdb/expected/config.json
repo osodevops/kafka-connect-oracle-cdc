@@ -1,0 +1,23 @@
+{
+  "name": "SimpleOracleCDC-oso",
+  "config": {
+    "name": "SimpleOracleCDC-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "oracle",
+    "cdc.database.password": "${file:/secrets/oracle.properties:password}",
+    "cdc.database.port": "1521",
+    "cdc.database.sid": "ORCLDB",
+    "cdc.database.user": "MYUSER",
+    "cdc.decimal.mode": "precise",
+    "cdc.lob.mode": "skip",
+    "cdc.mining.fetch.size": "1",
+    "cdc.output.format": "debezium",
+    "cdc.snapshot.mode": "none",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.include": "MYUSER[.](ORDERS|CUSTOMERS),MYUSER[.]INVOICES",
+    "cdc.tombstones.on.delete": "false",
+    "cdc.topic.prefix": "SimpleOracleCDC",
+    "cdc.topic.template": "${database}.${schema}.${table}"
+  }
+}

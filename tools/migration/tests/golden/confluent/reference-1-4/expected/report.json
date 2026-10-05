@@ -1,0 +1,882 @@
+{
+  "tool": "migrate_from_confluent.py",
+  "tool_version": "<version>",
+  "source_kind": "Confluent Oracle CDC Source connector",
+  "source_connector": "confluent-oracle-cdc",
+  "new_connector": "confluent-oracle-cdc-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 20,
+    "mapped-with-change": 9,
+    "dropped": 55,
+    "manual": 14
+  },
+  "exactly_once": {
+    "status": "disabled",
+    "detail": "This worker does not have exactly-once source support enabled."
+  },
+  "follow_ups": [
+    {
+      "text": "This release publishes the Debezium-compatible envelope only (`before`, `after`, `source`, `op`); the Confluent-compatible flat format (`cdc.output.format=confluent`) is not built yet. Records change shape and keys become structs of the key columns, so consumers and schemas of the existing table topics break. Point `cdc.topic.template` at new topic names and move consumers to the new format, or wait for the Confluent-compatible format before cutting over.",
+      "properties": []
+    },
+    {
+      "text": "Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change.",
+      "properties": [
+        "key.template"
+      ]
+    },
+    {
+      "text": "DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change.",
+      "properties": [
+        "oracle.date.mapping"
+      ]
+    },
+    {
+      "text": "Part of Confluent's record format, which this release does not produce. See the record format follow-up.",
+      "properties": [
+        "output.current.ts.field",
+        "output.op.ts.field",
+        "output.op.type.delete.value",
+        "output.op.type.field",
+        "output.op.type.insert.value",
+        "output.op.type.read.value",
+        "output.op.type.truncate.value",
+        "output.op.type.update.value",
+        "output.row.id.field",
+        "output.scn.field",
+        "output.table.name.field",
+        "output.username.field"
+      ]
+    },
+    {
+      "text": "Confluent's documentation describes `${databaseName}` and `${fullyQualifiedTableName}` loosely. Compare the topic names the translated `cdc.topic.template` produces with the existing topics before cutting over.",
+      "properties": []
+    },
+    {
+      "text": "The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.",
+      "properties": []
+    },
+    {
+      "text": "Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.",
+      "properties": []
+    },
+    {
+      "text": "The target Connect cluster does not have exactly-once source support enabled (This worker does not have exactly-once source support enabled.), so the connector delivers at least once. To deliver exactly once, set `exactly.once.source.support=enabled` on every worker, then add `exactly.once.support=required` and `transaction.boundary=connector`.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "confluent-oracle-cdc-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "debezium",
+      "reason": "The only format in this release; Confluent's flat format is not built yet."
+    },
+    {
+      "key": "cdc.topic.prefix",
+      "value": "confluent-oracle-cdc",
+      "reason": "Names the connector's internal topics and its offset partition; Confluent table topic names do not use it."
+    },
+    {
+      "key": "cdc.tables.case.sensitive",
+      "value": "true",
+      "reason": "Confluent matches table expressions case-sensitively (MIG-3)."
+    },
+    {
+      "key": "cdc.lob.mode",
+      "value": "skip",
+      "reason": "LOB columns stay out of the records, as before."
+    }
+  ],
+  "properties": [
+    {
+      "key": "behavior.on.dictionary.mismatch",
+      "value": "fail",
+      "classification": "mapped",
+      "targets": {
+        "cdc.on.decode.error": "fail"
+      },
+      "note": ""
+    },
+    {
+      "key": "behavior.on.unparsable.statement",
+      "value": "fail",
+      "classification": "mapped",
+      "targets": {
+        "cdc.on.decode.error": "fail"
+      },
+      "note": ""
+    },
+    {
+      "key": "confluent.license",
+      "value": "********",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "confluent.topic.bootstrap.servers",
+      "value": "kafka:9092",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Confluent licence topic settings; not used."
+    },
+    {
+      "key": "confluent.topic.replication.factor",
+      "value": "3",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Confluent licence topic settings; not used."
+    },
+    {
+      "key": "connection.pool.initial.size",
+      "value": "0",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector manages its own connections (MIG-5); driver options go in `cdc.database.connection.properties`."
+    },
+    {
+      "key": "connection.pool.max.size",
+      "value": "1",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector manages its own connections (MIG-5); driver options go in `cdc.database.connection.properties`."
+    },
+    {
+      "key": "connection.pool.min.size",
+      "value": "0",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector manages its own connections (MIG-5); driver options go in `cdc.database.connection.properties`."
+    },
+    {
+      "key": "connector.class",
+      "value": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "db.timezone",
+      "value": "UTC",
+      "classification": "dropped",
+      "targets": {},
+      "note": "DATE and TIMESTAMP values are read as UTC."
+    },
+    {
+      "key": "db.timezone.date",
+      "value": "UTC",
+      "classification": "dropped",
+      "targets": {},
+      "note": "DATE and TIMESTAMP values are read as UTC."
+    },
+    {
+      "key": "emit.tombstone.on.delete",
+      "value": "false",
+      "classification": "mapped",
+      "targets": {
+        "cdc.tombstones.on.delete": "false"
+      },
+      "note": ""
+    },
+    {
+      "key": "enable.large.lob.object.support",
+      "value": "false",
+      "classification": "dropped",
+      "targets": {},
+      "note": "`cdc.lob.max.bytes` limits LOB values (default 1 MiB)."
+    },
+    {
+      "key": "enable.metrics.collection",
+      "value": "false",
+      "classification": "dropped",
+      "targets": {},
+      "note": "JMX metrics are always on."
+    },
+    {
+      "key": "heartbeat.interval.ms",
+      "value": "0",
+      "classification": "mapped-with-change",
+      "targets": {},
+      "note": "Not copied: the connector's heartbeats (default every 10 seconds) keep offsets moving on a quiet database and never write to the source database."
+    },
+    {
+      "key": "heartbeat.topic.name",
+      "value": "${connectorName}-${databaseName}-heartbeat-topic",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Heartbeat records go to `cdc.heartbeat.topic` (default `${prefix}.cdc.heartbeat`) in the connector's own format."
+    },
+    {
+      "key": "key.converter",
+      "value": "io.confluent.connect.avro.AvroConverter",
+      "classification": "mapped",
+      "targets": {
+        "key.converter": "io.confluent.connect.avro.AvroConverter"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "key.template",
+      "value": "${primaryKeyStructOrValue}",
+      "classification": "manual",
+      "targets": {},
+      "note": "Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change."
+    },
+    {
+      "key": "ldap.security.credentials",
+      "value": "********",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "ldap.security.principal",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "ldap.url",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "lob.topic.name.template",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "LOB columns were not captured; `cdc.lob.mode=skip` keeps them out of the records."
+    },
+    {
+      "key": "log.mining.archive.destination.name",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "log.mining.end.scn.deviation.ms",
+      "value": "0",
+      "classification": "dropped",
+      "targets": {},
+      "note": "A RAC setting; RAC is not supported in this release."
+    },
+    {
+      "key": "log.mining.transaction.age.threshold.ms",
+      "value": "-1",
+      "classification": "dropped",
+      "targets": {},
+      "note": "No age limit, which is also the connector's default."
+    },
+    {
+      "key": "log.mining.transaction.threshold.breached.action",
+      "value": "warn",
+      "classification": "dropped",
+      "targets": {},
+      "note": "No age limit, which is also the connector's default."
+    },
+    {
+      "key": "log.sensitive.data",
+      "value": "false",
+      "classification": "mapped",
+      "targets": {
+        "cdc.log.sensitive.data": "false"
+      },
+      "note": ""
+    },
+    {
+      "key": "max.batch.size",
+      "value": "1000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.poll.max.records": "1000"
+      },
+      "note": ""
+    },
+    {
+      "key": "max.batch.timeout.ms",
+      "value": "60000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Deprecated in the source; not used."
+    },
+    {
+      "key": "max.buffer.size",
+      "value": "0",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector buffers in its own transaction buffer."
+    },
+    {
+      "key": "max.retry.time.ms",
+      "value": "86400000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.retry.max.time.ms": "86400000"
+      },
+      "note": ""
+    },
+    {
+      "key": "numeric.default.scale",
+      "value": "127",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Unconstrained NUMBER values are published as a variable scale decimal, with their own scale."
+    },
+    {
+      "key": "numeric.mapping",
+      "value": "none",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.decimal.mode": "precise"
+      },
+      "note": "Kept exact (MIG-3). Confluent published every NUMBER as a Connect Decimal (bytes); `precise` publishes NUMBER(p,0) up to 18 digits as integers, other constrained NUMBER as Decimal and unconstrained NUMBER as a variable scale decimal struct."
+    },
+    {
+      "key": "oracle.date.mapping",
+      "value": "date",
+      "classification": "manual",
+      "targets": {},
+      "note": "DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change."
+    },
+    {
+      "key": "oracle.dictionary.mode",
+      "value": "auto",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector mines with the online catalog and replays a step with a dictionary from the redo when a row predates a later DDL (`cdc.dictionary.build.*`)."
+    },
+    {
+      "key": "oracle.fan.events.enable",
+      "value": "false",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Off in the source as well."
+    },
+    {
+      "key": "oracle.kerberos.cache.file",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "oracle.password",
+      "value": "${file:/opt/secrets/oracle.properties:password}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "${file:/opt/secrets/oracle.properties:password}"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.pdb.name",
+      "value": "ORCLPDB1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.pdbs": "ORCLPDB1"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.server",
+      "value": "oracle.example.com",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "oracle.example.com"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.service.name",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.service": "ORCLCDB"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.sid",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.sid": "ORCLCDB"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.ssl.truststore.file",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "oracle.ssl.truststore.password",
+      "value": "********",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "oracle.supplemental.log.level",
+      "value": "full",
+      "classification": "dropped",
+      "targets": {},
+      "note": "`oracle-cdc-doctor check` verifies supplemental logging per captured table."
+    },
+    {
+      "key": "oracle.username",
+      "value": "C##MYUSER",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "C##MYUSER"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "oracle.validation.result.fetch.size",
+      "value": "5000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Validation is the doctor's fast mode."
+    },
+    {
+      "key": "output.before.state.field",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "output.commit.scn.field",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "output.current.ts.field",
+      "value": "current_ts",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.ts.field",
+      "value": "op_ts",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.type.delete.value",
+      "value": "D",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.type.field",
+      "value": "op_type",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.type.insert.value",
+      "value": "I",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.type.read.value",
+      "value": "R",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.type.truncate.value",
+      "value": "T",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.op.type.update.value",
+      "value": "U",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.redo.field",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "output.row.id.field",
+      "value": "row_id",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.scn.field",
+      "value": "scn",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.table.name.field",
+      "value": "table",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "output.undo.field",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "output.username.field",
+      "value": "username",
+      "classification": "manual",
+      "targets": {},
+      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+    },
+    {
+      "key": "poll.linger.ms",
+      "value": "5000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.poll.linger.ms": "5000"
+      },
+      "note": ""
+    },
+    {
+      "key": "query.timeout.ms",
+      "value": "300000",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.mining.query.timeout.ms": "300000"
+      },
+      "note": "Applies to each mining step; on expiry the step is retried with a smaller window."
+    },
+    {
+      "key": "record.buffer.mode",
+      "value": "connector",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector buffers in its own transaction buffer."
+    },
+    {
+      "key": "redo.log.consumer.bootstrap.servers",
+      "value": "kafka:9092",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.fetch.max.bytes",
+      "value": "52428800",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.fetch.min.bytes",
+      "value": "1",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.max.partition.fetch.bytes",
+      "value": "1048576",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.max.poll.records",
+      "value": "500",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.receive.buffer.bytes",
+      "value": "65536",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.request.timeout.ms",
+      "value": "30000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.consumer.send.buffer.bytes",
+      "value": "131072",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.corruption.topic",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "redo.log.initial.delay.interval.ms",
+      "value": "0",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Streaming starts with the task."
+    },
+    {
+      "key": "redo.log.poll.interval.ms",
+      "value": "1000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The mining window adapts to `cdc.mining.target.latency.ms` (default two seconds)."
+    },
+    {
+      "key": "redo.log.row.fetch.size",
+      "value": "1000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.mining.fetch.size": "1000"
+      },
+      "note": ""
+    },
+    {
+      "key": "redo.log.row.poll.fields.exclude",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "redo.log.row.poll.fields.include",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "redo.log.row.poll.username.exclude",
+      "value": "GGADMIN",
+      "classification": "mapped",
+      "targets": {
+        "cdc.users.exclude": "GGADMIN"
+      },
+      "note": ""
+    },
+    {
+      "key": "redo.log.row.poll.username.include",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "redo.log.startup.polling.limit.ms",
+      "value": "300000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.topic.name",
+      "value": "${connectorName}-${databaseName}-redo-log",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic; see the follow-up."
+    },
+    {
+      "key": "retry.error.codes",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "snapshot.by.table.partitions",
+      "value": "false",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Snapshots are split into chunks of `cdc.snapshot.chunk.rows` rows."
+    },
+    {
+      "key": "snapshot.row.fetch.size",
+      "value": "2000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.snapshot.fetch.size": "2000"
+      },
+      "note": ""
+    },
+    {
+      "key": "snapshot.threads.per.task",
+      "value": "4",
+      "classification": "mapped",
+      "targets": {
+        "cdc.snapshot.threads": "4"
+      },
+      "note": ""
+    },
+    {
+      "key": "start.from",
+      "value": "snapshot",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.snapshot.mode": "none"
+      },
+      "note": "The takeover starts the new connector at the Confluent position (`cdc.start.scn` from takeover_scn.py), so no snapshot runs: `cdc.snapshot.mode=none`."
+    },
+    {
+      "key": "table.exclusion.regex",
+      "value": "ORCLPDB1[.]C##MYUSER[.]ORDERS_TMP",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.exclude": "ORCLPDB1[.]C##MYUSER[.]ORDERS_TMP"
+      },
+      "note": "Rewritten as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB); matching stays case-sensitive (`cdc.tables.case.sensitive=true`)."
+    },
+    {
+      "key": "table.inclusion.regex",
+      "value": "ORCLPDB1[.]C##MYUSER[.](ORDERS|CUSTOMERS)",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1[.]C##MYUSER[.](ORDERS|CUSTOMERS)"
+      },
+      "note": "Rewritten as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB); matching stays case-sensitive (`cdc.tables.case.sensitive=true`)."
+    },
+    {
+      "key": "table.rps.logging.interval.ms",
+      "value": "60000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Per-table rates are JMX metrics."
+    },
+    {
+      "key": "table.task.reconfig.checking.interval.ms",
+      "value": "300000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "One task captures every table, so there is no table placement to rebalance."
+    },
+    {
+      "key": "table.topic.name.template",
+      "value": "${databaseName}.${schemaName}.${tableName}",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.template": "${pdb}.${schema}.${table}"
+      },
+      "note": "Template variables translated; check the result against the existing topic names."
+    },
+    {
+      "key": "tasks.max",
+      "value": "8",
+      "classification": "mapped-with-change",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": "Reduced to one (MIG-5). Confluent spread table topics over tasks that all read its redo log topic; this connector mines every table in one task with one LogMiner session, so more tasks would add nothing. A higher value is accepted and ignored."
+    },
+    {
+      "key": "use.transaction.begin.for.mining.session",
+      "value": "true",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Always on: the connector restarts from the oldest open transaction."
+    },
+    {
+      "key": "value.converter",
+      "value": "io.confluent.connect.avro.AvroConverter",
+      "classification": "mapped",
+      "targets": {
+        "value.converter": "io.confluent.connect.avro.AvroConverter"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    }
+  ],
+  "config": {
+    "name": "confluent-oracle-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "oracle.example.com",
+    "cdc.database.password": "${file:/opt/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.sid": "ORCLCDB",
+    "cdc.database.user": "C##MYUSER",
+    "cdc.decimal.mode": "precise",
+    "cdc.lob.mode": "skip",
+    "cdc.log.sensitive.data": "false",
+    "cdc.mining.fetch.size": "1000",
+    "cdc.mining.query.timeout.ms": "300000",
+    "cdc.on.decode.error": "fail",
+    "cdc.output.format": "debezium",
+    "cdc.poll.linger.ms": "5000",
+    "cdc.poll.max.records": "1000",
+    "cdc.retry.max.time.ms": "86400000",
+    "cdc.snapshot.fetch.size": "2000",
+    "cdc.snapshot.mode": "none",
+    "cdc.snapshot.threads": "4",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.exclude": "ORCLPDB1[.]C##MYUSER[.]ORDERS_TMP",
+    "cdc.tables.include": "ORCLPDB1[.]C##MYUSER[.](ORDERS|CUSTOMERS)",
+    "cdc.tombstones.on.delete": "false",
+    "cdc.topic.prefix": "confluent-oracle-cdc",
+    "cdc.topic.template": "${pdb}.${schema}.${table}",
+    "cdc.users.exclude": "GGADMIN",
+    "key.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, above all the record format, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Confluent connector with `PUT /connectors/confluent-oracle-cdc/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `confluent-oracle-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).",
+    "Remove the redo log topic and the old connector's other topics after the agreed retention."
+  ]
+}

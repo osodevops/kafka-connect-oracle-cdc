@@ -1,0 +1,31 @@
+{
+  "name": "orders-cdc-oso",
+  "config": {
+    "name": "orders-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "db",
+    "cdc.database.password": "${file:/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.sid": "ORCLCDB",
+    "cdc.database.url": "jdbc:oracle:thin:@ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com",
+    "cdc.database.user": "C##MYUSER",
+    "cdc.decimal.mode": "precise",
+    "cdc.heartbeat.interval.ms": "30000",
+    "cdc.lob.mode": "skip",
+    "cdc.on.decode.error": "dlq",
+    "cdc.output.format": "debezium",
+    "cdc.retry.extra.error.codes": "ORA-12345,ORA-01089",
+    "cdc.snapshot.mode": "none",
+    "cdc.start.scn": "2169287",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\..*",
+    "cdc.tombstones.on.delete": "false",
+    "cdc.topic.prefix": "orders",
+    "cdc.transaction.max.age.action": "discard",
+    "cdc.transaction.max.age.ms": "7200000",
+    "exactly.once.support": "required",
+    "transaction.boundary": "connector"
+  }
+}

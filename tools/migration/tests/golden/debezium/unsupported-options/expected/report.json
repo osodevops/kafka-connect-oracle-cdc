@@ -1,0 +1,499 @@
+{
+  "tool": "migrate_from_debezium.py",
+  "tool_version": "<version>",
+  "source_kind": "Debezium Oracle connector",
+  "source_connector": "kitchen-sink",
+  "new_connector": "kitchen-sink-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 12,
+    "mapped-with-change": 8,
+    "dropped": 5,
+    "manual": 12
+  },
+  "exactly_once": {
+    "status": "unknown",
+    "detail": "validation request failed: PUT /connector-plugins/sh.oso.connect.oracle.OracleCdcSourceConnector/config/validate returned HTTP 404: Failed to find any class that implements Connector"
+  },
+  "follow_ups": [
+    {
+      "text": "`binary.handling.mode=hex` has no equivalent: binary columns are published as bytes in this release. Consumers that expect text must decode the bytes.",
+      "properties": [
+        "binary.handling.mode"
+      ]
+    },
+    {
+      "text": "A setting of the custom converter `boolean`; custom converters are not supported.",
+      "properties": [
+        "boolean.type"
+      ]
+    },
+    {
+      "text": "Column masking is not supported.",
+      "properties": [
+        "column.mask.with.12.chars"
+      ]
+    },
+    {
+      "text": "Custom converters are not supported; type mapping follows `cdc.decimal.mode` and `cdc.temporal.mode`.",
+      "properties": [
+        "converters"
+      ]
+    },
+    {
+      "text": "`errors.tolerance=all` lets Connect skip records it cannot convert. For change data capture `none` is recommended, so a conversion problem stops the task instead of losing a change.",
+      "properties": [
+        "errors.tolerance"
+      ]
+    },
+    {
+      "text": "Intervals as strings are only available with `cdc.temporal.mode=iso_string`, which also turns dates and timestamps into text. Choose one by hand.",
+      "properties": [
+        "interval.handling.mode"
+      ]
+    },
+    {
+      "text": "Post processors are not supported. For LOB values the redo does not carry, use `cdc.lob.mode=reselect`.",
+      "properties": [
+        "post.processors"
+      ]
+    },
+    {
+      "text": "Every record carries the `transaction` block (id, total order, data collection order), but BEGIN and END records on a transaction topic are not written in this release. Consumers of the Debezium transaction topic must wait or change.",
+      "properties": [
+        "provide.transaction.metadata"
+      ]
+    },
+    {
+      "text": "The source published truncate records; this release does not. Consumers that act on truncates must be told by other means.",
+      "properties": [
+        "skipped.operations"
+      ]
+    },
+    {
+      "text": "The connector takes one row filter per table as a SQL condition, in `cdc.snapshot.select.override.PDB.OWNER.TABLE`, not a whole statement. Rewrite it by hand if a later snapshot needs it.",
+      "properties": [
+        "snapshot.select.statement.overrides",
+        "snapshot.select.statement.overrides.APP.ORDERS"
+      ]
+    },
+    {
+      "text": "`time.precision.mode=connect` has no equivalent. The connector offers `adaptive` (Debezium semantic types sized to the column precision) and `iso_string`; consumers that read the old representation must change.",
+      "properties": [
+        "time.precision.mode"
+      ]
+    },
+    {
+      "text": "Transforms, predicates or converters name `io.debezium` classes. Keep the Debezium plugin (or its transform and converter jars) on the worker's plugin path, or replace them; the record envelope they expect is unchanged.",
+      "properties": [
+        "transforms.unwrap.type"
+      ]
+    },
+    {
+      "text": "The translator does not know this property. Check what it did in the source connector and set the corresponding `cdc.*` property by hand, or leave it out.",
+      "properties": [
+        "unknown.vendor.setting"
+      ]
+    },
+    {
+      "text": "Debezium published schema change events to the topic named after `topic.prefix`; this connector does not. Move or retire the consumers of that topic.",
+      "properties": []
+    },
+    {
+      "text": "Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.",
+      "properties": []
+    },
+    {
+      "text": "Exactly-once delivery was not configured because the target Connect cluster could not be checked (validation request failed: PUT /connector-plugins/sh.oso.connect.oracle.OracleCdcSourceConnector/config/validate returned HTTP 404: Failed to find any class that implements Connector). Run the translator again with `--connect-url`, or add `exactly.once.support=required` and `transaction.boundary=connector` yourself once the workers run with `exactly.once.source.support=enabled`.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "kitchen-sink-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.topic.template",
+      "value": "${prefix}_${schema}_${table}",
+      "reason": "Keeps Debezium's topic names, `prefix.SCHEMA.TABLE`. The connector's own default adds the PDB name in a CDB."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "debezium",
+      "reason": "The Debezium-compatible envelope, so consumers keep working (MIG-2)."
+    },
+    {
+      "key": "cdc.decimal.mode",
+      "value": "precise",
+      "reason": "Debezium's default, pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.temporal.mode",
+      "value": "adaptive",
+      "reason": "Debezium's default, pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.tombstones.on.delete",
+      "value": "true",
+      "reason": "Debezium's default, pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.lob.mode",
+      "value": "skip",
+      "reason": "Debezium's default (`lob.enabled=false`), pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.key.missing",
+      "value": "none",
+      "reason": "Debezium published tables without a primary key with a null key; the connector would otherwise reject them at validation (MIG-3)."
+    },
+    {
+      "key": "cdc.snapshot.mode",
+      "value": "none",
+      "reason": "A takeover streams from the old connector's position, without a snapshot."
+    }
+  ],
+  "properties": [
+    {
+      "key": "binary.handling.mode",
+      "value": "hex",
+      "classification": "manual",
+      "targets": {},
+      "note": "`binary.handling.mode=hex` has no equivalent: binary columns are published as bytes in this release. Consumers that expect text must decode the bytes."
+    },
+    {
+      "key": "boolean.type",
+      "value": "io.debezium.connector.oracle.converters.NumberOneToBooleanConverter",
+      "classification": "manual",
+      "targets": {},
+      "note": "A setting of the custom converter `boolean`; custom converters are not supported."
+    },
+    {
+      "key": "column.mask.with.12.chars",
+      "value": "APP.CUSTOMERS.EMAIL",
+      "classification": "manual",
+      "targets": {},
+      "note": "Column masking is not supported."
+    },
+    {
+      "key": "connector.class",
+      "value": "io.debezium.connector.oracle.OracleConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "converters",
+      "value": "boolean",
+      "classification": "manual",
+      "targets": {},
+      "note": "Custom converters are not supported; type mapping follows `cdc.decimal.mode` and `cdc.temporal.mode`."
+    },
+    {
+      "key": "custom.metric.tags",
+      "value": "env=prod",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Metric names differ; see the metrics reference for dashboards and alerts."
+    },
+    {
+      "key": "database.dbname",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.service": "ORCLCDB"
+      },
+      "note": "Debezium connects with this name as the service name; in a CDB it names the root."
+    },
+    {
+      "key": "database.hostname",
+      "value": "db",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "db"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.password",
+      "value": "${vault:secret/data/oracle:password}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "${vault:secret/data/oracle:password}"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.pdb.name",
+      "value": "ORCLPDB1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.pdbs": "ORCLPDB1"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.user",
+      "value": "c##dbzuser",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "c##dbzuser"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "driver.javax.net.ssl.trustStore",
+      "value": "/etc/ssl/truststore.jks",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.tls.truststore.location": "/etc/ssl/truststore.jks"
+      },
+      "note": ""
+    },
+    {
+      "key": "driver.javax.net.ssl.trustStoreType",
+      "value": "PKCS12",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.tls.truststore.type": "PKCS12"
+      },
+      "note": ""
+    },
+    {
+      "key": "driver.oracle.net.ssl_server_dn_match",
+      "value": "true",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.database.connection.properties": "oracle.net.ssl_server_dn_match=true"
+      },
+      "note": "Added to `cdc.database.connection.properties`."
+    },
+    {
+      "key": "driver.oracle.net.wallet_location",
+      "value": "(SOURCE=(METHOD=file)(METHOD_DATA=(DIRECTORY=/opt/wallet)))",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.database.wallet.location": "/opt/wallet"
+      },
+      "note": "The wallet directory."
+    },
+    {
+      "key": "errors.max.retries",
+      "value": "5",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Transient database errors are retried for `cdc.retry.max.time.ms` (default one day)."
+    },
+    {
+      "key": "errors.tolerance",
+      "value": "all",
+      "classification": "mapped",
+      "targets": {
+        "errors.tolerance": "all"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "interval.handling.mode",
+      "value": "string",
+      "classification": "manual",
+      "targets": {},
+      "note": "Intervals as strings are only available with `cdc.temporal.mode=iso_string`, which also turns dates and timestamps into text. Choose one by hand."
+    },
+    {
+      "key": "log.mining.flush.table.name",
+      "value": "LOG_MINING_FLUSH",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector never writes to the source database; drop the flush table after the cutover."
+    },
+    {
+      "key": "max.batch.size",
+      "value": "4096",
+      "classification": "mapped",
+      "targets": {
+        "cdc.poll.max.records": "4096"
+      },
+      "note": ""
+    },
+    {
+      "key": "max.queue.size",
+      "value": "16384",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Records queue in batches of `cdc.poll.max.records`."
+    },
+    {
+      "key": "message.key.columns",
+      "value": "APP.ORDERS:ORDER_ID,REGION;APP\\.ORDER_LINES:LINE_ID",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.key.columns": "APP.ORDERS:ORDER_ID,REGION;APP.ORDER_LINES:LINE_ID"
+      },
+      "note": "Rewritten as `SCHEMA.TABLE:COL1,COL2` entries in upper case."
+    },
+    {
+      "key": "poll.interval.ms",
+      "value": "500",
+      "classification": "dropped",
+      "targets": {},
+      "note": "`cdc.poll.linger.ms` sets how long a poll waits for the first record."
+    },
+    {
+      "key": "post.processors",
+      "value": "reselector",
+      "classification": "manual",
+      "targets": {},
+      "note": "Post processors are not supported. For LOB values the redo does not carry, use `cdc.lob.mode=reselect`."
+    },
+    {
+      "key": "provide.transaction.metadata",
+      "value": "true",
+      "classification": "manual",
+      "targets": {},
+      "note": "Every record carries the `transaction` block (id, total order, data collection order), but BEGIN and END records on a transaction topic are not written in this release. Consumers of the Debezium transaction topic must wait or change."
+    },
+    {
+      "key": "skipped.operations",
+      "value": "none",
+      "classification": "manual",
+      "targets": {},
+      "note": "The source published truncate records; this release does not. Consumers that act on truncates must be told by other means."
+    },
+    {
+      "key": "snapshot.select.statement.overrides",
+      "value": "APP.ORDERS",
+      "classification": "manual",
+      "targets": {},
+      "note": "The connector takes one row filter per table as a SQL condition, in `cdc.snapshot.select.override.PDB.OWNER.TABLE`, not a whole statement. Rewrite it by hand if a later snapshot needs it."
+    },
+    {
+      "key": "snapshot.select.statement.overrides.APP.ORDERS",
+      "value": "SELECT * FROM APP.ORDERS WHERE STATUS <> 'X'",
+      "classification": "manual",
+      "targets": {},
+      "note": "The connector takes one row filter per table as a SQL condition, in `cdc.snapshot.select.override.PDB.OWNER.TABLE`, not a whole statement. Rewrite it by hand if a later snapshot needs it."
+    },
+    {
+      "key": "table.include.list",
+      "value": "APP\\.ORDERS",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1\\.APP\\.ORDERS"
+      },
+      "note": "Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB)."
+    },
+    {
+      "key": "tasks.max",
+      "value": "3",
+      "classification": "mapped-with-change",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": "The connector always runs one task, as the Debezium Oracle connector does."
+    },
+    {
+      "key": "time.precision.mode",
+      "value": "connect",
+      "classification": "manual",
+      "targets": {},
+      "note": "`time.precision.mode=connect` has no equivalent. The connector offers `adaptive` (Debezium semantic types sized to the column precision) and `iso_string`; consumers that read the old representation must change."
+    },
+    {
+      "key": "topic.delimiter",
+      "value": "_",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.template": "${prefix}_${schema}_${table}"
+      },
+      "note": "Used as the separator in `cdc.topic.template`."
+    },
+    {
+      "key": "topic.prefix",
+      "value": "sink",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.prefix": "sink",
+        "cdc.topic.template": "${prefix}_${schema}_${table}"
+      },
+      "note": "Topic prefix and logical server name. `cdc.topic.template` is pinned so the topic names stay `prefix.SCHEMA.TABLE`."
+    },
+    {
+      "key": "transforms",
+      "value": "unwrap",
+      "classification": "mapped",
+      "targets": {
+        "transforms": "unwrap"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "transforms.unwrap.type",
+      "value": "io.debezium.transforms.ExtractNewRecordState",
+      "classification": "mapped",
+      "targets": {
+        "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "unknown.vendor.setting",
+      "value": "x",
+      "classification": "manual",
+      "targets": {},
+      "note": "The translator does not know this property. Check what it did in the source connector and set the corresponding `cdc.*` property by hand, or leave it out."
+    }
+  ],
+  "config": {
+    "name": "kitchen-sink-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.connection.properties": "oracle.net.ssl_server_dn_match=true",
+    "cdc.database.host": "db",
+    "cdc.database.password": "${vault:secret/data/oracle:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.tls.truststore.location": "/etc/ssl/truststore.jks",
+    "cdc.database.tls.truststore.type": "PKCS12",
+    "cdc.database.user": "c##dbzuser",
+    "cdc.database.wallet.location": "/opt/wallet",
+    "cdc.decimal.mode": "precise",
+    "cdc.key.columns": "APP.ORDERS:ORDER_ID,REGION;APP.ORDER_LINES:LINE_ID",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "skip",
+    "cdc.output.format": "debezium",
+    "cdc.poll.max.records": "4096",
+    "cdc.snapshot.mode": "none",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\.ORDERS",
+    "cdc.temporal.mode": "adaptive",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "sink",
+    "cdc.topic.template": "${prefix}_${schema}_${table}",
+    "errors.tolerance": "all",
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Debezium connector with `PUT /connectors/kitchen-sink/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Debezium offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `kitchen-sink-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "After the overlap has passed, run `verify_cutover.py` and archive the evidence file.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Debezium's (see the metrics reference).",
+    "Keep the Debezium schema history topic until the cutover is verified, then delete it and the old connector's other internal topics after the agreed retention."
+  ]
+}

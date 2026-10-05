@@ -89,7 +89,12 @@ const sidebars = {
     {
       type: 'category',
       label: 'Migration',
-      items: ['migration/from-confluent', 'migration/from-debezium', 'migration/cutover-verification'],
+      items: [
+        'migration/tools',
+        'migration/from-debezium',
+        'migration/from-confluent',
+        'migration/cutover-verification',
+      ],
     },
     'comparison/index',
     {

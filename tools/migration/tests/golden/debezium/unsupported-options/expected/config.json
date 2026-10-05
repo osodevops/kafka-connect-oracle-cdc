@@ -1,0 +1,33 @@
+{
+  "name": "kitchen-sink-oso",
+  "config": {
+    "name": "kitchen-sink-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.connection.properties": "oracle.net.ssl_server_dn_match=true",
+    "cdc.database.host": "db",
+    "cdc.database.password": "${vault:secret/data/oracle:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.tls.truststore.location": "/etc/ssl/truststore.jks",
+    "cdc.database.tls.truststore.type": "PKCS12",
+    "cdc.database.user": "c##dbzuser",
+    "cdc.database.wallet.location": "/opt/wallet",
+    "cdc.decimal.mode": "precise",
+    "cdc.key.columns": "APP.ORDERS:ORDER_ID,REGION;APP.ORDER_LINES:LINE_ID",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "skip",
+    "cdc.output.format": "debezium",
+    "cdc.poll.max.records": "4096",
+    "cdc.snapshot.mode": "none",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\.ORDERS",
+    "cdc.temporal.mode": "adaptive",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "sink",
+    "cdc.topic.template": "${prefix}_${schema}_${table}",
+    "errors.tolerance": "all",
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState"
+  }
+}

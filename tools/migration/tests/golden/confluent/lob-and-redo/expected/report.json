@@ -1,0 +1,357 @@
+{
+  "tool": "migrate_from_confluent.py",
+  "tool_version": "<version>",
+  "source_kind": "Confluent Oracle CDC Source connector",
+  "source_connector": "orders-cdc",
+  "new_connector": "orders-cdc-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 9,
+    "mapped-with-change": 7,
+    "dropped": 0,
+    "manual": 6
+  },
+  "exactly_once": {
+    "status": "enabled",
+    "detail": "the worker accepted exactly.once.support=required"
+  },
+  "follow_ups": [
+    {
+      "text": "This release publishes the Debezium-compatible envelope only (`before`, `after`, `source`, `op`); the Confluent-compatible flat format (`cdc.output.format=confluent`) is not built yet. Records change shape and keys become structs of the key columns, so consumers and schemas of the existing table topics break. Point `cdc.topic.template` at new topic names and move consumers to the new format, or wait for the Confluent-compatible format before cutting over.",
+      "properties": []
+    },
+    {
+      "text": "The source logged and skipped rows it could not parse. The connector never skips silently: such rows go to the DLQ topic (`cdc.dlq.topic`) with an ops event. Make sure someone watches the DLQ.",
+      "properties": [
+        "behavior.on.dictionary.mismatch"
+      ]
+    },
+    {
+      "text": "DATE and TIMESTAMP values are read as UTC in this release; there is no time zone setting. Consumers that expect another zone must convert.",
+      "properties": [
+        "db.timezone"
+      ]
+    },
+    {
+      "text": "The LDAP naming URL became `cdc.database.url`. Test the connection with `oracle-cdc-doctor check`; LDAP authentication settings are not translated.",
+      "properties": [
+        "ldap.url"
+      ]
+    },
+    {
+      "text": "LOB topics are not built yet (MIG-5). Until they are, `cdc.lob.mode=inline` publishes LOB values inside the row records; consumers of the LOB topics must change.",
+      "properties": [
+        "lob.topic.name.template"
+      ]
+    },
+    {
+      "text": "`numeric.mapping=best_fit_or_double` has no exact equivalent. `cdc.decimal.mode` offers `precise`, `string` (every NUMBER as text) and `double` (every NUMBER as a double); choose one.",
+      "properties": [
+        "numeric.mapping"
+      ]
+    },
+    {
+      "text": "RAC is not supported in this release, so there are no FAN events to follow. Do not migrate a RAC database yet.",
+      "properties": [
+        "oracle.fan.events.enable"
+      ]
+    },
+    {
+      "text": "Kerberos authentication is not built yet; use a password or a wallet.",
+      "properties": [
+        "oracle.kerberos.cache.file"
+      ]
+    },
+    {
+      "text": "The template uses variables with no equivalent: `${staticMap[APP.ORDERS=orders]}`. `cdc.topic.template` knows `${prefix}`, `${pdb}`, `${schema}`, `${table}` and `${database}`.",
+      "properties": [
+        "table.topic.name.template"
+      ]
+    },
+    {
+      "text": "The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "orders-cdc-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "debezium",
+      "reason": "The only format in this release; Confluent's flat format is not built yet."
+    },
+    {
+      "key": "cdc.topic.prefix",
+      "value": "orders",
+      "reason": "Names the connector's internal topics and its offset partition; Confluent table topic names do not use it."
+    },
+    {
+      "key": "cdc.tables.case.sensitive",
+      "value": "true",
+      "reason": "Confluent matches table expressions case-sensitively (MIG-3)."
+    },
+    {
+      "key": "cdc.tombstones.on.delete",
+      "value": "false",
+      "reason": "Confluent's default (`emit.tombstone.on.delete=false`), pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.decimal.mode",
+      "value": "precise",
+      "reason": "Confluent's default `numeric.mapping=none` kept numbers exact; `precise` does too (MIG-3). NUMBER(p,0) up to 18 digits become integers rather than Decimal bytes."
+    },
+    {
+      "key": "cdc.lob.mode",
+      "value": "skip",
+      "reason": "LOB columns stay out of the records, as before."
+    },
+    {
+      "key": "cdc.snapshot.mode",
+      "value": "none",
+      "reason": "A takeover streams from the old connector's position, without a snapshot."
+    },
+    {
+      "key": "cdc.start.scn",
+      "value": "2169287",
+      "reason": "The old connector's position (--start-scn); honoured while the new connector has no stored offset."
+    },
+    {
+      "key": "exactly.once.support",
+      "value": "required",
+      "reason": "The target Connect cluster has exactly-once source support enabled (MIG-4)."
+    },
+    {
+      "key": "transaction.boundary",
+      "value": "connector",
+      "reason": "The target Connect cluster has exactly-once source support enabled (MIG-4)."
+    }
+  ],
+  "properties": [
+    {
+      "key": "behavior.on.dictionary.mismatch",
+      "value": "log",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.on.decode.error": "dlq"
+      },
+      "note": "Undecodable rows go to the DLQ topic."
+    },
+    {
+      "key": "behavior.on.unparsable.statement",
+      "value": "fail",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.on.decode.error": "dlq"
+      },
+      "note": "One decode setting for both cases; the other property asked to log and skip."
+    },
+    {
+      "key": "connector.class",
+      "value": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "db.timezone",
+      "value": "Europe/London",
+      "classification": "manual",
+      "targets": {},
+      "note": "DATE and TIMESTAMP values are read as UTC in this release; there is no time zone setting. Consumers that expect another zone must convert."
+    },
+    {
+      "key": "heartbeat.interval.ms",
+      "value": "30000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.heartbeat.interval.ms": "30000"
+      },
+      "note": ""
+    },
+    {
+      "key": "ldap.url",
+      "value": "ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.database.url": "jdbc:oracle:thin:@ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com"
+      },
+      "note": "Connect through LDAP naming in the JDBC URL."
+    },
+    {
+      "key": "lob.topic.name.template",
+      "value": "${tableName}.${columnName}",
+      "classification": "manual",
+      "targets": {},
+      "note": "LOB topics are not built yet (MIG-5). Until they are, `cdc.lob.mode=inline` publishes LOB values inside the row records; consumers of the LOB topics must change."
+    },
+    {
+      "key": "log.mining.transaction.age.threshold.ms",
+      "value": "7200000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.transaction.max.age.ms": "7200000"
+      },
+      "note": "A discarded transaction's details go to the ops topic and the DLQ."
+    },
+    {
+      "key": "log.mining.transaction.threshold.breached.action",
+      "value": "discard",
+      "classification": "mapped",
+      "targets": {
+        "cdc.transaction.max.age.action": "discard"
+      },
+      "note": "A discarded transaction's details go to the ops topic and the DLQ."
+    },
+    {
+      "key": "numeric.mapping",
+      "value": "best_fit_or_double",
+      "classification": "manual",
+      "targets": {},
+      "note": "`numeric.mapping=best_fit_or_double` has no exact equivalent. `cdc.decimal.mode` offers `precise`, `string` (every NUMBER as text) and `double` (every NUMBER as a double); choose one."
+    },
+    {
+      "key": "oracle.fan.events.enable",
+      "value": "true",
+      "classification": "manual",
+      "targets": {},
+      "note": "RAC is not supported in this release, so there are no FAN events to follow. Do not migrate a RAC database yet."
+    },
+    {
+      "key": "oracle.kerberos.cache.file",
+      "value": "/tmp/krb5cc",
+      "classification": "manual",
+      "targets": {},
+      "note": "Kerberos authentication is not built yet; use a password or a wallet."
+    },
+    {
+      "key": "oracle.password",
+      "value": "${file:/secrets/oracle.properties:password}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "${file:/secrets/oracle.properties:password}"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.pdb.name",
+      "value": "ORCLPDB1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.pdbs": "ORCLPDB1"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.server",
+      "value": "db",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "db"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.sid",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.sid": "ORCLCDB"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.username",
+      "value": "C##MYUSER",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "C##MYUSER"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "retry.error.codes",
+      "value": "12345, ORA-1089",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.retry.extra.error.codes": "ORA-12345,ORA-01089"
+      },
+      "note": "Written as ORA-nnnnn codes."
+    },
+    {
+      "key": "table.inclusion.regex",
+      "value": "ORCLPDB1\\.APP\\..*",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1\\.APP\\..*"
+      },
+      "note": "Rewritten as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB); matching stays case-sensitive (`cdc.tables.case.sensitive=true`)."
+    },
+    {
+      "key": "table.topic.name.template",
+      "value": "${staticMap[APP.ORDERS=orders]}",
+      "classification": "manual",
+      "targets": {},
+      "note": "The template uses variables with no equivalent: `${staticMap[APP.ORDERS=orders]}`. `cdc.topic.template` knows `${prefix}`, `${pdb}`, `${schema}`, `${table}` and `${database}`."
+    },
+    {
+      "key": "tasks.max",
+      "value": "2",
+      "classification": "mapped-with-change",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": "Reduced to one (MIG-5). Confluent spread table topics over tasks that all read its redo log topic; this connector mines every table in one task with one LogMiner session, so more tasks would add nothing. A higher value is accepted and ignored."
+    }
+  ],
+  "config": {
+    "name": "orders-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "db",
+    "cdc.database.password": "${file:/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.sid": "ORCLCDB",
+    "cdc.database.url": "jdbc:oracle:thin:@ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com",
+    "cdc.database.user": "C##MYUSER",
+    "cdc.decimal.mode": "precise",
+    "cdc.heartbeat.interval.ms": "30000",
+    "cdc.lob.mode": "skip",
+    "cdc.on.decode.error": "dlq",
+    "cdc.output.format": "debezium",
+    "cdc.retry.extra.error.codes": "ORA-12345,ORA-01089",
+    "cdc.snapshot.mode": "none",
+    "cdc.start.scn": "2169287",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\..*",
+    "cdc.tombstones.on.delete": "false",
+    "cdc.topic.prefix": "orders",
+    "cdc.transaction.max.age.action": "discard",
+    "cdc.transaction.max.age.ms": "7200000",
+    "exactly.once.support": "required",
+    "transaction.boundary": "connector"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, above all the record format, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Confluent connector with `PUT /connectors/orders-cdc/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `orders-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).",
+    "Remove the redo log topic and the old connector's other topics after the agreed retention."
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "orders-cdc-oso",
+  "config": {
+    "name": "orders-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "db.prod.internal",
+    "cdc.database.password": "${file:/opt/kafka/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.user": "c##dbzuser",
+    "cdc.decimal.mode": "precise",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "skip",
+    "cdc.output.format": "debezium",
+    "cdc.snapshot.mode": "none",
+    "cdc.tables.include": "ORCLPDB1\\.APP.ORDERS,ORCLPDB1\\.APP.ORDER_LINES",
+    "cdc.temporal.mode": "adaptive",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "orders",
+    "cdc.topic.template": "${prefix}.${schema}.${table}",
+    "exactly.once.support": "required",
+    "key.converter": "io.confluent.connect.avro.AvroConverter",
+    "key.converter.schema.registry.url": "http://schema-registry:8081",
+    "transaction.boundary": "connector",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  }
+}

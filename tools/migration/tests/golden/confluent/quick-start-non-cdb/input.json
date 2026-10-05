@@ -1,0 +1,21 @@
+{
+  "name": "SimpleOracleCDC",
+  "config": {
+    "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "oracle.server": "oracle",
+    "oracle.port": "1521",
+    "oracle.sid": "ORCLDB",
+    "oracle.username": "MYUSER",
+    "oracle.password": "${file:/secrets/oracle.properties:password}",
+    "start.from": "snapshot",
+    "redo.log.topic.name": "oracle-redo-log-topic",
+    "redo.log.consumer.bootstrap.servers": "kafka:9092",
+    "table.inclusion.regex": "ORCLDB[.]MYUSER[.](ORDERS|CUSTOMERS)|ORCLDB[.]MYUSER[.]INVOICES",
+    "_table.topic.name.template_": "Using template vars to set change event topic for each table",
+    "table.topic.name.template": "${databaseName}.${schemaName}.${tableName}",
+    "connection.pool.max.size": "20",
+    "confluent.topic.replication.factor": "1",
+    "redo.log.row.fetch.size": "1"
+  }
+}

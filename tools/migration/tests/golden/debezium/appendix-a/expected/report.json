@@ -1,0 +1,535 @@
+{
+  "tool": "migrate_from_debezium.py",
+  "tool_version": "<version>",
+  "source_kind": "Debezium Oracle connector",
+  "source_connector": "inventory-connector",
+  "new_connector": "inventory-connector-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 18,
+    "mapped-with-change": 10,
+    "dropped": 18,
+    "manual": 2
+  },
+  "exactly_once": {
+    "status": "enabled",
+    "detail": "the worker accepted exactly.once.support=required"
+  },
+  "follow_ups": [
+    {
+      "text": "Column filters are not available in this release, so every column of a captured table is published, including the columns this property kept out. Do not cut over a table whose excluded columns must not reach Kafka.",
+      "properties": [
+        "column.exclude.list"
+      ]
+    },
+    {
+      "text": "Set `cdc.database.password` to a config provider reference, for example `${file:/etc/kafka-connect/secrets.properties:cdc.database.password}`. The source held a literal secret, which is never copied.",
+      "properties": [
+        "database.password"
+      ]
+    },
+    {
+      "text": "`event.processing.failure.handling.mode=warn` skipped rows that could not be decoded. The connector never skips silently: such rows go to the DLQ topic (`cdc.dlq.topic`) with an ops event. Make sure someone watches the DLQ.",
+      "properties": [
+        "event.processing.failure.handling.mode"
+      ]
+    },
+    {
+      "text": "There is no user include filter in this release; only `cdc.users.exclude`. List the users to leave out instead.",
+      "properties": [
+        "log.mining.username.include.list"
+      ]
+    },
+    {
+      "text": "The schema history topic is no longer needed: the connector keeps table schema versions in its own compacted schema topic (`cdc.schema.topic`). Keep the history topic until the cutover is verified, then delete it.",
+      "properties": []
+    },
+    {
+      "text": "Signals are read from a Kafka topic (`cdc.signals.topic`) in this connector's own command format, never from a table. Move any automation that writes to the signal table, and drop the table after the cutover.",
+      "properties": [
+        "signal.data.collection"
+      ]
+    },
+    {
+      "text": "Debezium published schema change events to the topic named after `topic.prefix`; this connector does not. Move or retire the consumers of that topic.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "inventory-connector-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.topic.template",
+      "value": "${prefix}.${schema}.${table}",
+      "reason": "Keeps Debezium's topic names, `prefix.SCHEMA.TABLE`. The connector's own default adds the PDB name in a CDB."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "debezium",
+      "reason": "The Debezium-compatible envelope, so consumers keep working (MIG-2)."
+    },
+    {
+      "key": "cdc.key.missing",
+      "value": "none",
+      "reason": "Debezium published tables without a primary key with a null key; the connector would otherwise reject them at validation (MIG-3)."
+    },
+    {
+      "key": "cdc.start.scn",
+      "value": "324567890",
+      "reason": "The old connector's position (--start-scn); honoured while the new connector has no stored offset."
+    },
+    {
+      "key": "exactly.once.support",
+      "value": "required",
+      "reason": "The target Connect cluster has exactly-once source support enabled (MIG-4)."
+    },
+    {
+      "key": "transaction.boundary",
+      "value": "connector",
+      "reason": "The target Connect cluster has exactly-once source support enabled (MIG-4)."
+    }
+  ],
+  "properties": [
+    {
+      "key": "archive.destination.name",
+      "value": "LOG_ARCHIVE_DEST_1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.archive.destination": "LOG_ARCHIVE_DEST_1"
+      },
+      "note": ""
+    },
+    {
+      "key": "binary.handling.mode",
+      "value": "bytes",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Binary columns are published as bytes, the only representation in this release."
+    },
+    {
+      "key": "column.exclude.list",
+      "value": "INVENTORY\\.CUSTOMERS\\.SSN",
+      "classification": "manual",
+      "targets": {},
+      "note": "Column filters are not available in this release, so every column of a captured table is published, including the columns this property kept out. Do not cut over a table whose excluded columns must not reach Kafka."
+    },
+    {
+      "key": "connector.class",
+      "value": "io.debezium.connector.oracle.OracleConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "database.connection.adapter",
+      "value": "logminer",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector reads redo only through LogMiner and buffers open transactions itself, spilling to disk and journaling long ones."
+    },
+    {
+      "key": "database.dbname",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.service": "ORCLCDB"
+      },
+      "note": "Debezium connects with this name as the service name; in a CDB it names the root."
+    },
+    {
+      "key": "database.hostname",
+      "value": "oracle.example.com",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "oracle.example.com"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.password",
+      "value": "********",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "********"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.pdb.name",
+      "value": "ORCLPDB1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.pdbs": "ORCLPDB1"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.url",
+      "value": "jdbc:oracle:thin:@//oracle.example.com:1521/ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.url": "jdbc:oracle:thin:@//oracle.example.com:1521/ORCLCDB"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.user",
+      "value": "c##dbzuser",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "c##dbzuser"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "decimal.handling.mode",
+      "value": "precise",
+      "classification": "mapped",
+      "targets": {
+        "cdc.decimal.mode": "precise"
+      },
+      "note": ""
+    },
+    {
+      "key": "event.processing.failure.handling.mode",
+      "value": "warn",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.on.decode.error": "dlq"
+      },
+      "note": "Undecodable rows go to the DLQ topic."
+    },
+    {
+      "key": "heartbeat.action.query",
+      "value": "INSERT INTO c##dbzuser.heartbeat VALUES (sysdate)",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Not needed: heartbeats carry the position without writing to the source database, so offsets advance on a quiet database."
+    },
+    {
+      "key": "heartbeat.interval.ms",
+      "value": "10000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.heartbeat.interval.ms": "10000"
+      },
+      "note": ""
+    },
+    {
+      "key": "lob.enabled",
+      "value": "true",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.lob.mode": "inline"
+      },
+      "note": "LOB values are assembled from redo; values the redo does not carry are published as `cdc.unavailable.placeholder`. `reselect` also reads them from the table."
+    },
+    {
+      "key": "log.mining.archive.destination.name",
+      "value": "LOG_ARCHIVE_DEST_1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.archive.destination": "LOG_ARCHIVE_DEST_1"
+      },
+      "note": ""
+    },
+    {
+      "key": "log.mining.archive.log.only.mode",
+      "value": "false",
+      "classification": "mapped",
+      "targets": {
+        "cdc.capture.mode": "online"
+      },
+      "note": ""
+    },
+    {
+      "key": "log.mining.batch.size.default",
+      "value": "20000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.batch.size.max",
+      "value": "100000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.batch.size.min",
+      "value": "1000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.buffer.drop.on.stop",
+      "value": "false",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.buffer.type",
+      "value": "memory",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.query.filter.mode",
+      "value": "in",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Captured tables are always filtered by object id in the mining query."
+    },
+    {
+      "key": "log.mining.sleep.time.default.ms",
+      "value": "1000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.sleep.time.increment.ms",
+      "value": "200",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.sleep.time.max.ms",
+      "value": "3000",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.sleep.time.min.ms",
+      "value": "0",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Mining tuning of the Debezium connector; the connector sizes its window adaptively from `cdc.mining.target.latency.ms` and spills open transactions to disk."
+    },
+    {
+      "key": "log.mining.strategy",
+      "value": "online_catalog",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector mines with the online catalog and replays a step with a dictionary from the redo when a row predates a later DDL."
+    },
+    {
+      "key": "log.mining.transaction.retention.ms",
+      "value": "3600000",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.transaction.max.age.ms": "3600000",
+        "cdc.transaction.max.age.action": "discard"
+      },
+      "note": "A transaction open longer than this is discarded, as Debezium did, but its details go to the ops topic and the DLQ. `cdc.transaction.max.age.action=fail` stops instead."
+    },
+    {
+      "key": "log.mining.username.exclude.list",
+      "value": "GGADMIN",
+      "classification": "mapped",
+      "targets": {
+        "cdc.users.exclude": "GGADMIN"
+      },
+      "note": ""
+    },
+    {
+      "key": "log.mining.username.include.list",
+      "value": "APPUSER",
+      "classification": "manual",
+      "targets": {},
+      "note": "There is no user include filter in this release; only `cdc.users.exclude`. List the users to leave out instead."
+    },
+    {
+      "key": "rac.nodes",
+      "value": "",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Empty in the source, so there is nothing to carry over."
+    },
+    {
+      "key": "schema.exclude.list",
+      "value": "INVENTORY_TMP",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.exclude": "ORCLPDB1\\.INVENTORY\\.ORDERS_ARCHIVE,ORCLPDB1\\.INVENTORY_TMP\\..+"
+      },
+      "note": "Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB)."
+    },
+    {
+      "key": "schema.history.internal.kafka.bootstrap.servers",
+      "value": "kafka:9092",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Schema history is replaced by the connector's schema topic, created on start."
+    },
+    {
+      "key": "schema.history.internal.kafka.topic",
+      "value": "schema-changes.inventory",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Schema history is replaced by the connector's schema topic, created on start."
+    },
+    {
+      "key": "schema.include.list",
+      "value": "INVENTORY,SALES",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)INVENTORY\\.CUSTOMERS,ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)INVENTORY\\.ORDERS,ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)SALES\\.INVOICES"
+      },
+      "note": "Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB)."
+    },
+    {
+      "key": "signal.data.collection",
+      "value": "ORCLPDB1.C##DBZUSER.DEBEZIUM_SIGNAL",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The signal table is replaced by the signal topic."
+    },
+    {
+      "key": "snapshot.max.threads",
+      "value": "2",
+      "classification": "mapped",
+      "targets": {
+        "cdc.snapshot.threads": "2"
+      },
+      "note": ""
+    },
+    {
+      "key": "snapshot.mode",
+      "value": "initial",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.snapshot.mode": "none"
+      },
+      "note": "The takeover starts the new connector at the Debezium position (`cdc.start.scn` from takeover_scn.py), so no snapshot runs: `cdc.snapshot.mode=none`. For a fresh deployment instead, `initial` corresponds to `initial`."
+    },
+    {
+      "key": "table.exclude.list",
+      "value": "INVENTORY\\.ORDERS_ARCHIVE",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.exclude": "ORCLPDB1\\.INVENTORY\\.ORDERS_ARCHIVE,ORCLPDB1\\.INVENTORY_TMP\\..+"
+      },
+      "note": "Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB)."
+    },
+    {
+      "key": "table.include.list",
+      "value": "INVENTORY\\.CUSTOMERS,INVENTORY\\.ORDERS,ORCLPDB1\\.SALES\\.INVOICES",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)INVENTORY\\.CUSTOMERS,ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)INVENTORY\\.ORDERS,ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)SALES\\.INVOICES"
+      },
+      "note": "Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB)."
+    },
+    {
+      "key": "tasks.max",
+      "value": "1",
+      "classification": "mapped",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": ""
+    },
+    {
+      "key": "time.precision.mode",
+      "value": "adaptive",
+      "classification": "mapped",
+      "targets": {
+        "cdc.temporal.mode": "adaptive"
+      },
+      "note": ""
+    },
+    {
+      "key": "tombstones.on.delete",
+      "value": "true",
+      "classification": "mapped",
+      "targets": {
+        "cdc.tombstones.on.delete": "true"
+      },
+      "note": ""
+    },
+    {
+      "key": "topic.prefix",
+      "value": "server1",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.prefix": "server1",
+        "cdc.topic.template": "${prefix}.${schema}.${table}"
+      },
+      "note": "Topic prefix and logical server name. `cdc.topic.template` is pinned so the topic names stay `prefix.SCHEMA.TABLE`."
+    },
+    {
+      "key": "unavailable.value.placeholder",
+      "value": "__debezium_unavailable_value",
+      "classification": "mapped",
+      "targets": {
+        "cdc.unavailable.placeholder": "__debezium_unavailable_value"
+      },
+      "note": ""
+    }
+  ],
+  "config": {
+    "name": "inventory-connector-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.archive.destination": "LOG_ARCHIVE_DEST_1",
+    "cdc.capture.mode": "online",
+    "cdc.database.host": "oracle.example.com",
+    "cdc.database.password": "********",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.url": "jdbc:oracle:thin:@//oracle.example.com:1521/ORCLCDB",
+    "cdc.database.user": "c##dbzuser",
+    "cdc.decimal.mode": "precise",
+    "cdc.heartbeat.interval.ms": "10000",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "inline",
+    "cdc.on.decode.error": "dlq",
+    "cdc.output.format": "debezium",
+    "cdc.snapshot.mode": "none",
+    "cdc.snapshot.threads": "2",
+    "cdc.start.scn": "324567890",
+    "cdc.tables.exclude": "ORCLPDB1\\.INVENTORY\\.ORDERS_ARCHIVE,ORCLPDB1\\.INVENTORY_TMP\\..+",
+    "cdc.tables.include": "ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)INVENTORY\\.CUSTOMERS,ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)INVENTORY\\.ORDERS,ORCLPDB1\\.(?=(?:INVENTORY|SALES)\\.)SALES\\.INVOICES",
+    "cdc.temporal.mode": "adaptive",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "server1",
+    "cdc.topic.template": "${prefix}.${schema}.${table}",
+    "cdc.transaction.max.age.action": "discard",
+    "cdc.transaction.max.age.ms": "3600000",
+    "cdc.unavailable.placeholder": "__debezium_unavailable_value",
+    "cdc.users.exclude": "GGADMIN",
+    "exactly.once.support": "required",
+    "transaction.boundary": "connector"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Debezium connector with `PUT /connectors/inventory-connector/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Debezium offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `inventory-connector-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "After the overlap has passed, run `verify_cutover.py` and archive the evidence file.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Debezium's (see the metrics reference).",
+    "Keep the Debezium schema history topic until the cutover is verified, then delete it and the old connector's other internal topics after the agreed retention."
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "orders-cdc",
+  "config": {
+    "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+    "tasks.max": "2",
+    "oracle.server": "db",
+    "oracle.port": "1521",
+    "oracle.sid": "ORCLCDB",
+    "oracle.pdb.name": "ORCLPDB1",
+    "oracle.username": "C##MYUSER",
+    "oracle.password": "${file:/secrets/oracle.properties:password}",
+    "table.inclusion.regex": "ORCLPDB1\\.APP\\..*",
+    "lob.topic.name.template": "${tableName}.${columnName}",
+    "behavior.on.dictionary.mismatch": "log",
+    "behavior.on.unparsable.statement": "fail",
+    "log.mining.transaction.age.threshold.ms": "7200000",
+    "log.mining.transaction.threshold.breached.action": "discard",
+    "numeric.mapping": "best_fit_or_double",
+    "ldap.url": "ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com",
+    "retry.error.codes": "12345, ORA-1089",
+    "oracle.fan.events.enable": "true",
+    "oracle.kerberos.cache.file": "/tmp/krb5cc",
+    "db.timezone": "Europe/London",
+    "table.topic.name.template": "${staticMap[APP.ORDERS=orders]}",
+    "heartbeat.interval.ms": "30000"
+  }
+}

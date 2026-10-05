@@ -1,0 +1,24 @@
+{
+  "name": "xstream-cdc-oso",
+  "config": {
+    "name": "xstream-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "xs-db",
+    "cdc.database.password": "${env:ORACLE_PASSWORD}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.user": "c##xstrmadmin",
+    "cdc.decimal.mode": "precise",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "skip",
+    "cdc.output.format": "debezium",
+    "cdc.snapshot.mode": "none",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\..+",
+    "cdc.temporal.mode": "adaptive",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "xs",
+    "cdc.topic.template": "${prefix}.${schema}.${table}"
+  }
+}

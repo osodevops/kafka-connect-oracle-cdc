@@ -1,0 +1,271 @@
+{
+  "tool": "migrate_from_debezium.py",
+  "tool_version": "<version>",
+  "source_kind": "Debezium Oracle connector",
+  "source_connector": "orders-cdc",
+  "new_connector": "orders-cdc-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 11,
+    "mapped-with-change": 3,
+    "dropped": 3,
+    "manual": 0
+  },
+  "exactly_once": {
+    "status": "enabled",
+    "detail": "the worker accepted exactly.once.support=required"
+  },
+  "follow_ups": [
+    {
+      "text": "The schema history topic is no longer needed: the connector keeps table schema versions in its own compacted schema topic (`cdc.schema.topic`). Keep the history topic until the cutover is verified, then delete it.",
+      "properties": []
+    },
+    {
+      "text": "Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "orders-cdc-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.topic.template",
+      "value": "${prefix}.${schema}.${table}",
+      "reason": "Keeps Debezium's topic names, `prefix.SCHEMA.TABLE`. The connector's own default adds the PDB name in a CDB."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "debezium",
+      "reason": "The Debezium-compatible envelope, so consumers keep working (MIG-2)."
+    },
+    {
+      "key": "cdc.decimal.mode",
+      "value": "precise",
+      "reason": "Debezium's default, pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.temporal.mode",
+      "value": "adaptive",
+      "reason": "Debezium's default, pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.tombstones.on.delete",
+      "value": "true",
+      "reason": "Debezium's default, pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.lob.mode",
+      "value": "skip",
+      "reason": "Debezium's default (`lob.enabled=false`), pinned (MIG-3)."
+    },
+    {
+      "key": "cdc.key.missing",
+      "value": "none",
+      "reason": "Debezium published tables without a primary key with a null key; the connector would otherwise reject them at validation (MIG-3)."
+    },
+    {
+      "key": "cdc.snapshot.mode",
+      "value": "none",
+      "reason": "A takeover streams from the old connector's position, without a snapshot."
+    },
+    {
+      "key": "exactly.once.support",
+      "value": "required",
+      "reason": "The target Connect cluster has exactly-once source support enabled (MIG-4)."
+    },
+    {
+      "key": "transaction.boundary",
+      "value": "connector",
+      "reason": "The target Connect cluster has exactly-once source support enabled (MIG-4)."
+    }
+  ],
+  "properties": [
+    {
+      "key": "connector.class",
+      "value": "io.debezium.connector.oracle.OracleConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "database.dbname",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.service": "ORCLCDB"
+      },
+      "note": "Debezium connects with this name as the service name; in a CDB it names the root."
+    },
+    {
+      "key": "database.hostname",
+      "value": "db.prod.internal",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "db.prod.internal"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.password",
+      "value": "${file:/opt/kafka/secrets/oracle.properties:password}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "${file:/opt/kafka/secrets/oracle.properties:password}"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.pdb.name",
+      "value": "ORCLPDB1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.pdbs": "ORCLPDB1"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "database.user",
+      "value": "c##dbzuser",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "c##dbzuser"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "include.schema.changes",
+      "value": "false",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Off in the source as well."
+    },
+    {
+      "key": "key.converter",
+      "value": "io.confluent.connect.avro.AvroConverter",
+      "classification": "mapped",
+      "targets": {
+        "key.converter": "io.confluent.connect.avro.AvroConverter"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "key.converter.schema.registry.url",
+      "value": "http://schema-registry:8081",
+      "classification": "mapped",
+      "targets": {
+        "key.converter.schema.registry.url": "http://schema-registry:8081"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "schema.history.internal.kafka.bootstrap.servers",
+      "value": "kafka-1:9092,kafka-2:9092",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Schema history is replaced by the connector's schema topic, created on start."
+    },
+    {
+      "key": "schema.history.internal.kafka.topic",
+      "value": "orders.schema-history",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Schema history is replaced by the connector's schema topic, created on start."
+    },
+    {
+      "key": "table.include.list",
+      "value": "APP.ORDERS,APP.ORDER_LINES",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1\\.APP.ORDERS,ORCLPDB1\\.APP.ORDER_LINES"
+      },
+      "note": "Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB)."
+    },
+    {
+      "key": "tasks.max",
+      "value": "1",
+      "classification": "mapped",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": ""
+    },
+    {
+      "key": "topic.prefix",
+      "value": "orders",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.prefix": "orders",
+        "cdc.topic.template": "${prefix}.${schema}.${table}"
+      },
+      "note": "Topic prefix and logical server name. `cdc.topic.template` is pinned so the topic names stay `prefix.SCHEMA.TABLE`."
+    },
+    {
+      "key": "value.converter",
+      "value": "io.confluent.connect.avro.AvroConverter",
+      "classification": "mapped",
+      "targets": {
+        "value.converter": "io.confluent.connect.avro.AvroConverter"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    },
+    {
+      "key": "value.converter.schema.registry.url",
+      "value": "http://schema-registry:8081",
+      "classification": "mapped",
+      "targets": {
+        "value.converter.schema.registry.url": "http://schema-registry:8081"
+      },
+      "note": "Kafka Connect framework property, copied unchanged."
+    }
+  ],
+  "config": {
+    "name": "orders-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "db.prod.internal",
+    "cdc.database.password": "${file:/opt/kafka/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.user": "c##dbzuser",
+    "cdc.decimal.mode": "precise",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "skip",
+    "cdc.output.format": "debezium",
+    "cdc.snapshot.mode": "none",
+    "cdc.tables.include": "ORCLPDB1\\.APP.ORDERS,ORCLPDB1\\.APP.ORDER_LINES",
+    "cdc.temporal.mode": "adaptive",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "orders",
+    "cdc.topic.template": "${prefix}.${schema}.${table}",
+    "exactly.once.support": "required",
+    "key.converter": "io.confluent.connect.avro.AvroConverter",
+    "key.converter.schema.registry.url": "http://schema-registry:8081",
+    "transaction.boundary": "connector",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://schema-registry:8081"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Debezium connector with `PUT /connectors/orders-cdc/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Debezium offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `orders-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "After the overlap has passed, run `verify_cutover.py` and archive the evidence file.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Debezium's (see the metrics reference).",
+    "Keep the Debezium schema history topic until the cutover is verified, then delete it and the old connector's other internal topics after the agreed retention."
+  ]
+}

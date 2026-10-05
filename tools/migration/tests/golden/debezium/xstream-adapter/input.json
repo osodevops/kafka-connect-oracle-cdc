@@ -1,0 +1,16 @@
+{
+  "connector.class": "io.debezium.connector.oracle.OracleConnector",
+  "name": "xstream-cdc",
+  "database.hostname": "xs-db",
+  "database.port": "1521",
+  "database.user": "c##xstrmadmin",
+  "database.password": "${env:ORACLE_PASSWORD}",
+  "database.dbname": "ORCLCDB",
+  "database.pdb.name": "ORCLPDB1",
+  "database.connection.adapter": "xstream",
+  "database.out.server.name": "dbzxout",
+  "topic.prefix": "xs",
+  "schema.include.list": "APP",
+  "snapshot.mode": "no_data",
+  "log.mining.session.max.ms": "0"
+}
