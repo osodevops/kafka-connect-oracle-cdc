@@ -98,6 +98,12 @@ final class TaskHarness implements AutoCloseable {
   private OracleCdcSourceTask task;
   int sessionsOpened;
 
+  /** What a snapshot reads (PRD-02); the captured tables a snapshot covers. */
+  final sh.oso.connect.oracle.core.testkit.FakeSnapshotSource snapshots =
+      new sh.oso.connect.oracle.core.testkit.FakeSnapshotSource();
+
+  List<TableId> captured = List.of(T);
+
   /** Stands in for the Kafka admin client when cdc.kafka.bootstrap.servers is set. */
   final sh.oso.connect.oracle.topics.FakeTopicAdmin topicAdmin =
       new sh.oso.connect.oracle.topics.FakeTopicAdmin();
@@ -120,6 +126,8 @@ final class TaskHarness implements AutoCloseable {
 
   TaskHarness() {
     props.put(OracleCdcSourceConnectorConfig.POLL_LINGER_MS, "20");
+    // streaming tests; snapshot tests set cdc.snapshot.mode and give the fake rows
+    props.put(sh.oso.connect.oracle.core.config.CoreConfig.SNAPSHOT_MODE, "none");
     journalKeys.configure(Map.of("schemas.enable", "true"), true);
     journalValues.configure(Map.of("schemas.enable", "true"), false);
   }
@@ -191,6 +199,14 @@ final class TaskHarness implements AutoCloseable {
 
           public SchemaRegistry schemas() {
             return registry;
+          }
+
+          public List<TableId> capturedTables() {
+            return captured;
+          }
+
+          public sh.oso.connect.oracle.core.snapshot.SnapshotSource openSnapshotSource() {
+            return snapshots;
           }
 
           public CaptureEngine engine(
@@ -391,6 +407,12 @@ final class TaskHarness implements AutoCloseable {
 
   static boolean isDlq(SourceRecord r) {
     return r.topic().endsWith(".cdc.dlq");
+  }
+
+  static boolean isSnapshot(SourceRecord r) {
+    return r.value() instanceof org.apache.kafka.connect.data.Struct v
+        && v.schema().field("op") != null
+        && "r".equals(v.getString("op"));
   }
 
   static boolean isInternal(SourceRecord r) {

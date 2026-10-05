@@ -267,6 +267,24 @@ class TypeRoundTripEngineIT {
       assertThat(pkUpdate.partial()).isTrue();
       assertThat(pkUpdate.before().keySet()).containsExactly("ID", "V");
       assertThat(pkUpdate.after()).containsEntry("V", new BigDecimal("11")).doesNotContainKey("W");
+
+      // PRD-02: a snapshot read of the same row yields exactly the values the stream decoded, so
+      // a snapshot record and a change record of one row render the same
+      try (Connection snap = db.capture(OracleTestDatabase.CDB_SERVICE)) {
+        SessionInitializer.apply(snap, ConnectionRole.SNAPSHOT);
+        sh.oso.connect.oracle.core.snapshot.JdbcSnapshotSource reader =
+            new sh.oso.connect.oracle.core.snapshot.JdbcSnapshotSource(
+                snap, 100, true, 1 << 20, true);
+        List<sh.oso.connect.oracle.core.snapshot.SnapshotRow> rows =
+            reader.read(
+                ts,
+                reader.kind(ts),
+                sh.oso.connect.oracle.core.snapshot.ChunkRange.ALL,
+                reader.currentScn(),
+                null);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).values()).usingRecursiveComparison().isEqualTo(upd.after());
+      }
     } finally {
       SchemaFixtures.drop(db, OracleTestDatabase.PDB1, schema);
     }

@@ -1,7 +1,7 @@
 ---
 title: "Record format"
 description: "Record format properties of the OSO CDC Connector for Oracle Database."
-sidebar_position: 11
+sidebar_position: 12
 ---
 
 # Record format properties

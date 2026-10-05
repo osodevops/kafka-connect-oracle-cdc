@@ -177,6 +177,42 @@ rules:
     help: "LogMiner sessions restarted at cdc.mining.session.max.age.ms."
     labels:
       server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SnapshotChunkRetries'
+    name: oracle_cdc_snapshot_chunk_retries_total
+    type: COUNTER
+    help: "Snapshot chunks read again after an error, with a fresh SCN (SNAP-3, SNAP-4)."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SnapshotChunksPending'
+    name: oracle_cdc_snapshot_chunks_pending
+    type: GAUGE
+    help: "Snapshot chunks read and waiting for streaming to pass their SCN."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SnapshotChunksPublished'
+    name: oracle_cdc_snapshot_chunks_published_total
+    type: COUNTER
+    help: "Snapshot chunks published, after streaming passed their SCN."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SnapshotChunksRead'
+    name: oracle_cdc_snapshot_chunks_read_total
+    type: COUNTER
+    help: "Snapshot chunks read (PRD-02)."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SnapshotRowsPublished'
+    name: oracle_cdc_snapshot_rows_published_total
+    type: COUNTER
+    help: "Snapshot rows published as op=r records."
+    labels:
+      server: "$1"
+  - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SnapshotTablesRemaining'
+    name: oracle_cdc_snapshot_tables_remaining
+    type: GAUGE
+    help: "Tables the running snapshot has still to read."
+    labels:
+      server: "$1"
   - pattern: 'sh.oso.cdc<type=task, server=(.+)><>SpillMaxBytes'
     name: oracle_cdc_spill_max_bytes
     type: GAUGE

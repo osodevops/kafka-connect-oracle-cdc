@@ -176,6 +176,36 @@ public final class TaskMetrics implements TaskMetricsMXBean {
   }
 
   @Override
+  public long getSnapshotChunksRead() {
+    return e.snapshotChunksRead.get();
+  }
+
+  @Override
+  public long getSnapshotChunksPublished() {
+    return e.snapshotChunksEmitted.get();
+  }
+
+  @Override
+  public long getSnapshotRowsPublished() {
+    return e.snapshotRowsEmitted.get();
+  }
+
+  @Override
+  public long getSnapshotChunkRetries() {
+    return e.snapshotChunkRetries.get();
+  }
+
+  @Override
+  public long getSnapshotChunksPending() {
+    return e.snapshotChunksPending.get();
+  }
+
+  @Override
+  public long getSnapshotTablesRemaining() {
+    return e.snapshotTablesRemaining.get();
+  }
+
+  @Override
   public long getTransactionsDiscarded() {
     return e.transactionsDiscarded.get();
   }

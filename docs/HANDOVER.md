@@ -28,14 +28,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `c7602ed` | P1-12 exactly-once: `exactlyOnceSupport` and `canDefineTransactionBoundaries` SUPPORTED, Kafka transactions at Oracle commit boundaries with `cdc.eos.batch.*` bounds, splits at `cdc.eos.split.*` with the `cdc.split` header and a `transaction-split` ops event | full gate, connector tier 8 suites plus the two surefire tests, engine tier 38 tests, all green |
 | `bda83e4` | P1-16a DDL flow in the engine: `DdlClassifier`, versioned `TableSchema` (`version`, `validFromScn`), `SchemaRegistry.applyDdl` and `forget`, CDC-6002 on unknown DDL for captured tables, `ddl-applied` ops event, `EngineDriver` for engine suites | full gate, connector tier 8 suites plus the two surefire tests, engine tier 39 tests, all green |
 | `67a878c` | P1-16b schema topic: `SchemaTopicStore` and `SchemaRecords` (compacted `${prefix}.cdc.schema`, one record per table holding its versions, tombstone on drop or rename), loaded at start, SCH-6 check against the dictionary with `CDC-6003` | full gate, connector tier 9 suites plus the two surefire tests, engine tier 39 tests, all green |
-| next after `67a878c` (hash recorded at the following commit) | P1-17 lag case (ADR-0016): STATUS 2 rows with generic names trigger a replay of the step with the redo dictionary from the newest usable build; replayed rows decode with the version valid at their SCN (`SchemaRegistry.at`), rows carry `schemaVersion` and render with it; `TableSchema.exact`; `CDC-6001` when no build or no exact version; scheduled builds (`cdc.dictionary.build.*`) with a build at start when none exists; `dictionary-replay` and `dictionary-build` ops events, `LagReplays` metric | full gate, connector tier 10 suites plus the two surefire tests, engine tier 41 tests, all green |
+| `07e9ef6` | P1-17 lag case (ADR-0016): STATUS 2 rows with generic names trigger a replay of the step with the redo dictionary from the newest usable build; replayed rows decode with the version valid at their SCN (`SchemaRegistry.at`), rows carry `schemaVersion` and render with it; `TableSchema.exact`; `CDC-6001` when no build or no exact version; scheduled builds (`cdc.dictionary.build.*`) with a build at start when none exists; `dictionary-replay` and `dictionary-build` ops events, `LagReplays` metric | full gate, connector tier 10 suites plus the two surefire tests, engine tier 41 tests, all green |
+| next after `07e9ef6` (hash recorded at the following commit) | P1-19 snapshots (ADR-0017): `cdc.snapshot.*` (mode initial by default, none, snapshot_only, on_signal), chunks by key, ROWID or whole table, batches sharing one SCN published in key order with streaming held at an in-flight batch's SCN, a frontier per table in the offset's snapshot block, retries and halving to `CDC-8001`, `op=r` records, snapshot metrics and ops events | full gate, connector tier 11 suites plus the two surefire tests, engine tier 42 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-19 (snapshots), section 5.
+Nothing. The next increment is P1-20 (signals), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -212,6 +213,24 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 - `e2e/support/EngineDriver` builds the engine as the connector does; engine suites that change the
   database while mining call `runTo(scn)` after each step (see `DdlUnderLoadEngineIT`).
 
+### Snapshots (P1-19, PRD-02, ADR-0017)
+
+- Core `snapshot/`: `SnapshotSource` (`JdbcSnapshotSource`: SET CONTAINER per table, binary
+  sort, `kind` KEY, ROWID or ALL, incremental `OFFSET n ROWS` planning, extents for ROWID ranges,
+  `AS OF SCN` reads with temporal and interval columns as text decoded by `OracleTypeCodec`),
+  `BoundCodec` (typed bound strings: `n:`, `s:`, `N:`, `t:`, `x:`, `r:`), `ChunkRange`,
+  `SnapshotProgress` (the offset's snapshot block: `{"v":1,"complete":..,"tables":{fqn:{"done",
+  "frontier"}}}`), `SnapshotCoordinator` (one planner thread, `threads` readers, `inFlight` SCN that
+  `ready(maxScn)` waits on, `maxPendingChunks` back-pressure, retries and halving).
+- Connector: `RecordQueueSink.emitSnapshot` runs from `committed` (limit = commit SCN) and
+  `stepApplied` (limit = mined-to SCN); each chunk's last record carries the advanced progress and
+  `carrySnapshot` puts the block on `base` and `lastEmittedCommit`. `DebeziumEnvelope.snapshotRecord`
+  writes `op=r`. The task decides the snapshot before building the sink (the first offset carries
+  it), warms each table's version on the task thread (`SchemaRegistry.cached` is all readers use),
+  and in `snapshot_only` runs no engine lifecycle, only a publisher thread.
+- `TaskHarness` defaults to `cdc.snapshot.mode=none`; snapshot task tests set it and fill
+  `h.snapshots` (`FakeSnapshotSource`, core testkit).
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -258,9 +277,10 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-17: connector tier 10 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-19: connector tier 11 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-`ExactlyOnce`, `SchemaTopic`, `LagCase`) plus the two surefire tests, engine tier 41 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+`ExactlyOnce`, `SchemaTopic`, `LagCase`, `Snapshot` with two tests) plus the two surefire tests,
+engine tier 42 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
@@ -377,22 +397,17 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 - `LagCaseConnectorIT` relies on the test image granting `EXECUTE ON DBMS_LOGMNR_D` to the capture
   user; `docker/test-oracle` does.
 
-### P1-19 Snapshots (PRD-02, ADR-0004)
+### P1-19 follow-ups (ADR-0017)
 
-- Core `snapshot/`: `ChunkPlanner` (`KeyRangePlanner` with NTILE over the key, composite keys,
-  partitions; `RowidRangePlanner` from `DBA_EXTENTS` for keyless heap tables; IOT by key always),
-  `ChunkReader` (`SELECT ... AS OF SCN :s` with `cdc.snapshot.fetch.size`; ORA-01555 and ORA-08181
-  retry with a new SCN and half the chunk down to 1,000 rows), `SnapshotPosition` (frontier plus
-  exceptions, serialised into `Position.snapshot` as a JSON string), `ChunkHold` (changes for rows
-  inside a chunk not yet read are held until the chunk lands), `Interleaver` (snapshot chunks and
-  streamed commits in one record stream, snapshot records marked `op=r`, `snapshot=true`),
-  `SnapshotCoordinator` (`cdc.snapshot.mode` initial, none, when_needed, schema_only;
-  `cdc.snapshot.threads`).
-- Connector: snapshot records carry offsets whose `snapshot` block names the frontier; a restart
-  resumes the frontier (`SnapshotResumeConnectorIT` kills the worker at 50 per cent).
-- Tests: `SnapshotCorrectnessConnectorIT` with `bench check` (`workloads/snapshot.json`),
-  `IotAndKeylessEngineIT`, `CompositeKeyRateEngineIT`, regressions `dbz-2779`, `dbz-2297`.
-- Doctor DOC-7 extension: keyless table with row movement is a warning.
+- SNAP-6 signal snapshots and incremental markers: P1-20. SNAP-7 resnapshot command: P1-24.
+- SNAP-9 key change during a table's snapshot (restart that table), SNAP-10 partition pruning,
+  snapshots of tables added later (P1-22), spilling held chunks under the buffer budget, SNAP-11
+  standby reads (Phase 2), SNAP-12 estimated time remaining.
+- Doctor DOC-7: keyless table with row movement as a warning (P1-24).
+- Regressions `dbz-2779` and `dbz-2297` are not tagged yet: `SnapshotCoordinatorTest` covers the
+  SNAP-3 behaviour PRD-02 cites dbz#2297 for; check both numbers in P1-26.
+- Chunks are held in memory: `cdc.snapshot.chunk.rows` times `cdc.snapshot.max.pending.chunks` rows
+  (100,000 times 8 by default). Measure on the AWS lab before 1.0 and consider lower defaults.
 
 ### P1-20 Signals (SRC-SIG)
 

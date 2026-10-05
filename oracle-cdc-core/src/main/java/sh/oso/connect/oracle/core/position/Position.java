@@ -190,6 +190,27 @@ public record Position(
         id.hasRba() ? id.ssn() : 0);
   }
 
+  /** PRD-02 SNAP-3: the snapshot block, null when no snapshot was ever started. */
+  public Position withSnapshot(Map<String, Object> block) {
+    return new Position(
+        version,
+        resumeScn,
+        lastCommitScn,
+        lastCommitKey,
+        lastCommitThread,
+        eventIndex,
+        journalGeneration,
+        schemaEpoch,
+        identity,
+        released,
+        block,
+        extras,
+        resumeRsId,
+        resumeSsn,
+        lastCommitRsId,
+        lastCommitSsn);
+  }
+
   public Position withJournalGeneration(long generation) {
     return new Position(
         version,

@@ -22,6 +22,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0014 | Mining cursor is a redo byte address | Accepted |
 | 0015 | LOBs are assembled per statement, and undo targets the newest change | Accepted |
 | 0016 | The lag case is replayed per step, and rows keep the version they were decoded with | Accepted |
+| 0017 | Snapshot batches share one SCN and publish in key order | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 

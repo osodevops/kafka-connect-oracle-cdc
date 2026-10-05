@@ -1,7 +1,7 @@
 ---
 title: "Exactly-once"
 description: "Exactly-once properties of the OSO CDC Connector for Oracle Database."
-sidebar_position: 13
+sidebar_position: 14
 ---
 
 # Exactly-once properties

@@ -1,7 +1,7 @@
 ---
 title: "Task"
 description: "Task properties of the OSO CDC Connector for Oracle Database."
-sidebar_position: 12
+sidebar_position: 13
 ---
 
 # Task properties

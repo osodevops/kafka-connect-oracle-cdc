@@ -43,6 +43,7 @@ public class CoreConfig extends AbstractConfig {
   public static final String GROUP_TRANSACTIONS = "Transactions";
   public static final String GROUP_ERRORS = "Errors and retries";
   public static final String GROUP_LOBS = "LOBs";
+  public static final String GROUP_SNAPSHOTS = "Snapshots";
 
   public static final String DATABASE_HOST = "cdc.database.host";
   public static final String DATABASE_PORT = "cdc.database.port";
@@ -76,6 +77,16 @@ public class CoreConfig extends AbstractConfig {
   public static final String MINING_CATCHUP_THRESHOLD_MS = "cdc.mining.catchup.threshold.ms";
   public static final String MINING_CATCHUP_PARALLELISM = "cdc.mining.catchup.parallelism";
   public static final String RAC_SAFETY_LAG_MS = "cdc.rac.safety.lag.ms";
+
+  // PRD-02 snapshots
+  public static final String SNAPSHOT_MODE = "cdc.snapshot.mode";
+  public static final String SNAPSHOT_THREADS = "cdc.snapshot.threads";
+  public static final String SNAPSHOT_CHUNK_ROWS = "cdc.snapshot.chunk.rows";
+  public static final String SNAPSHOT_CHUNK_RETRIES = "cdc.snapshot.chunk.retries";
+  public static final String SNAPSHOT_FETCH_SIZE = "cdc.snapshot.fetch.size";
+  public static final String SNAPSHOT_MAX_PENDING_CHUNKS = "cdc.snapshot.max.pending.chunks";
+  public static final String SNAPSHOT_TABLES_ORDER = "cdc.snapshot.tables.order";
+  public static final String SNAPSHOT_SELECT_OVERRIDE_PREFIX = "cdc.snapshot.select.override.";
 
   // PRD-03 section 3 step 5: dictionary builds into the redo for the lag case
   public static final String DICTIONARY_BUILD_INTERVAL_MS = "cdc.dictionary.build.interval.ms";
@@ -119,6 +130,14 @@ public class CoreConfig extends AbstractConfig {
   public enum OrphanAction {
     RELEASE,
     FAIL
+  }
+
+  /** PRD-02 SNAP-1. */
+  public enum SnapshotMode {
+    INITIAL,
+    NONE,
+    SNAPSHOT_ONLY,
+    ON_SIGNAL
   }
 
   public enum LobMode {
@@ -185,6 +204,21 @@ public class CoreConfig extends AbstractConfig {
 
   public OrphanAction orphanAction() {
     return OrphanAction.valueOf(getString(TRANSACTION_ORPHAN_ACTION).toUpperCase(Locale.ROOT));
+  }
+
+  public SnapshotMode snapshotMode() {
+    return SnapshotMode.valueOf(getString(SNAPSHOT_MODE).toUpperCase(Locale.ROOT));
+  }
+
+  /**
+   * SNAP-5: {@code cdc.snapshot.select.override.<table>} filters, keyed by the table as written
+   * (PDB.OWNER.TABLE, or OWNER.TABLE without a PDB).
+   */
+  public Map<String, String> snapshotSelectOverrides() {
+    Map<String, String> out = new java.util.LinkedHashMap<>();
+    originalsWithPrefix(SNAPSHOT_SELECT_OVERRIDE_PREFIX)
+        .forEach((k, v) -> out.put(k.toUpperCase(Locale.ROOT), String.valueOf(v)));
+    return out;
   }
 
   public LobMode lobMode() {
@@ -800,6 +834,91 @@ public class CoreConfig extends AbstractConfig {
         ++o,
         Width.SHORT,
         "Log sensitive data");
+    // Snapshots (PRD-02)
+    def.define(
+        SNAPSHOT_MODE,
+        Type.STRING,
+        "initial",
+        caseInsensitiveEnum(SnapshotMode.class),
+        Importance.HIGH,
+        "initial reads every captured table's existing rows on the connector's first start, while"
+            + " streaming, then streams on; none only streams; snapshot_only reads the tables and"
+            + " then stays idle without streaming; on_signal starts no snapshot by itself. A"
+            + " snapshot that a stored offset records as unfinished resumes in every mode.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.SHORT,
+        "Snapshot mode");
+    def.define(
+        SNAPSHOT_THREADS,
+        Type.INT,
+        4,
+        Range.between(1, 64),
+        Importance.MEDIUM,
+        "Chunks of a table read in parallel, each on a connection of its own.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.SHORT,
+        "Snapshot threads");
+    def.define(
+        SNAPSHOT_CHUNK_ROWS,
+        Type.INT,
+        100_000,
+        Range.atLeast(1000),
+        Importance.MEDIUM,
+        "Target rows per chunk. Each chunk is one flashback query, so smaller chunks need less"
+            + " undo; up to cdc.snapshot.max.pending.chunks chunks are held in memory.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.SHORT,
+        "Rows per chunk");
+    def.define(
+        SNAPSHOT_CHUNK_RETRIES,
+        Type.INT,
+        5,
+        Range.atLeast(0),
+        Importance.LOW,
+        "Times a failed chunk is read again with a fresh SCN before the task stops.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.SHORT,
+        "Chunk retries");
+    def.define(
+        SNAPSHOT_FETCH_SIZE,
+        Type.INT,
+        5000,
+        Range.atLeast(1),
+        Importance.LOW,
+        "JDBC fetch size of chunk reads.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.SHORT,
+        "Snapshot fetch size");
+    def.define(
+        SNAPSHOT_MAX_PENDING_CHUNKS,
+        Type.INT,
+        8,
+        Range.atLeast(1),
+        Importance.LOW,
+        "Chunks read but not yet published before reads pause; chunks wait until streaming has"
+            + " passed their SCN.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.SHORT,
+        "Pending chunks");
+    def.define(
+        SNAPSHOT_TABLES_ORDER,
+        Type.LIST,
+        "",
+        Importance.LOW,
+        "Tables to read first, as PDB.OWNER.TABLE; the others follow in name order. A filter for"
+            + " one table's snapshot goes in cdc.snapshot.select.override.PDB.OWNER.TABLE as a SQL"
+            + " condition, for example cdc.snapshot.select.override.FREEPDB1.APP.ORDERS=STATUS <>"
+            + " 'ARCHIVED'.",
+        GROUP_SNAPSHOTS,
+        ++o,
+        Width.LONG,
+        "Snapshot order");
     return def;
   }
 }

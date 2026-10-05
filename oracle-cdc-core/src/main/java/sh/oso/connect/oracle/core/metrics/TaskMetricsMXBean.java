@@ -104,6 +104,32 @@ public interface TaskMetricsMXBean {
               + " (PRD-03 lag case).")
   long getLagReplays();
 
+  @Description(kind = Description.Kind.COUNTER, value = "Snapshot chunks read (PRD-02).")
+  long getSnapshotChunksRead();
+
+  @Description(
+      kind = Description.Kind.COUNTER,
+      value = "Snapshot chunks published, after streaming passed their SCN.")
+  long getSnapshotChunksPublished();
+
+  @Description(kind = Description.Kind.COUNTER, value = "Snapshot rows published as op=r records.")
+  long getSnapshotRowsPublished();
+
+  @Description(
+      kind = Description.Kind.COUNTER,
+      value = "Snapshot chunks read again after an error, with a fresh SCN (SNAP-3, SNAP-4).")
+  long getSnapshotChunkRetries();
+
+  @Description(
+      kind = Description.Kind.GAUGE,
+      value = "Snapshot chunks read and waiting for streaming to pass their SCN.")
+  long getSnapshotChunksPending();
+
+  @Description(
+      kind = Description.Kind.GAUGE,
+      value = "Tables the running snapshot has still to read.")
+  long getSnapshotTablesRemaining();
+
   @Description(
       kind = Description.Kind.COUNTER,
       value = "Transactions dropped by cdc.transaction.max.age.action=discard.")

@@ -664,4 +664,82 @@ class OracleCdcSourceTaskTest {
           .hasMessageContaining("CDC-7001");
     }
   }
+
+  @Test
+  void anInitialSnapshotGoesOutBetweenTheCommitsBeforeAndAfterItsScn() throws Exception {
+    // PRD-02 section 3 step 4: commits below the chunk's SCN come first, later ones after it
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.SNAPSHOT_MODE, "initial");
+      h.snapshots.rows(TaskHarness.T, 1, 5).scn = 1003;
+      TxKey a = h.fake.tx(1, 1, 1);
+      TxKey b = h.fake.tx(2, 2, 2);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a); // commit at 1002
+      h.fake.start(b, "APP").insert(b, TaskHarness.T, "b1").commit(b); // commit at 1005
+      h.safeEnd = 1003; // streaming has reached the snapshot's SCN, not b
+      h.start();
+      List<SourceRecord> first = h.pollUntil(6, 5000);
+      assertThat(TaskHarness.sqls(first))
+          .containsExactly("c:a1", "r:row1", "r:row2", "r:row3", "r:row4", "r:row5");
+      h.safeEnd = h.fake.nextScn();
+      assertThat(TaskHarness.sqls(h.pollUntil(1, 5000))).containsExactly("c:b1");
+      org.apache.kafka.connect.data.Struct source =
+          ((org.apache.kafka.connect.data.Struct) first.get(1).value()).getStruct("source");
+      assertThat(source.getString("snapshot")).isEqualTo("first");
+      assertThat(source.getString("scn")).isEqualTo("1003");
+      assertThat(
+              ((org.apache.kafka.connect.data.Struct) first.get(5).value())
+                  .getStruct("source")
+                  .getString("snapshot"))
+          .isEqualTo("last");
+      // the last record of each chunk records the chunk as done
+      sh.oso.connect.oracle.core.snapshot.SnapshotProgress afterChunk1 =
+          sh.oso.connect.oracle.core.snapshot.SnapshotProgress.of(
+              PositionCodec.read(first.get(2).sourceOffset()).snapshot());
+      assertThat(afterChunk1.frontier(TaskHarness.T)).containsExactly("n:3");
+      sh.oso.connect.oracle.core.snapshot.SnapshotProgress beforeChunk1End =
+          sh.oso.connect.oracle.core.snapshot.SnapshotProgress.of(
+              PositionCodec.read(first.get(1).sourceOffset()).snapshot());
+      assertThat(beforeChunk1End.frontier(TaskHarness.T)).isNull();
+      assertThat(beforeChunk1End.done(TaskHarness.T)).isFalse();
+    }
+  }
+
+  @Test
+  void aRestartResumesTheSnapshotAtTheFirstUnacknowledgedChunk() throws Exception {
+    // PRD-02 SNAP-3 and the acceptance case: no acknowledged chunk is read again
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.SNAPSHOT_MODE, "initial");
+      h.snapshots.rows(TaskHarness.T, 1, 5).scn = 1000;
+      h.start();
+      List<SourceRecord> rows = h.pollUntil(5, 5000);
+      assertThat(TaskHarness.sqls(rows)).hasSize(5);
+      h.acknowledge(rows.subList(0, 3)); // chunk [1,3) and the first row of chunk [3,5)
+      h.snapshots.reads.clear();
+      h.restart();
+      List<SourceRecord> again = h.pollUntil(3, 5000);
+      assertThat(TaskHarness.sqls(again)).containsExactly("r:row3", "r:row4", "r:row5");
+      assertThat(h.snapshots.reads).allMatch(r -> !r.contains("[,"));
+      h.acknowledge(again);
+      h.acknowledge(h.pollUntil(10, 1000, true)); // the ops events and heartbeats after them
+      h.restart();
+      assertThat(h.pollUntil(1, 500)).as("the snapshot is complete").isEmpty();
+    }
+  }
+
+  @Test
+  void snapshotOnlyReadsTheTablesWithoutStreaming() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.SNAPSHOT_MODE, "snapshot_only");
+      h.snapshots.rows(TaskHarness.T, 1, 3);
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> all = h.pollUntil(10, 1500, true);
+      assertThat(TaskHarness.sqls(all.stream().filter(r -> !TaskHarness.isInternal(r)).toList()))
+          .containsExactly("r:row1", "r:row2", "r:row3");
+      assertThat(all.stream().filter(TaskHarness::isOps).map(TaskHarness::opsType))
+          .contains("snapshot-chunk-done", "snapshot-complete");
+    }
+  }
 }

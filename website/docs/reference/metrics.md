@@ -41,6 +41,12 @@ Each capture task registers one MXBean, `sh.oso.cdc:type=task,server=<prefix>`, 
 | `SafeEndScn` | `oracle_cdc_safe_end_scn` | gauge | Database SCN read at the last step: the end of what can be mined. |
 | `ScnLag` | `oracle_cdc_scn_lag` | gauge | SafeEndScn minus MinedToScn. |
 | `SessionRecycles` | `oracle_cdc_session_recycles_total` | counter | LogMiner sessions restarted at cdc.mining.session.max.age.ms. |
+| `SnapshotChunkRetries` | `oracle_cdc_snapshot_chunk_retries_total` | counter | Snapshot chunks read again after an error, with a fresh SCN (SNAP-3, SNAP-4). |
+| `SnapshotChunksPending` | `oracle_cdc_snapshot_chunks_pending` | gauge | Snapshot chunks read and waiting for streaming to pass their SCN. |
+| `SnapshotChunksPublished` | `oracle_cdc_snapshot_chunks_published_total` | counter | Snapshot chunks published, after streaming passed their SCN. |
+| `SnapshotChunksRead` | `oracle_cdc_snapshot_chunks_read_total` | counter | Snapshot chunks read (PRD-02). |
+| `SnapshotRowsPublished` | `oracle_cdc_snapshot_rows_published_total` | counter | Snapshot rows published as op=r records. |
+| `SnapshotTablesRemaining` | `oracle_cdc_snapshot_tables_remaining` | gauge | Tables the running snapshot has still to read. |
 | `SpillMaxBytes` | `oracle_cdc_spill_max_bytes` | gauge | cdc.buffer.spill.max.bytes, for ratio alerts. |
 | `SpilledBytes` | `oracle_cdc_spilled_bytes` | gauge | Bytes in spill files. |
 | `SpilledTransactions` | `oracle_cdc_spilled_transactions` | gauge | Open transactions spilled to disk. |

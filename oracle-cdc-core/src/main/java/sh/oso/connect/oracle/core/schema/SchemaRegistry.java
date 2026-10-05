@@ -231,6 +231,15 @@ public final class SchemaRegistry {
             + " on the schema topic and restart.");
   }
 
+  /**
+   * The current version if the registry holds it, without reading the dictionary: for threads that
+   * must not use the engine's metadata connection (PRD-02 snapshot readers).
+   */
+  public Optional<TableSchema> cached(TableId table) {
+    TableSchema c = cache.get(table);
+    return c != null ? Optional.of(c) : store.load(table);
+  }
+
   /** A table dropped or renamed away: the next lookup under this name reads the dictionary. */
   public void forget(TableId table) {
     cache.remove(table);

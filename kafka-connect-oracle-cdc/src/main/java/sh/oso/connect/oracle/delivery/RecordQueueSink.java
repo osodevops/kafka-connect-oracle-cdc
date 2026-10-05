@@ -385,9 +385,104 @@ public final class RecordQueueSink
     ops(OpsEvent.Type.RECONNECTED, "cause", cause);
   }
 
+  private sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator snapshot;
+  private sh.oso.connect.oracle.core.snapshot.SnapshotProgress snapshotProgress;
+
+  /**
+   * PRD-02: chunks of {@code coordinator} are published here as streaming passes their SCN; {@code
+   * progress} is the snapshot block the offsets carry from now on.
+   */
+  public synchronized void snapshot(
+      sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator coordinator,
+      sh.oso.connect.oracle.core.snapshot.SnapshotProgress progress) {
+    this.snapshot = coordinator;
+    this.snapshotProgress = progress;
+    this.snapshotStarted = !progress.untouched();
+  }
+
+  /** The first snapshot record has gone out (SNAP-8 marks it {@code first}). */
+  private boolean snapshotStarted;
+
+  /** SNAP-1 snapshot_only: publishes every ready chunk; there is no streaming to wait for. */
+  public synchronized boolean publishSnapshot() {
+    emitSnapshot(Long.MAX_VALUE);
+    return snapshot == null;
+  }
+
+  /**
+   * PRD-02 section 3 step 4: every chunk read as of an SCN at or below {@code scn} goes out now,
+   * before any commit at or after its SCN. A chunk then holds the rows as they were at its SCN, and
+   * every later change follows it. Records of a chunk carry the progress before it, the last one
+   * the progress after it.
+   */
+  private void emitSnapshot(long scn) {
+    if (snapshot == null) {
+      return;
+    }
+    for (sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator.Batch b : snapshot.ready(scn)) {
+      long now = clock.getAsLong();
+      for (sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator.Chunk c : b.chunks()) {
+        sh.oso.connect.oracle.core.snapshot.SnapshotProgress after =
+            snapshotProgress.advance(b.table(), c.range().upper());
+        List<sh.oso.connect.oracle.core.snapshot.SnapshotRow> rows = c.rows();
+        for (int i = 0; i < rows.size(); i++) {
+          boolean lastRow = i + 1 == rows.size();
+          String marker =
+              !snapshotStarted
+                  ? "first"
+                  : b.last() && lastRow && c == b.chunks().get(b.chunks().size() - 1)
+                      ? "last"
+                      : "true";
+          snapshotStarted = true;
+          Position at = safePosition().withSnapshot((lastRow ? after : snapshotProgress).toMap());
+          SourceRecord rec =
+              envelope.snapshotRecord(b.table(), rows.get(i), b.schema(), b.scn(), now, marker, at);
+          put(new Queued(rec, lastRow, false, 0));
+        }
+        snapshotProgress = after;
+        carrySnapshot();
+        snapshotRows += rows.size();
+        ops(
+            OpsEvent.Type.SNAPSHOT_CHUNK_DONE,
+            "table",
+            b.table().fqn(),
+            "scn",
+            Long.toString(b.scn()),
+            "rows",
+            Integer.toString(rows.size()));
+      }
+      if (b.tableDone()) {
+        snapshotProgress = snapshotProgress.advance(b.table(), null);
+        carrySnapshot();
+        ops(OpsEvent.Type.SNAPSHOT_COMPLETE, "table", b.table().fqn());
+      }
+      lastQueuedAt = now;
+    }
+    if (snapshot.finished()) {
+      snapshotProgress = snapshotProgress.completed();
+      carrySnapshot();
+      ops(OpsEvent.Type.SNAPSHOT_COMPLETE, "table", "*");
+      snapshot = null;
+    }
+  }
+
+  /** Every offset from here on carries the snapshot progress. */
+  private void carrySnapshot() {
+    Map<String, Object> block = snapshotProgress.toMap();
+    base = base.withSnapshot(block);
+    lastEmittedCommit = lastEmittedCommit.withSnapshot(block);
+  }
+
+  private long snapshotRows;
+
+  public synchronized long snapshotRows() {
+    return snapshotRows;
+  }
+
   @Override
   public synchronized void committed(
       CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate) {
+    emitSnapshot(tx.commitScn());
     if (tx.commitTimestamp() != null) {
       lastCommitTimestamp = tx.commitTimestamp().toEpochMilli();
       millisBehindSource = Math.max(0, clock.getAsLong() - lastCommitTimestamp);
@@ -500,6 +595,7 @@ public final class RecordQueueSink
   public synchronized void stepApplied(long minedToScn, RedoRecordId resumeCandidate) {
     lastMinedTo = minedToScn;
     lastResumeCandidate = resumeCandidate;
+    emitSnapshot(minedToScn);
     if (heartbeatIntervalMs <= 0) {
       return;
     }

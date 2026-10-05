@@ -270,6 +270,34 @@ public final class JdbcEngineFactory implements EngineFactory {
     }
 
     @Override
+    public List<sh.oso.connect.oracle.core.model.TableId> capturedTables() {
+      return objects == null ? List.of() : List.copyOf(objects.tables());
+    }
+
+    @Override
+    public sh.oso.connect.oracle.core.snapshot.SnapshotSource openSnapshotSource()
+        throws SQLException {
+      Connection c;
+      try {
+        c = connections.open(ConnectionRole.SNAPSHOT);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new SQLException("interrupted while connecting for a snapshot", e);
+      }
+      try {
+        return new sh.oso.connect.oracle.core.snapshot.JdbcSnapshotSource(
+            c,
+            core.getInt(CoreConfig.SNAPSHOT_FETCH_SIZE),
+            core.lobMode() != CoreConfig.LobMode.SKIP,
+            core.getLong(CoreConfig.LOB_MAX_BYTES),
+            core.lobOversizeAction() == CoreConfig.LobOversizeAction.FAIL);
+      } catch (SQLException | RuntimeException e) {
+        c.close();
+        throw e;
+      }
+    }
+
+    @Override
     public void startDictionaryBuilds(
         sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.Events events) throws Exception {
       long intervalMs = core.getLong(CoreConfig.DICTIONARY_BUILD_INTERVAL_MS);

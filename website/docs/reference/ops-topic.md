@@ -42,11 +42,13 @@ committing one never moves the connector's position past an unacknowledged chang
 | `decode-error-dlq` | A row could not be decoded and was written to the DLQ | `table`, `xid`, `scn`, `operation`, `error` |
 | `transaction-orphan-released` | The orphan detector released a transaction absent from the database (ADR-0006) | `xid`, `con_id`, `user`, `client_id`, `first_scn`, `last_scn`, `events`, `absent_at_scn`, `reason` |
 | `transaction-discarded` | A transaction older than `cdc.transaction.max.age.ms` was dropped under the `discard` action | `xid`, `con_id`, `user`, `first_scn`, `last_scn`, `events`, `age_ms` |
+| `snapshot-chunk-done` | A snapshot chunk was published | `table`, `scn`, `rows` |
+| `snapshot-complete` | A table's snapshot is complete, or with `table` `*`, the whole snapshot | `table` |
 | `transaction-split` | In exactly-once mode, an Oracle transaction above the `cdc.eos.split.*` limits was delivered in several Kafka transactions | `xid`, `commit_scn`, `events`, `kafka_transactions` |
 
 The following types are reserved for features that are not yet in a published release. They do not
 appear on the topic today: `position-committed`, `log-switch-detected`, `thread-state-changed`,
-`table-added`, `table-removed`, `transaction-journaled`, `snapshot-chunk-done`, `snapshot-complete`, `signal-ack`, `offsets-set`.
+`table-added`, `table-removed`, `transaction-journaled`, `signal-ack`, `offsets-set`.
 
 ## Internal topics
 

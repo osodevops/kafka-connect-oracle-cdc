@@ -225,6 +225,57 @@ public final class DebeziumEnvelope {
         headers);
   }
 
+  /**
+   * PRD-02 SNAP-8: a row read by a snapshot chunk as of {@code scn}, as {@code op=r} with {@code
+   * source.snapshot} set to {@code marker} ({@code first}, {@code true} or {@code last}).
+   */
+  public SourceRecord snapshotRecord(
+      TableId table,
+      sh.oso.connect.oracle.core.snapshot.SnapshotRow row,
+      TableSchema schema,
+      long scn,
+      long readAtMs,
+      String marker,
+      Position offset) {
+    Schemas s = schemas(schema);
+    RowChange change =
+        new RowChange(
+            table,
+            sh.oso.connect.oracle.core.model.Operation.INSERT,
+            null,
+            row.values(),
+            false,
+            row.rowId(),
+            null,
+            null,
+            null,
+            schema.version());
+    Struct source =
+        new Struct(sourceSchema)
+            .put("version", Version.VERSION)
+            .put("connector", CONNECTOR_NAME)
+            .put("name", config.topicPrefix())
+            .put("ts_ms", readAtMs)
+            .put("snapshot", marker)
+            .put("db", table.pdb() != null ? table.pdb() : databaseName)
+            .put("schema", table.schema())
+            .put("table", table.table())
+            .put("scn", Long.toString(scn))
+            .put("row_id", row.rowId())
+            .put("pdb", table.pdb());
+    ConnectHeaders h = new ConnectHeaders();
+    h.addLong("cdc.scn", scn);
+    h.addBoolean("cdc.snapshot", true);
+    h.addInt("cdc.schema_version", schema.version());
+    return record(
+        router.topic(table),
+        s,
+        PositionCodec.write(offset),
+        h,
+        keyOf(s, schema, change, row.values()),
+        envelope(s, "r", null, row(s, row.values()), source, readAtMs, null));
+  }
+
   private SourceRecord tombstone(
       String topic, Schemas s, Map<String, Object> offset, Headers headers, Object key) {
     return new SourceRecord(
@@ -293,7 +344,7 @@ public final class DebeziumEnvelope {
     h.addString("cdc.xid", tx.key().xid().toString());
     h.addInt("cdc.event_index", index);
     h.addInt("cdc.event_count", tx.size());
-    h.addInt("cdc.schema_version", 0);
+    h.addInt("cdc.schema_version", c.schemaVersion());
     return h;
   }
 

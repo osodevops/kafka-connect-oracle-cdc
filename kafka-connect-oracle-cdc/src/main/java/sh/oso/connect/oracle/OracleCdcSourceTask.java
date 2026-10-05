@@ -24,6 +24,7 @@ import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.kafka.connect.source.SourceTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.engine.CaptureEngine;
 import sh.oso.connect.oracle.core.engine.EngineLifecycle;
 import sh.oso.connect.oracle.core.errors.OracleCdcException;
@@ -51,6 +52,9 @@ public class OracleCdcSourceTask extends SourceTask {
   private EngineFactory.Session session;
   private RecordQueueSink sink;
   private EngineLifecycle lifecycle;
+  private sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator snapshot;
+  private Thread snapshotOnly;
+  private volatile Throwable snapshotOnlyFailure;
   private sh.oso.connect.oracle.schema.SchemaTopicStore schemaStore;
   private javax.management.ObjectName metricsName;
   private org.apache.kafka.connect.source.TransactionContext transactions;
@@ -114,6 +118,18 @@ public class OracleCdcSourceTask extends SourceTask {
       // generation than a committed position are unacknowledged writes
       long generation = position.journalGeneration() + 1;
       position = position.withJournalGeneration(generation);
+      // PRD-02 SNAP-1: an initial snapshot is recorded in the very first offset, so a crash before
+      // its first chunk still resumes it
+      CoreConfig.SnapshotMode snapshotMode = config.core().snapshotMode();
+      sh.oso.connect.oracle.core.snapshot.SnapshotProgress progress =
+          sh.oso.connect.oracle.core.snapshot.SnapshotProgress.of(position.snapshot());
+      if (progress == null
+          && (stored == null || stored.isEmpty())
+          && (snapshotMode == CoreConfig.SnapshotMode.INITIAL
+              || snapshotMode == CoreConfig.SnapshotMode.SNAPSHOT_ONLY)) {
+        progress = sh.oso.connect.oracle.core.snapshot.SnapshotProgress.begin();
+        position = position.withSnapshot(progress.toMap());
+      }
       startPosition = position;
       TopicRouter router =
           new TopicRouter(
@@ -210,6 +226,14 @@ public class OracleCdcSourceTask extends SourceTask {
                   message);
             }
           });
+      if (progress != null && !progress.complete()) {
+        startSnapshot(progress, engine);
+      }
+      if (snapshotMode == CoreConfig.SnapshotMode.SNAPSHOT_ONLY) {
+        startSnapshotOnly();
+        registerMetrics(engine);
+        return;
+      }
       lifecycle =
           new EngineLifecycle(
               engine,
@@ -236,7 +260,7 @@ public class OracleCdcSourceTask extends SourceTask {
 
   @Override
   public List<SourceRecord> poll() throws InterruptedException {
-    Throwable failure = lifecycle.failure();
+    Throwable failure = lifecycle != null ? lifecycle.failure() : snapshotOnlyFailure;
     List<SourceRecord> records =
         transactions == null
             ? sink.drain(config.pollMaxRecords(), config.pollLingerMs())
@@ -263,6 +287,12 @@ public class OracleCdcSourceTask extends SourceTask {
 
   @Override
   public void stop() {
+    if (snapshot != null) {
+      snapshot.close();
+    }
+    if (snapshotOnly != null) {
+      snapshotOnly.interrupt();
+    }
     if (lifecycle != null) {
       try {
         if (!lifecycle.stop(Duration.ofMillis(config.shutdownTimeoutMs()))) {
@@ -403,6 +433,98 @@ public class OracleCdcSourceTask extends SourceTask {
     } catch (Exception e) {
       throw new ConnectException("Creating the internal topics failed: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * PRD-02: reads the tables the progress has not finished, in cdc.snapshot.tables.order then by
+   * name. Their versions are loaded here, on the task thread, so the reader threads only ever use
+   * the registry's cache.
+   */
+  private void startSnapshot(
+      sh.oso.connect.oracle.core.snapshot.SnapshotProgress progress, CaptureEngine engine) {
+    List<sh.oso.connect.oracle.core.model.TableId> captured =
+        new java.util.ArrayList<>(session.capturedTables());
+    captured.sort(java.util.Comparator.comparing(sh.oso.connect.oracle.core.model.TableId::fqn));
+    List<sh.oso.connect.oracle.core.model.TableId> ordered = new java.util.ArrayList<>();
+    for (String first : config.core().getList(CoreConfig.SNAPSHOT_TABLES_ORDER)) {
+      for (sh.oso.connect.oracle.core.model.TableId t : captured) {
+        if (t.fqnUpper().equals(first.trim().toUpperCase(java.util.Locale.ROOT))
+            && !ordered.contains(t)) {
+          ordered.add(t);
+        }
+      }
+    }
+    for (sh.oso.connect.oracle.core.model.TableId t : captured) {
+      if (!ordered.contains(t)) {
+        ordered.add(t);
+      }
+    }
+    Map<sh.oso.connect.oracle.core.model.TableId, String> overrides = new java.util.HashMap<>();
+    Map<String, String> wanted = config.core().snapshotSelectOverrides();
+    for (sh.oso.connect.oracle.core.model.TableId t : ordered) {
+      if (wanted.containsKey(t.fqnUpper())) {
+        overrides.put(t, wanted.get(t.fqnUpper()));
+      }
+      if (!progress.done(t)) {
+        try {
+          session.schemas().current(t);
+        } catch (java.sql.SQLException | OracleCdcException e) {
+          LOG.warn("Snapshot: no schema for {} ({}); it is skipped", t.fqn(), e.getMessage());
+        }
+      }
+    }
+    snapshot =
+        new sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator(
+            ordered,
+            progress,
+            t -> session.schemas().cached(t),
+            session::openSnapshotSource,
+            new sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator.Settings(
+                config.core().getInt(CoreConfig.SNAPSHOT_THREADS),
+                config.core().getInt(CoreConfig.SNAPSHOT_CHUNK_ROWS),
+                config.core().getInt(CoreConfig.SNAPSHOT_CHUNK_RETRIES),
+                config.core().getInt(CoreConfig.SNAPSHOT_MAX_PENDING_CHUNKS),
+                overrides),
+            engine.metrics(),
+            new sh.oso.connect.oracle.core.errors.OraErrorClassifier(
+                java.util.Set.copyOf(config.core().extraRetryErrorCodes())));
+    sink.snapshot(snapshot, progress);
+    snapshot.start();
+    LOG.info(
+        "Snapshot of {} tables{}",
+        snapshot.tables().size(),
+        progress.untouched() ? "" : ", resumed from the stored offset");
+  }
+
+  /** SNAP-1 snapshot_only: no streaming; chunks are published as soon as they are read. */
+  private void startSnapshotOnly() {
+    snapshotOnly =
+        new Thread(
+            () -> {
+              try {
+                while (!Thread.currentThread().isInterrupted()) {
+                  if (sink.publishSnapshot()) {
+                    LOG.info(
+                        "Snapshot complete; cdc.snapshot.mode=snapshot_only, so the task idles");
+                    return;
+                  }
+                  Thread.sleep(100);
+                }
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              } catch (RuntimeException e) {
+                LOG.error("Snapshot stopped: {}", e.getMessage(), e);
+                snapshotOnlyFailure = e;
+                try {
+                  sink.stopped(e);
+                } catch (RuntimeException ignore) {
+                  // the log line above is the record of last resort
+                }
+              }
+            },
+            "oracle-cdc-snapshot-only-" + config.topicPrefix());
+    snapshotOnly.setDaemon(true);
+    snapshotOnly.start();
   }
 
   /** Overridable for tests. */

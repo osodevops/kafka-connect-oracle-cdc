@@ -53,6 +53,17 @@ public interface EngineFactory {
      * PRD-03 section 3 step 5: starts the scheduled dictionary builds when they are configured;
      * closing the session stops them.
      */
+    /** The captured tables the engine resolved; valid once {@link #engine} has run. */
+    default java.util.List<sh.oso.connect.oracle.core.model.TableId> capturedTables() {
+      return java.util.List.of();
+    }
+
+    /** PRD-02: a snapshot source on a connection of its own. */
+    default sh.oso.connect.oracle.core.snapshot.SnapshotSource openSnapshotSource()
+        throws java.sql.SQLException {
+      throw new java.sql.SQLException("this session cannot read snapshots");
+    }
+
     default void startDictionaryBuilds(
         sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.Events events) throws Exception {}
   }

@@ -59,7 +59,9 @@ public enum ErrorCode {
   /** A COMMIT arrived for a transaction that orphan detection had released. */
   ORPHAN_RELEASE_VIOLATION("CDC-7001", "orphan-release-violation", false),
   /** cdc.transaction.orphan.action=fail found an orphaned transaction. */
-  ORPHAN_TRANSACTION("CDC-7002", "orphan-transaction", false);
+  ORPHAN_TRANSACTION("CDC-7002", "orphan-transaction", false),
+  /** A snapshot chunk at the smallest size still met ORA-01555 or ORA-08181 (PRD-02 SNAP-4). */
+  SNAPSHOT_TOO_OLD("CDC-8001", "snapshot-too-old", false);
 
   private final String code;
   private final String runbookSlug;
