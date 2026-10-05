@@ -8,6 +8,9 @@ make -C lab/local/compose topics      # kcat topic list
 make -C lab/local/compose down
 ```
 
+The Connect worker loads the Prometheus JMX exporter agent (downloaded by `make up`) with the rules in
+`ops/jmx-exporter`, so the task metrics are on port 9404.
+
 Profiles: `PROFILES="--profile observability"` adds Prometheus and Grafana wired to `ops/`;
 `--profile chaos` adds Toxiproxy between Connect and Oracle (point the connector at
 `toxiproxy:11521`); `--profile debezium` runs a Debezium 3.7 Connect for internal comparison only.

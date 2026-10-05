@@ -16,7 +16,6 @@
 package sh.oso.connect.oracle.e2e.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.util.List;
@@ -27,7 +26,6 @@ import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.errors.OracleCdcPurgedException;
 import sh.oso.connect.oracle.core.logs.LogInventory;
 import sh.oso.connect.oracle.core.logs.LogSet;
-import sh.oso.connect.oracle.core.logs.LogSetProbe;
 import sh.oso.connect.oracle.core.logs.RedoLog;
 import sh.oso.connect.oracle.core.topology.JdbcCatalogSource;
 import sh.oso.connect.oracle.core.topology.Topology;
@@ -75,7 +73,12 @@ class LogInventoryEngineIT {
       for (int i = 1; i < thread1.size(); i++) {
         assertThat(thread1.get(i).sequence()).isEqualTo(thread1.get(i - 1).sequence() + 1);
       }
-      new LogSetProbe(new OraErrorClassifier()).probeReadable(root, set);
+      // every listed log can be added to a LogMiner session
+      sh.oso.connect.oracle.core.mining.JdbcLogMinerSession session =
+          new sh.oso.connect.oracle.core.mining.JdbcLogMinerSession(
+              root, 100, java.time.Duration.ofMinutes(1));
+      session.setLogs(set.logs());
+      session.end();
 
       LogInventory archiveOnly =
           new LogInventory(catalog, CaptureMode.ARCHIVE_ONLY, t.archiveDestId());
@@ -87,7 +90,7 @@ class LogInventoryEngineIT {
   }
 
   @Test
-  void aLogRemovedFromDiskIsDetectedByTheReadabilityProbeNotTheCatalog() throws Exception {
+  void aLogRemovedFromDiskIsDetectedWhenItIsAddedNotByTheCatalog() throws Exception {
     try (Connection root = db.capture(OracleTestDatabase.CDB_SERVICE)) {
       JdbcCatalogSource catalog = new JdbcCatalogSource(root);
       OracleSql.archiveLogCurrent(db);
@@ -107,11 +110,19 @@ class LogInventoryEngineIT {
       assertThat(inv.forRange(start, end - 1).logs())
           .extracting(RedoLog::sequence)
           .contains(victim.sequence());
-      assertThatThrownBy(() -> new LogSetProbe(new OraErrorClassifier()).probeReadable(root, set))
+      // the session names the file and keeps the ORA code, so the engine's classification makes
+      // it the usual purge stop (CDC-2002)
+      sh.oso.connect.oracle.core.mining.JdbcLogMinerSession session =
+          new sh.oso.connect.oracle.core.mining.JdbcLogMinerSession(
+              root, 100, java.time.Duration.ofMinutes(1));
+      java.sql.SQLException refused =
+          org.junit.jupiter.api.Assertions.assertThrows(
+              java.sql.SQLException.class, () -> session.setLogs(set.logs()));
+      assertThat(refused.getMessage()).contains(victim.path()).contains("CROSSCHECK ARCHIVELOG");
+      assertThat(new OraErrorClassifier().toException(refused, "mining"))
           .isInstanceOf(OracleCdcPurgedException.class)
-          .hasMessageContaining("sequence " + victim.sequence())
-          .hasMessageContaining("ORA-01284")
-          .hasMessageContaining("never skips");
+          .hasMessageContaining("CDC-2002");
+      session.end();
     } finally {
       OracleSql.restoreHiddenLogs(db);
     }

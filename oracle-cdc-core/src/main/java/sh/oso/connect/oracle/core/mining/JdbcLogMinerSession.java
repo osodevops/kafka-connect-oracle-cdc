@@ -82,6 +82,19 @@ public final class JdbcLogMinerSession implements LogMinerSource {
       try (CallableStatement cs = c.prepareCall(first ? ADD_NEW : ADD_MORE)) {
         cs.setString(1, path);
         cs.execute();
+      } catch (SQLException e) {
+        // the catalog lists the file but LogMiner cannot open it, typically removed outside RMAN;
+        // name the file and keep the ORA code, so it is still classified (CDC-2002)
+        throw new SQLException(
+            "Redo log "
+                + path
+                + " is listed in the catalog but cannot be added: "
+                + String.valueOf(e.getMessage()).split("\n")[0].trim()
+                + ". If it was removed outside RMAN, run RMAN CROSSCHECK ARCHIVELOG ALL and restore"
+                + " it.",
+            e.getSQLState(),
+            e.getErrorCode(),
+            e);
       }
       first = false;
     }

@@ -33,3 +33,6 @@ docker/test-oracle/archive/
 sales/
 secrets/
 *.env
+
+# downloaded by lab/local/compose/Makefile
+lab/local/compose/observability/jmx_prometheus_javaagent.jar

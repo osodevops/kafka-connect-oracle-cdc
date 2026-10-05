@@ -137,8 +137,8 @@ public final class Rules {
                     Finding.warning(
                         "DOC-3",
                         t.fqn()
-                            + " logs primary key columns only: updates carry the key and changed"
-                            + " columns, so before images are partial (source.partial = true).",
+                            + " logs primary key columns only, so before images of updates and"
+                            + " deletes carry the key and the changed columns only.",
                         fix));
               } else {
                 out.add(

@@ -15,7 +15,13 @@ plugin: ## copy the exploded plugin directory into plugins/ (bind-mounted into C
 	rm -rf plugins/kafka-connect-oracle-cdc && mkdir -p plugins && cp -R "$(PLUGIN_DIR)" plugins/kafka-connect-oracle-cdc
 	@ls plugins/kafka-connect-oracle-cdc/lib | head -3
 
-up: build plugin ## start Oracle, Kafka and Connect (add PROFILES="--profile observability")
+JMX_AGENT_VERSION ?= 1.0.1
+JMX_AGENT = observability/jmx_prometheus_javaagent.jar
+
+$(JMX_AGENT): ## the Prometheus JMX exporter agent (Apache-2.0) the Connect worker loads
+	curl -fsSL -o $@ https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/$(JMX_AGENT_VERSION)/jmx_prometheus_javaagent-$(JMX_AGENT_VERSION).jar
+
+up: build plugin $(JMX_AGENT) ## start Oracle, Kafka and Connect (add PROFILES="--profile observability")
 	docker compose $(PROFILES) up -d --build --wait
 	@echo "Connect: http://localhost:8083   Kafka: localhost:9092   Oracle: localhost:1521/FREE (c##cdc/cdc)"
 

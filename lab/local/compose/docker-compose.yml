@@ -68,9 +68,13 @@ services:
       - "9404:9404"
     environment:
       KAFKA_HEAP_OPTS: -Xms512m -Xmx2g
+      # Prometheus scrapes the task metrics on 9404 with the rules generated in ops/jmx-exporter
+      KAFKA_OPTS: -javaagent:/jmx/jmx_prometheus_javaagent.jar=9404:/jmx-rules/oracle-cdc.yml
     volumes:
       - ./connect.properties:/connect.properties:ro
       - ./plugins:/plugins:ro
+      - ./observability/jmx_prometheus_javaagent.jar:/jmx/jmx_prometheus_javaagent.jar:ro
+      - ../../../ops/jmx-exporter:/jmx-rules:ro
     healthcheck:
       # the apache/kafka image has no curl; probe the REST port with bash
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083 && printf \"GET /connectors HTTP/1.0\\r\\n\\r\\n\" >&3 && grep -q \" 200 \" <&3'"]
