@@ -37,4 +37,9 @@ public final class InMemorySchemaStore implements SchemaStore {
     saves++;
     schemas.put(schema.table(), schema);
   }
+
+  @Override
+  public void remove(TableId table) {
+    schemas.remove(table);
+  }
 }

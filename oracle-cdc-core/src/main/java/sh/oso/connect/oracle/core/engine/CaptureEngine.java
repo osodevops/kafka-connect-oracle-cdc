@@ -91,6 +91,8 @@ public final class CaptureEngine {
   private final EngineMetrics metrics = new EngineMetrics();
   private final LobAssembler lobs;
   private LobReselector reselector;
+  private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
+      t -> true;
   private int decodeThreads = 1;
   private java.util.concurrent.ForkJoinPool decodePool;
   private java.util.Map<MiningEvent.Dml, Object> decoded = java.util.Map.of();
@@ -139,6 +141,13 @@ public final class CaptureEngine {
     this.clock = clock;
     this.cursor = StepCursor.resume(start.resumePoint());
     this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
+  }
+
+  /** SCH-5: which tables are captured; DDL on the others is ignored without classification. */
+  public CaptureEngine withCapturedTables(
+      java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured) {
+    this.captured = captured;
+    return this;
   }
 
   /** CORE-MINE-6: decode a step's rows on this many threads before applying them in order. */
@@ -425,11 +434,8 @@ public final class CaptureEngine {
         lobs.discard(r.tx());
         buffer.rollback(r);
       } else if (e instanceof MiningEvent.Ddl d) {
-        if (d.objectName() != null && d.owner() != null) {
-          schemas.invalidate(
-              new sh.oso.connect.oracle.core.model.TableId(d.pdb(), d.owner(), d.objectName()));
-        }
         sink.ddl(d);
+        applyDdl(d);
       } else if (e instanceof MiningEvent.Unsupported u) {
         if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
           throw new DecodeException(
@@ -565,6 +571,57 @@ public final class CaptureEngine {
       buffer.add(d.tx(), ready);
     }
     metrics.lobRowsApplied.set(lobs.fragments());
+  }
+
+  /**
+   * PRD-03 section 3: a DDL on a captured table is classified; a structural change stores a new
+   * schema version effective from the DDL's SCN, read from the dictionary, so the rows after it
+   * decode with the new layout; an unknown statement stops the task (SCH-5).
+   */
+  private void applyDdl(MiningEvent.Ddl d) throws SQLException {
+    if (d.objectName() == null || d.owner() == null) {
+      return;
+    }
+    sh.oso.connect.oracle.core.model.TableId table =
+        new sh.oso.connect.oracle.core.model.TableId(d.pdb(), d.owner(), d.objectName());
+    if (!captured.test(table) && !schemas.known(table)) {
+      return;
+    }
+    sh.oso.connect.oracle.core.schema.DdlClassifier.Kind kind =
+        sh.oso.connect.oracle.core.schema.DdlClassifier.classify(d.sql());
+    switch (kind) {
+      case CREATE_TABLE:
+      case COLUMNS:
+      case CONSTRAINTS:
+      case SUPPLEMENTAL_LOG:
+        Optional<TableSchema> next = schemas.applyDdl(table, d.scn());
+        if (next.isPresent()) {
+          sink.schemaChanged(next.get(), d);
+        }
+        break;
+      case RENAME_TABLE:
+      case DROP_TABLE:
+        schemas.forget(table);
+        sink.schemaChanged(null, d);
+        break;
+      case UNKNOWN:
+        throw new sh.oso.connect.oracle.core.errors.UnsupportedDdlException(
+            "DDL on captured table "
+                + table.fqn()
+                + " at SCN "
+                + d.scn()
+                + " could not be classified: "
+                + abbreviate(d.sql()),
+            "Report the statement. To continue, exclude the table, or resnapshot it after"
+                + " resetting the offsets past this SCN; the connector never guesses a layout.");
+      default:
+        break; // truncate, partition maintenance, indexes, comments: the layout is unchanged
+    }
+  }
+
+  private static String abbreviate(String s) {
+    String one = s == null ? "" : s.replaceAll("\\s+", " ").trim();
+    return one.length() <= 300 ? one : one.substring(0, 300) + " ...";
   }
 
   /** Oldest unfinished work: open buffer entries and changes held by the LOB assembler. */

@@ -134,7 +134,8 @@ class ParallelDecodeEngineTest {
               throw new AssertionError("unexpected reconnect", cause);
             },
             () -> Instant.EPOCH)
-        .withDecodeThreads(threads);
+        .withDecodeThreads(threads)
+        .withCapturedTables(DOCS::equals); // the DDL on OTHER is not a captured table's
   }
 
   private static void run(CaptureEngine e) throws Exception {

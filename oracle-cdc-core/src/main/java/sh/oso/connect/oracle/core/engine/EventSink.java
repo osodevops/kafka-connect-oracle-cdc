@@ -52,6 +52,13 @@ public interface EventSink {
   default void ddl(MiningEvent.Ddl ddl) {}
 
   /**
+   * PRD-03: a DDL gave a captured table a new schema version ({@code schema}), or removed it under
+   * this name ({@code schema} null: dropped or renamed away).
+   */
+  default void schemaChanged(
+      sh.oso.connect.oracle.core.schema.TableSchema schema, MiningEvent.Ddl ddl) {}
+
+  /**
    * A row could not be decoded and {@code cdc.on.decode.error=dlq}; the raw event is handed over.
    */
   default void decodeFailed(MiningEvent.Dml dml, DecodeException cause) {}

@@ -126,9 +126,11 @@ class SchemaTest {
     assertThat(store.saves).isEqualTo(1);
     reg.current(T);
     assertThat(reads[0]).isEqualTo(1);
-    reg.invalidate(T);
+    reg.forget(T);
+    assertThat(reg.known(T)).isFalse();
     reg.current(T);
-    assertThat(reads[0]).isEqualTo(1); // the store answers before the dictionary
+    assertThat(reads[0]).isEqualTo(2); // forgotten by cache and store: the dictionary again
+    assertThat(reg.known(T)).isTrue();
     assertThatThrownBy(() -> reg.current(new TableId("FREEPDB1", "APP", "MISSING")))
         .isInstanceOf(DecodeException.class)
         .hasMessageContaining("not in the dictionary");
@@ -137,5 +139,41 @@ class SchemaTest {
     assertThat(reg.current(T).keySource()).isEqualTo(KeySource.OVERRIDE);
     assertThat(schema().column("NAME").position()).isEqualTo(3);
     assertThat(schema().column("ZZZ")).isNull();
+  }
+
+  @Test
+  void aDdlAddsAVersionOnlyWhenTheLayoutChanged() throws Exception {
+    InMemorySchemaStore store = new InMemorySchemaStore();
+    TableSchema[] dictionary = {schema()};
+    DictionaryReader dict =
+        new DictionaryReader() {
+          public Optional<TableSchema> read(TableId table) {
+            return Optional.ofNullable(dictionary[0]);
+          }
+
+          public KeySelector.Candidates keyCandidates(TableId table) {
+            return new KeySelector.Candidates(List.of("ID"), List.of());
+          }
+        };
+    SchemaRegistry reg =
+        new SchemaRegistry(
+            store, dict, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
+    TableSchema v1 = reg.current(T);
+    assertThat(v1.version()).isEqualTo(1);
+    assertThat(reg.applyDdl(T, 500)).as("a comment or an index changes nothing").isEmpty();
+    List<ColumnSpec> wider = new java.util.ArrayList<>(schema().columns());
+    wider.add(ColumnSpec.of("ADDED", wider.size() + 1, OracleType.VARCHAR2));
+    dictionary[0] = new TableSchema(T, wider, List.of(), KeySource.NONE, true, false);
+    TableSchema v2 = reg.applyDdl(T, 600).orElseThrow();
+    assertThat(v2.version()).isEqualTo(2);
+    assertThat(v2.validFromScn()).isEqualTo(600);
+    assertThat(v2.column("ADDED")).isNotNull();
+    assertThat(v2.keyColumns()).containsExactly("ID");
+    assertThat(reg.current(T)).isEqualTo(v2);
+    assertThat(store.schemas.get(T)).isEqualTo(v2);
+    assertThat(v2.sameLayout(v1)).isFalse();
+    dictionary[0] = null; // dropped
+    assertThat(reg.applyDdl(T, 700)).isEmpty();
+    assertThat(reg.known(T)).isFalse();
   }
 }

@@ -33,17 +33,18 @@ committing one never moves the connector's position past an unacknowledged chang
 | `startup` | The task started and its start position is durable | `resume_scn`, `last_commit` (absent on a fresh start), `database`, `version` |
 | `stop` | The capture engine stopped with an error; the task fails right after this record | `exception`, `message`, `code` (for example `CDC-2002`), `runbook`, `operator_action` |
 | `ddl-seen` | A DDL statement was mined for a non-Oracle owner | `pdb`, `owner`, `object`, `scn`, `sql` (truncated to 2,000 characters) |
+| `ddl-applied` | A DDL gave a captured table a new schema version, or dropped or renamed it away | `pdb`, `owner`, `object`, `scn`, `version` (the new version number, or `removed`), `columns` |
 | `ids-refreshed` | The pushed-down object ids were re-resolved after a CREATE TABLE, DROP TABLE or partition DDL | `owners` |
 | `reconnected` | The database sessions were reopened after a transient error | `cause` |
 | `unsupported-row` | LogMiner returned an unsupported row for a captured table under the DLQ policy | `table`, `xid`, `scn`, `status`, `info` |
 | `decode-error-dlq` | A row could not be decoded and was written to the DLQ | `table`, `xid`, `scn`, `operation`, `error` |
 | `transaction-orphan-released` | The orphan detector released a transaction absent from the database (ADR-0006) | `xid`, `con_id`, `user`, `client_id`, `first_scn`, `last_scn`, `events`, `absent_at_scn`, `reason` |
 | `transaction-discarded` | A transaction older than `cdc.transaction.max.age.ms` was dropped under the `discard` action | `xid`, `con_id`, `user`, `first_scn`, `last_scn`, `events`, `age_ms` |
+| `transaction-split` | In exactly-once mode, an Oracle transaction above the `cdc.eos.split.*` limits was delivered in several Kafka transactions | `xid`, `commit_scn`, `events`, `kafka_transactions` |
 
 The following types are reserved for features that are not yet in a published release. They do not
 appear on the topic today: `position-committed`, `log-switch-detected`, `thread-state-changed`,
-`ddl-applied`, `table-added`, `table-removed`, `transaction-journaled`, `transaction-split`,
-`snapshot-chunk-done`, `snapshot-complete`, `signal-ack`, `offsets-set`.
+`table-added`, `table-removed`, `transaction-journaled`, `snapshot-chunk-done`, `snapshot-complete`, `signal-ack`, `offsets-set`.
 
 ## Internal topics
 

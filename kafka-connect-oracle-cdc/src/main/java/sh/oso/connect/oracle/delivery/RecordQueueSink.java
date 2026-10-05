@@ -248,6 +248,26 @@ public final class RecordQueueSink
         action);
   }
 
+  /** PRD-03: a captured table's schema version changed, or the table left under this name. */
+  @Override
+  public void schemaChanged(
+      TableSchema schema, sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl d) {
+    ops(
+        OpsEvent.Type.DDL_APPLIED,
+        "pdb",
+        d.pdb(),
+        "owner",
+        d.owner(),
+        "object",
+        d.objectName(),
+        "scn",
+        Long.toString(d.scn()),
+        "version",
+        schema == null ? "removed" : Integer.toString(schema.version()),
+        "columns",
+        schema == null ? null : Integer.toString(schema.columns().size()));
+  }
+
   @Override
   public void ddl(sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl d) {
     ops(

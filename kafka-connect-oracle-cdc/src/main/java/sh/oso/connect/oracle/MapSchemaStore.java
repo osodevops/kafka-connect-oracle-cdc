@@ -35,4 +35,9 @@ final class MapSchemaStore implements SchemaStore {
   public void save(TableSchema schema) {
     schemas.put(schema.table(), schema);
   }
+
+  @Override
+  public void remove(TableId table) {
+    schemas.remove(table);
+  }
 }

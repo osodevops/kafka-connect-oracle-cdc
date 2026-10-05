@@ -23,4 +23,7 @@ public interface SchemaStore {
   Optional<TableSchema> load(TableId table);
 
   void save(TableSchema schema);
+
+  /** Forgets a table (dropped, or renamed away). */
+  default void remove(TableId table) {}
 }

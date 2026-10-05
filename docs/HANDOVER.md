@@ -25,14 +25,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `ddb4c4d` | P1-21 decode DLQ (`cdc.dlq.topic`), long-transaction policy (`cdc.transaction.max.age.ms`, `CDC-4004`), archive-only coverage, `dbz-2713` regression | full gate, connector tier 7 suites plus the two surefire tests, engine tier 33 tests, all green |
 | `5d152a5` | P1-18 LOBs: `cdc.lob.mode` skip, inline, reselect; `cdc.lob.max.bytes`, `cdc.lob.oversize.action` (`CDC-3003`), `cdc.unavailable.placeholder`; per-statement assembly and newest-change undo (ADR-0015); LOB_ERASE code 29 | full gate, connector tier 7 suites plus the two surefire tests (oracle suite with LOBs in reselect mode), engine tier 37 tests, all green |
 | `daaacd6` | P1-23 task MXBean (41 attributes, top 20 transactions), generated metrics page and JMX exporter rules, Grafana dashboard, Prometheus alert rules, parallel decoding (`cdc.mining.decode.threads`) | full gate, connector tier 7 suites plus the two surefire tests, engine tier 38 tests, all green |
-| next after `daaacd6` (hash recorded at the following commit) | P1-12 exactly-once: `exactlyOnceSupport` and `canDefineTransactionBoundaries` SUPPORTED, Kafka transactions at Oracle commit boundaries with `cdc.eos.batch.*` bounds, splits at `cdc.eos.split.*` with the `cdc.split` header and a `transaction-split` ops event | full gate, connector tier 8 suites plus the two surefire tests, engine tier 38 tests, all green |
+| `c7602ed` | P1-12 exactly-once: `exactlyOnceSupport` and `canDefineTransactionBoundaries` SUPPORTED, Kafka transactions at Oracle commit boundaries with `cdc.eos.batch.*` bounds, splits at `cdc.eos.split.*` with the `cdc.split` header and a `transaction-split` ops event | full gate, connector tier 8 suites plus the two surefire tests, engine tier 38 tests, all green |
+| next after `c7602ed` (hash recorded at the following commit) | P1-16a DDL flow in the engine: `DdlClassifier`, versioned `TableSchema` (`version`, `validFromScn`), `SchemaRegistry.applyDdl` and `forget`, CDC-6002 on unknown DDL for captured tables, `ddl-applied` ops event, `EngineDriver` for engine suites | full gate, connector tier 8 suites plus the two surefire tests, engine tier 39 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-16 (schema topic and DDL flow), section 5.
+Nothing. The next increment is P1-16b (the schema topic), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -167,6 +168,18 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 - `TaskHarness.exactlyOnce = true` gives a recording transaction context; `kafkaCommits` holds the last
   record of each batch a commit was requested for.
 
+### Schema versions and DDL (P1-16a, PRD-03)
+
+- `CaptureEngine.applyDdl` classifies each DDL row of a captured table (`withCapturedTables`, from
+  `ResolvedObjects.tables()`); `SchemaRegistry.applyDdl(table, scn)` reads the dictionary and stores a
+  new version only when `sameLayout` says the columns, key or supplemental logging changed;
+  RENAME and DROP `forget` the table under its old name. Unknown DDL is `UnsupportedDdlException`.
+- The registry still holds only the latest version, which is right while the engine follows the
+  redo in order. After a restart, rows written before a DDL the engine has not mined yet decode with
+  today's dictionary: that is the lag case (P1-17), and P1-16b's schema topic keeps the versions.
+- `e2e/support/EngineDriver` builds the engine as the connector does; engine suites that change the
+  database while mining call `runTo(scn)` after each step (see `DdlUnderLoadEngineIT`).
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -215,7 +228,7 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 
 Expected tier contents after P1-12: connector tier 10 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-`ExactlyOnce`, plus the two surefire tests), engine tier 38 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+`ExactlyOnce`, plus the two surefire tests), engine tier 39 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
@@ -298,21 +311,20 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 - The thousand-kill exactly-once run belongs to the nightly tier (P1-27); `ExactlyOnceConnectorIT`
   kills the worker twice.
 
-### P1-16 Schema topic and DDL flow (PRD-03)
+### P1-16b Schema topic (PRD-03, the rest of P1-16)
 
-- Core `schema/DdlClassifier` (parse the DDL text into kinds: add column, drop column, rename,
-  modify type, truncate, add partition and so on, from the DDL rows already mined) and `DdlApplier`
-  (apply to `TableSchema` producing a new version); `SchemaRegistry` versions by SCN
-  (`TableSchema` gains `version` and `validFromScn`); `RowDecoder` decodes with the version valid at
-  the row's SCN. Unknown or unsupported DDL is `UnsupportedDdlException` (`CDC-6002`).
-- Connector `schema/SchemaTopicStore` (compacted `${prefix}.cdc.schema`, key table id plus version,
-  value the schema JSON, written from `poll()` like journal chunks) and `SchemaTopicLoader` at start
-  (same reader pattern as the journal: `cdc.kafka.bootstrap.servers`, tolerant converter); pruning
-  of versions older than the position's resume SCN; optional `${prefix}.cdc.schema-changes` topic
-  with Debezium-shaped schema change events. Emit `ddl-applied` on the ops topic.
-- Tests: T0 classifier corpus (every SCH-1 form), T1 `DdlUnderLoadEngineIT` (every form while a
-  workload runs; records before and after decode with the right version), `SchemaTopicRebuildConnectorIT`,
-  `SchemaTopicPruningConnectorIT`, regressions `dbz-2184`, `dbz-1599` in `e2e/regression`.
+- `SchemaStore` keeps every version per table (`List<TableSchema>`, newest last); the registry
+  answers `at(table, scn)` from them. Connector `schema/SchemaTopicStore` writes versions from
+  `poll()` like journal chunks (compacted `${prefix}.cdc.schema`, key `PDB.SCHEMA.TABLE`, value the
+  versions at or after the resume SCN; older ones pruned on write) and `SchemaTopicLoader` reads it at
+  start with the journal reader pattern (`cdc.kafka.bootstrap.servers`, tolerant converter).
+- SCH-6: at start, compare each loaded latest version with the dictionary; a difference without a
+  DDL after the resume SCN is a stop. Rebuild when the topic is lost; a table whose `LAST_DDL_TIME`
+  is after the resume SCN's time needs a resnapshot (stop with guidance).
+- SCH-3: optional `${prefix}.cdc.schema-changes` topic with Debezium-shaped events
+  (`cdc.schema.changes.topic.enabled`). SCH-2: `cdc.rename.topic.policy=keep`.
+- Tests: `SchemaTopicRebuildConnectorIT`, `SchemaTopicPruningConnectorIT`, regressions `dbz-2184`
+  (DDL under mixed DML) and `dbz-1599` (column filters with DDL) in `e2e/regression`.
 
 ### P1-17 Lag case and dictionary builds (ADR-0008)
 

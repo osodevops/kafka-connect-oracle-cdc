@@ -23,46 +23,19 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
-import sh.oso.connect.oracle.core.buffer.HeapTransactionBuffer;
-import sh.oso.connect.oracle.core.config.CoreConfig;
-import sh.oso.connect.oracle.core.config.CoreConfig.CaptureMode;
 import sh.oso.connect.oracle.core.engine.CaptureEngine;
-import sh.oso.connect.oracle.core.engine.ChangeDecoder;
-import sh.oso.connect.oracle.core.engine.EngineSettings;
-import sh.oso.connect.oracle.core.engine.EventSink;
-import sh.oso.connect.oracle.core.engine.JdbcLobReselector;
 import sh.oso.connect.oracle.core.engine.LobAssembler;
-import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.jdbc.ConnectionRole;
 import sh.oso.connect.oracle.core.jdbc.SessionInitializer;
-import sh.oso.connect.oracle.core.logs.LogInventory;
-import sh.oso.connect.oracle.core.mining.DictionaryMode;
-import sh.oso.connect.oracle.core.mining.JdbcLogMinerSession;
-import sh.oso.connect.oracle.core.mining.JdbcObjectCatalog;
-import sh.oso.connect.oracle.core.mining.ObjectIdResolver;
-import sh.oso.connect.oracle.core.mining.ResolvedObjects;
-import sh.oso.connect.oracle.core.mining.event.LogMinerEventSource;
 import sh.oso.connect.oracle.core.model.Operation;
-import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.RowChange;
-import sh.oso.connect.oracle.core.position.DatabaseIdentity;
-import sh.oso.connect.oracle.core.position.Position;
-import sh.oso.connect.oracle.core.schema.JdbcDictionaryReader;
-import sh.oso.connect.oracle.core.schema.KeySelector;
-import sh.oso.connect.oracle.core.schema.SchemaRegistry;
-import sh.oso.connect.oracle.core.testkit.InMemorySchemaStore;
-import sh.oso.connect.oracle.core.topology.JdbcCatalogSource;
 import sh.oso.connect.oracle.e2e.support.LogMinerHelper;
 import sh.oso.connect.oracle.e2e.support.OracleSql;
 import sh.oso.connect.oracle.e2e.support.OracleTestDatabase;
@@ -276,94 +249,14 @@ class LobModesEngineIT {
       java.util.function.Consumer<CaptureEngine> configure,
       java.util.function.Consumer<CaptureEngine> inspect)
       throws Exception {
-    List<CommittedTransaction> committed = new ArrayList<>();
-    JdbcCatalogSource catalog = new JdbcCatalogSource(() -> meta);
-    ResolvedObjects objects =
-        new ObjectIdResolver(
-                new JdbcObjectCatalog(() -> meta),
-                List.of(include),
-                List.of(),
-                List.of("FREEPDB1"),
-                false)
-            .resolve();
-    var info = catalog.database();
-    LogInventory inventory = new LogInventory(catalog, CaptureMode.ONLINE, 1);
-    LogMinerEventSource source =
-        new LogMinerEventSource(
-            inventory,
-            new JdbcLogMinerSession(mining, 2000, Duration.ofMinutes(5)),
-            objects,
-            objects.filter(Set.of(), 1000),
-            DictionaryMode.ONLINE_CATALOG);
-    SchemaRegistry registry =
-        new SchemaRegistry(
-            new InMemorySchemaStore(),
-            new JdbcDictionaryReader(() -> meta),
-            new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.ROWID));
-    EventSink sink =
-        new EventSink() {
-          public void committed(CommittedTransaction tx, int skip, RedoRecordId resume) {
-            // read now, as RecordQueueSink does: reselect runs inside the engine's step
-            committed.add(
-                new CommittedTransaction(
-                    tx.key(),
-                    tx.firstCaptured(),
-                    tx.startId(),
-                    tx.commitId(),
-                    tx.commitTimestamp(),
-                    tx.thread(),
-                    tx.username(),
-                    tx.clientId(),
-                    new ArrayList<>(tx.events())));
-          }
-
-          public void stepApplied(long minedTo, RedoRecordId resume) {}
-        };
-    java.util.function.Supplier<Long> safeEnd =
-        () -> {
-          try {
-            return catalog.currentScn();
-          } catch (SQLException e) {
-            throw new OraErrorClassifier().toException(e, "safe end");
-          }
-        };
-    CaptureEngine engine =
-        new CaptureEngine(
-                Position.initial(
-                    startScn, new DatabaseIdentity(info.dbid(), info.resetlogsChangeScn())),
-                source,
-                inventory,
-                safeEnd,
-                new HeapTransactionBuffer(),
-                registry,
-                ChangeDecoder.rowDecoder(),
-                sink,
-                new EngineSettings(
-                        Duration.ofSeconds(2),
-                        8,
-                        Duration.ofHours(1),
-                        Duration.ofMillis(50),
-                        3,
-                        CoreConfig.DecodeErrorAction.FAIL)
-                    .withLobs(mode, 1L << 20, true),
-                new OraErrorClassifier(),
-                objects.owners(),
-                objects::owners,
-                cause -> {
-                  throw new SQLException("unexpected reconnect", cause);
-                },
-                Instant::now)
-            .withReselector(new JdbcLobReselector(() -> reselect));
-    configure.accept(engine);
-    long deadline = System.currentTimeMillis() + Duration.ofMinutes(2).toMillis();
-    while (engine.cursor().scn() < end && System.currentTimeMillis() < deadline) {
-      if (engine.runOnce() == CaptureEngine.Progress.IDLE) {
-        Thread.sleep(100);
-      }
-    }
-    inspect.accept(engine);
-    source.close();
-    return committed;
+    sh.oso.connect.oracle.e2e.support.EngineDriver d =
+        new sh.oso.connect.oracle.e2e.support.EngineDriver(
+            meta, mining, reselect, include, startScn, mode);
+    configure.accept(d.engine);
+    d.runTo(end);
+    inspect.accept(d.engine);
+    d.close();
+    return d.committed;
   }
 
   /** Applies a change; a LOB column missing from the after image keeps its previous value. */
