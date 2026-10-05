@@ -215,4 +215,39 @@ class SnapshotCoordinatorTest {
     assertThat(JdbcSnapshotSource.bound(List.of("ID"), List.of("n:9"), false, params))
         .isEqualTo("((\"ID\" < ?))");
   }
+
+  @Test
+  void anUnreadableTableIsSkippedWithAReasonWhenThePolicyAllows() throws Exception {
+    // the reader refuses A's column types before any query, as JdbcSnapshotSource does
+    FakeSnapshotSource refusing =
+        new FakeSnapshotSource() {
+          @Override
+          public List<SnapshotRow> read(
+              TableSchema s, Kind kind, ChunkRange range, long at, String where)
+              throws SQLException {
+            if (s.table().equals(A)) {
+              throw new sh.oso.connect.oracle.core.errors.DecodeException(
+                  "Column OK has type BOOLEAN which the snapshot reader does not support", "x");
+            }
+            return super.read(s, kind, range, at, where);
+          }
+        };
+    refusing.rows(B, 1, 1);
+    c =
+        new SnapshotCoordinator(
+            List.of(A, B),
+            SnapshotProgress.begin(),
+            t -> Optional.of(schema(t)),
+            () -> refusing,
+            new SnapshotCoordinator.Settings(1, 1000, 2, 100, Map.of(), true),
+            metrics,
+            new OraErrorClassifier());
+    c.start();
+    List<SnapshotCoordinator.Batch> all = drain(Long.MAX_VALUE, 2);
+    assertThat(all.get(0).table()).isEqualTo(A);
+    assertThat(all.get(0).skipped()).contains("BOOLEAN");
+    assertThat(all.get(0).tableDone()).isTrue();
+    assertThat(all.get(1).table()).isEqualTo(B);
+    assertThat(all.get(1).chunks().get(0).rows()).hasSize(1);
+  }
 }

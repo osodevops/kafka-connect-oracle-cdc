@@ -426,6 +426,19 @@ public final class RecordQueueSink
   /** The key of the last handled signal's offset in the position's extras. */
   public static final String SIGNAL_OFFSET = "signal_offset";
 
+  /** SRC-SEL-4: new tables waiting for their snapshot, comma-separated, in the extras. */
+  public static final String SNAPSHOT_PENDING = "snapshot_pending";
+
+  /** The tables waiting for a snapshot, as recorded in the offsets from here on. */
+  public synchronized void pendingSnapshot(java.util.Collection<TableId> tables) {
+    String value =
+        tables.isEmpty()
+            ? null
+            : String.join(",", tables.stream().map(TableId::fqn).sorted().toList());
+    base = base.withExtra(SNAPSHOT_PENDING, value);
+    lastEmittedCommit = lastEmittedCommit.withExtra(SNAPSHOT_PENDING, value);
+  }
+
   /** The first snapshot record has gone out (SNAP-8 marks it {@code first}). */
   private boolean snapshotStarted;
 
@@ -482,7 +495,7 @@ public final class RecordQueueSink
       if (b.tableDone()) {
         snapshotProgress = snapshotProgress.advance(b.table(), null);
         carrySnapshot();
-        ops(OpsEvent.Type.SNAPSHOT_COMPLETE, "table", b.table().fqn());
+        ops(OpsEvent.Type.SNAPSHOT_COMPLETE, "table", b.table().fqn(), "skipped", b.skipped());
       }
       lastQueuedAt = now;
     }

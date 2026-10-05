@@ -30,14 +30,20 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `67a878c` | P1-16b schema topic: `SchemaTopicStore` and `SchemaRecords` (compacted `${prefix}.cdc.schema`, one record per table holding its versions, tombstone on drop or rename), loaded at start, SCH-6 check against the dictionary with `CDC-6003` | full gate, connector tier 9 suites plus the two surefire tests, engine tier 39 tests, all green |
 | `07e9ef6` | P1-17 lag case (ADR-0016): STATUS 2 rows with generic names trigger a replay of the step with the redo dictionary from the newest usable build; replayed rows decode with the version valid at their SCN (`SchemaRegistry.at`), rows carry `schemaVersion` and render with it; `TableSchema.exact`; `CDC-6001` when no build or no exact version; scheduled builds (`cdc.dictionary.build.*`) with a build at start when none exists; `dictionary-replay` and `dictionary-build` ops events, `LagReplays` metric | full gate, connector tier 10 suites plus the two surefire tests, engine tier 41 tests, all green |
 | `ca46304` | P1-19 snapshots (ADR-0017): `cdc.snapshot.*` (mode initial by default, none, snapshot_only, on_signal), chunks by key, ROWID or whole table, batches sharing one SCN published in key order with streaming held at an in-flight batch's SCN, a frontier per table in the offset's snapshot block, retries and halving to `CDC-8001`, `op=r` records, snapshot metrics and ops events | full gate, connector tier 11 suites plus the two surefire tests, engine tier 42 tests, all green |
-| next after `ca46304` (hash recorded at the following commit) | P1-20 signals: `cdc.signals.topic` read from `poll()` and handled on the engine thread (`CaptureEngine.submit`); `snapshot` (tables, predicate; records `incremental`), `snapshot-pause`, `snapshot-resume`, `snapshot-stop`, `refresh-tables`, `log-state`; `signal-ack` for each; the last handled signal's offset in the position extras | full gate, connector tier 12 suites plus the two surefire tests, engine tier 42 tests, all green |
+| `8cc2878` | P1-20 signals: `cdc.signals.topic` read from `poll()` and handled on the engine thread (`CaptureEngine.submit`); `snapshot` (tables, predicate; records `incremental`), `snapshot-pause`, `snapshot-resume`, `snapshot-stop`, `refresh-tables`, `log-state`; `signal-ack` for each; the last handled signal's offset in the position extras | full gate, connector tier 12 suites plus the two surefire tests, engine tier 42 tests, all green |
+| next after `8cc2878` (hash recorded at the following commit) | P1-22 new tables and multi-PDB: the JDBC session reports tables a refresh adds or removes; `table-added` and `table-removed` ops events; under `cdc.snapshot.mode=initial` added tables are snapshotted while streaming, pending in the position extras (`snapshot_pending`) until their snapshot starts; `MultiPdbConnectorIT` (FREEPDB1 and FREEPDB2) | full gate, connector tier 13 suites plus the two surefire tests, engine tier 42 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-22 (multi-PDB and new-table detection), section 5.
+Nothing on `main`. Parallel work in worktrees under `../kafka-connect-oracle-cdc-worktrees/`
+(branches from `ca46304` or `8cc2878`, each one commit to review and merge): P1-24 doctor and
+admin (`p1-24-doctor-admin`), P1-25 migration tooling (`p1-25-migration`), P1-27 and P1-29 CI and
+release (`p1-27-29-ci-release`), P1-28 docs (`p1-28-docs`). After merging P1-28, make sure
+`table-added` and `table-removed` are documented as live in the generated ops-topic page (P1-22
+emits them). Next on `main`: P1-26, then P1-30 and P1-31.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -244,6 +250,16 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
   `RecordQueueSink.snapshotStopped`.
 - Signals are off in `snapshot_only` (no engine thread) and without `cdc.kafka.bootstrap.servers`.
 
+### New tables and multi-PDB (P1-22, SRC-SEL-4, ADR-0002)
+
+- `JdbcSession`'s id refresher diffs `objects.tables()` before and after and calls the listener the
+  task registers with `Session.onTablesChanged` (engine thread). The task records added tables as
+  pending (`RecordQueueSink.pendingSnapshot`, extras key `snapshot_pending`), emits the ops events,
+  and `startPendingSnapshot` starts a scoped snapshot when none runs (retried once a second from
+  `poll()`; pending tables in a stored offset start at task start).
+- Multi-PDB routing needed no code change; `MultiPdbConnectorIT` proves it with same-named tables
+  in FREEPDB1 and FREEPDB2.
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -290,10 +306,10 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-20: connector tier 12 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-22: connector tier 13 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-`ExactlyOnce`, `SchemaTopic`, `LagCase`, `Snapshot` with two tests, `Signal`) plus the two surefire
-tests, engine tier 42 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+`ExactlyOnce`, `SchemaTopic`, `LagCase`, `Snapshot` with two tests, `Signal`, `MultiPdb`) plus the
+two surefire tests, engine tier 42 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
@@ -429,14 +445,14 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 - `refresh-tables` re-resolves ids; snapshotting tables it adds belongs to P1-22.
 - The signal topic is read from partition 0 only; `InternalTopics` creates it with one partition.
 
-### P1-22 Multi-PDB and new-table detection (ADR-0002)
+### P1-22 follow-ups
 
-- `cdc.database.pdbs` with several names already resolves objects per container (`ObjectKey`);
-  verify routing with `MultiPdbConnectorIT` that creates and drops `FREEPDB3` (Oracle Free allows
-  three user PDBs). `TopicRouter` uses `SRC_CON_NAME` for the topic.
-- New table detection (SRC-SEL-4): a `CREATE TABLE` matching the include pattern already refreshes
-  ids; add the internal snapshot signal for the new table (needs P1-19), `table-added` and
-  `table-removed` ops events, and `NewTableDetectionConnectorIT`.
+- `CREATE TABLE ... AS SELECT` in one statement loads rows by direct path; whether LogMiner reports
+  them before the DDL row, and as what, is untested. `MultiPdbConnectorIT` uses a separate
+  `INSERT ... SELECT`. Record the facts in a reference spike before relying on it.
+- A table added to the include list by a configuration change is not snapshotted at restart; the
+  operator sends a `snapshot` signal (documented).
+- SRC-SEL-2 `cdc.columns.exclude` (column filters) is not built.
 
 ### P1-24 Doctor full and admin CLI (PRD-05)
 

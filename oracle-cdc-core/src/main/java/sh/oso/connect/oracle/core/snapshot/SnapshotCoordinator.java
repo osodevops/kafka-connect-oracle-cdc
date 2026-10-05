@@ -61,20 +61,35 @@ public final class SnapshotCoordinator implements AutoCloseable {
     SnapshotSource open() throws SQLException;
   }
 
+  /**
+   * {@code skipUnreadable}: a table with a column type the reader cannot read is skipped with a
+   * reason (cdc.on.decode.error=dlq) instead of stopping the snapshot.
+   */
   public record Settings(
       int threads,
       int chunkRows,
       int retries,
       int maxPendingChunks,
-      Map<TableId, String> overrides) {}
+      Map<TableId, String> overrides,
+      boolean skipUnreadable) {
+
+    public Settings(
+        int threads,
+        int chunkRows,
+        int retries,
+        int maxPendingChunks,
+        Map<TableId, String> overrides) {
+      this(threads, chunkRows, retries, maxPendingChunks, overrides, false);
+    }
+  }
 
   /** A chunk and its rows. */
   public record Chunk(ChunkRange range, List<SnapshotRow> rows) {}
 
   /**
    * Chunks of one table read as of {@code scn}, in key order. {@code tableDone}: the table has no
-   * more chunks; {@code last}: no table has. {@code schema} is null for a table that no longer
-   * exists.
+   * more chunks; {@code last}: no table has. {@code skipped}: why the table was not read (it no
+   * longer exists, or a column type cannot be read), with no chunks and a null schema.
    */
   public record Batch(
       TableId table,
@@ -82,7 +97,19 @@ public final class SnapshotCoordinator implements AutoCloseable {
       long scn,
       List<Chunk> chunks,
       boolean tableDone,
-      boolean last) {}
+      boolean last,
+      String skipped) {
+
+    public Batch(
+        TableId table,
+        TableSchema schema,
+        long scn,
+        List<Chunk> chunks,
+        boolean tableDone,
+        boolean last) {
+      this(table, schema, scn, chunks, tableDone, last, null);
+    }
+  }
 
   private final List<TableId> tables;
   private final SnapshotProgress progress;
@@ -243,7 +270,7 @@ public final class SnapshotCoordinator implements AutoCloseable {
     Optional<TableSchema> found = schemas.apply(t);
     if (found.isEmpty()) {
       LOG.info("Snapshot: {} no longer exists; nothing to read", t.fqn());
-      enqueue(new Batch(t, null, 0, List.of(), true, lastTable));
+      enqueue(new Batch(t, null, 0, List.of(), true, lastTable, "the table no longer exists"));
       return planner;
     }
     TableSchema schema = found.get();
@@ -308,6 +335,13 @@ public final class SnapshotCoordinator implements AutoCloseable {
       if (error == null) {
         failures = 0;
         continue;
+      }
+      if (error instanceof sh.oso.connect.oracle.core.errors.DecodeException de
+          && settings.skipUnreadable()
+          && chunks.isEmpty()) {
+        LOG.warn("Snapshot of {} skipped: {}", t.fqn(), de.getMessage());
+        enqueue(new Batch(t, null, 0, List.of(), true, lastTable, de.getMessage()));
+        return planner;
       }
       if (error instanceof OracleCdcException oe) {
         throw oe;

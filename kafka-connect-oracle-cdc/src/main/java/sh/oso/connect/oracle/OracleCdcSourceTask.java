@@ -58,6 +58,11 @@ public class OracleCdcSourceTask extends SourceTask {
   private CaptureEngine engine;
   private sh.oso.connect.oracle.signals.SignalReader signals;
   private long lastSignalPoll;
+
+  /** SRC-SEL-4: tables that joined the captured set and still need their snapshot. */
+  private final java.util.Set<sh.oso.connect.oracle.core.model.TableId> pendingNewTables =
+      java.util.concurrent.ConcurrentHashMap.newKeySet();
+
   private volatile Throwable snapshotOnlyFailure;
   private sh.oso.connect.oracle.schema.SchemaTopicStore schemaStore;
   private javax.management.ObjectName metricsName;
@@ -234,6 +239,14 @@ public class OracleCdcSourceTask extends SourceTask {
       if (progress != null && !progress.complete()) {
         startSnapshot(progress, engine);
       }
+      Object pending = position.extras().get(RecordQueueSink.SNAPSHOT_PENDING);
+      if (pending != null && !pending.toString().isBlank()) {
+        for (String fqn : pending.toString().split(",")) {
+          pendingNewTables.add(tableId(fqn.trim()));
+        }
+        startPendingSnapshot();
+      }
+      session.onTablesChanged(this::tablesChanged);
       if (config.kafkaBootstrapServers() != null
           && snapshotMode != CoreConfig.SnapshotMode.SNAPSHOT_ONLY) {
         java.util.Properties p = config.kafkaClientProperties();
@@ -516,7 +529,8 @@ public class OracleCdcSourceTask extends SourceTask {
                 config.core().getInt(CoreConfig.SNAPSHOT_CHUNK_ROWS),
                 config.core().getInt(CoreConfig.SNAPSHOT_CHUNK_RETRIES),
                 config.core().getInt(CoreConfig.SNAPSHOT_MAX_PENDING_CHUNKS),
-                overrides),
+                overrides,
+                config.core().decodeErrorAction() == CoreConfig.DecodeErrorAction.DLQ),
             engine.metrics(),
             new sh.oso.connect.oracle.core.errors.OraErrorClassifier(
                 java.util.Set.copyOf(config.core().extraRetryErrorCodes())));
@@ -539,7 +553,7 @@ public class OracleCdcSourceTask extends SourceTask {
    * may use the metadata connection and the buffer.
    */
   private void pollSignals() {
-    if (signals == null || engine == null || lifecycle == null) {
+    if (engine == null || lifecycle == null) {
       return;
     }
     long now = System.currentTimeMillis();
@@ -547,6 +561,12 @@ public class OracleCdcSourceTask extends SourceTask {
       return;
     }
     lastSignalPoll = now;
+    if (!pendingNewTables.isEmpty()) {
+      engine.submit(this::startPendingSnapshot); // once the running snapshot has finished
+    }
+    if (signals == null) {
+      return;
+    }
     List<sh.oso.connect.oracle.signals.SignalReader.RawSignal> got;
     try {
       got = signals.poll();
@@ -557,6 +577,78 @@ public class OracleCdcSourceTask extends SourceTask {
     for (sh.oso.connect.oracle.signals.SignalReader.RawSignal r : got) {
       engine.submit(() -> handleSignal(r));
     }
+  }
+
+  /**
+   * SRC-SEL-4, on the engine thread: a refresh of the object ids changed the captured set, after a
+   * CREATE TABLE, DROP TABLE or RENAME, or a refresh-tables signal. A new table may already hold
+   * rows (CREATE TABLE AS SELECT, a rename into the include pattern), so under
+   * cdc.snapshot.mode=initial it is snapshotted while streaming continues; the offsets record it as
+   * pending until its snapshot has started.
+   */
+  private void tablesChanged(
+      java.util.Set<sh.oso.connect.oracle.core.model.TableId> added,
+      java.util.Set<sh.oso.connect.oracle.core.model.TableId> removed) {
+    if (config.core().snapshotMode() == CoreConfig.SnapshotMode.INITIAL) {
+      sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl cause = engine.refreshCause();
+      for (sh.oso.connect.oracle.core.model.TableId t : added) {
+        if (!createdEmpty(cause, t)) {
+          pendingNewTables.add(t);
+        }
+      }
+      pendingNewTables.removeAll(removed);
+      sink.pendingSnapshot(pendingNewTables);
+    }
+    for (sh.oso.connect.oracle.core.model.TableId t : removed) {
+      sink.ops(sh.oso.connect.oracle.ops.OpsEvent.Type.TABLE_REMOVED, "table", t.fqn());
+    }
+    for (sh.oso.connect.oracle.core.model.TableId t : added) {
+      sink.ops(
+          sh.oso.connect.oracle.ops.OpsEvent.Type.TABLE_ADDED,
+          "table",
+          t.fqn(),
+          "snapshot",
+          Boolean.toString(pendingNewTables.contains(t)));
+    }
+    startPendingSnapshot();
+  }
+
+  /**
+   * A plain CREATE TABLE of {@code t} (not CREATE TABLE ... AS SELECT) made the table empty, and
+   * streaming has captured it since that DDL: nothing to snapshot.
+   */
+  static boolean createdEmpty(
+      sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl cause,
+      sh.oso.connect.oracle.core.model.TableId t) {
+    if (cause == null
+        || cause.sql() == null
+        || !t.table().equalsIgnoreCase(cause.objectName())
+        || !t.schema().equalsIgnoreCase(cause.owner())) {
+      return false;
+    }
+    String sql = cause.sql();
+    return sql.matches("(?is)\\s*CREATE\\s+(GLOBAL\\s+TEMPORARY\\s+)?TABLE\\b.*")
+        && !sql.matches("(?is).*\\bAS\\s*\\(?\\s*(SELECT|WITH)\\b.*");
+  }
+
+  /** Starts a snapshot of the pending new tables unless another snapshot is running. */
+  private void startPendingSnapshot() {
+    if (pendingNewTables.isEmpty() || sink.snapshotRunning()) {
+      return;
+    }
+    List<sh.oso.connect.oracle.core.model.TableId> tables =
+        new java.util.ArrayList<>(pendingNewTables);
+    startSnapshot(
+        sh.oso.connect.oracle.core.snapshot.SnapshotProgress.scoped(tables, null), engine);
+    pendingNewTables.removeAll(tables);
+    sink.pendingSnapshot(pendingNewTables);
+  }
+
+  private static sh.oso.connect.oracle.core.model.TableId tableId(String fqn) {
+    String[] p = fqn.split("\\.");
+    return p.length == 3
+        ? new sh.oso.connect.oracle.core.model.TableId(p[0], p[1], p[2])
+        : new sh.oso.connect.oracle.core.model.TableId(null, p[0], p[1]);
   }
 
   /** On the engine thread: one signal, ending in a signal-ack ops event (SRC-SIG-3). */

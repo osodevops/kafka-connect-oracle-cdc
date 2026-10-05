@@ -821,4 +821,100 @@ class OracleCdcSourceTaskTest {
       assertThat(logState).containsKeys("mined_to_scn", "open_transactions", "largest");
     }
   }
+
+  @Test
+  void aTableThatJoinsTheCapturedSetIsAnnouncedAndSnapshottedWithoutARestart() throws Exception {
+    // SRC-SEL-4: a CREATE TABLE AS SELECT arrives with rows; they are snapshotted, then streamed
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.SNAPSHOT_MODE, "initial");
+      TableId fresh = new TableId("FREEPDB1", "APP", "NEW_T");
+      h.dictionary.put(
+          fresh,
+          new sh.oso.connect.oracle.core.schema.TableSchema(
+              fresh,
+              TaskHarness.tableSchema().columns(),
+              List.of("ID"),
+              sh.oso.connect.oracle.core.schema.KeySource.PRIMARY_KEY,
+              true,
+              false));
+      h.snapshots.rows(TaskHarness.T, 1, 1).rows(fresh, 1, 2).scn = 1000;
+      h.onRefresh =
+          () -> {
+            h.captured = List.of(TaskHarness.T, fresh);
+            h.tablesListener.accept(java.util.Set.of(fresh), java.util.Set.of());
+          };
+      TxKey d = h.fake.tx(1, 1, 1);
+      h.fake.ddl(d, fresh, 4242, "CREATE TABLE new_t AS SELECT * FROM orders").commit(d);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> all = h.pollUntil(30, 6000, true);
+      assertThat(all.stream().filter(TaskHarness::isOps).map(TaskHarness::opsType))
+          .contains("table-added");
+      SourceRecord added =
+          all.stream()
+              .filter(r -> TaskHarness.isOps(r) && TaskHarness.opsType(r).equals("table-added"))
+              .findFirst()
+              .orElseThrow();
+      assertThat(TaskHarness.opsDetails(added))
+          .containsEntry("table", "FREEPDB1.APP.NEW_T")
+          .containsEntry("snapshot", "true");
+      assertThat(PositionCodec.read(added.sourceOffset()).extras())
+          .as("pending until its snapshot starts, so a crash cannot lose it")
+          .containsKey("snapshot_pending");
+      List<String> rows =
+          all.stream()
+              .filter(TaskHarness::isSnapshot)
+              .map(r -> r.topic().replaceAll(".*\\.", "") + ":" + TaskHarness.sql(r))
+              .toList();
+      assertThat(rows).containsExactly("ORDERS:r:row1", "NEW_T:r:row1", "NEW_T:r:row2");
+    }
+  }
+
+  @Test
+  void onlyACreateTableWithoutRowsSkipsTheNewTablesSnapshot() {
+    TableId t = new TableId("FREEPDB1", "APP", "NEW_T");
+    java.util.function.Function<String, sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl>
+        ddl =
+            sql ->
+                new sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl(
+                    new TxKey(3, new sh.oso.connect.oracle.core.model.Xid(1, 1, 1)),
+                    new sh.oso.connect.oracle.core.model.RedoRecordId(1, "0x1", 0),
+                    1,
+                    "FREEPDB1",
+                    "APP",
+                    "NEW_T",
+                    1,
+                    1,
+                    sql,
+                    "APP",
+                    0,
+                    null,
+                    java.time.Instant.EPOCH);
+    assertThat(OracleCdcSourceTask.createdEmpty(ddl.apply("CREATE TABLE new_t (id NUMBER)"), t))
+        .isTrue();
+    assertThat(
+            OracleCdcSourceTask.createdEmpty(
+                ddl.apply("create table new_t (id number, v number generated always as (id * 2))"),
+                t))
+        .as("a virtual column is not a query")
+        .isTrue();
+    assertThat(
+            OracleCdcSourceTask.createdEmpty(
+                ddl.apply("CREATE TABLE new_t AS SELECT * FROM orders"), t))
+        .isFalse();
+    assertThat(
+            OracleCdcSourceTask.createdEmpty(
+                ddl.apply("create table new_t (id) as\n(select id from orders)"), t))
+        .isFalse();
+    assertThat(
+            OracleCdcSourceTask.createdEmpty(
+                ddl.apply(
+                    "CREATE TABLE new_t AS WITH x AS (SELECT 1 id FROM dual) SELECT * FROM x"),
+                t))
+        .isFalse();
+    assertThat(OracleCdcSourceTask.createdEmpty(ddl.apply("ALTER TABLE x RENAME TO new_t"), t))
+        .as("a rename brings its rows")
+        .isFalse();
+    assertThat(OracleCdcSourceTask.createdEmpty(null, t)).as("a refresh by signal").isFalse();
+  }
 }

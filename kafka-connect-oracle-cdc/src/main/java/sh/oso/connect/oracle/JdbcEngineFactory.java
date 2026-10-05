@@ -90,6 +90,19 @@ public final class JdbcEngineFactory implements EngineFactory {
     private final int inlistMax;
     private final List<AutoCloseable> closeables = new ArrayList<>();
     private volatile sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler builds;
+    private volatile java.util.function.BiConsumer<
+            Set<sh.oso.connect.oracle.core.model.TableId>,
+            Set<sh.oso.connect.oracle.core.model.TableId>>
+        tablesChanged = (added, removed) -> {};
+
+    @Override
+    public void onTablesChanged(
+        java.util.function.BiConsumer<
+                Set<sh.oso.connect.oracle.core.model.TableId>,
+                Set<sh.oso.connect.oracle.core.model.TableId>>
+            listener) {
+      this.tablesChanged = listener;
+    }
 
     JdbcSession(
         OracleCdcSourceConnectorConfig config,
@@ -208,6 +221,7 @@ public final class JdbcEngineFactory implements EngineFactory {
               classifier,
               objects.owners(),
               () -> {
+                Set<sh.oso.connect.oracle.core.model.TableId> before = objects.tables();
                 objects = resolver.resolve();
                 source.update(objects, objects.filter(excludedUsers, inlistMax));
                 LOG.info(
@@ -215,6 +229,15 @@ public final class JdbcEngineFactory implements EngineFactory {
                     objects.tables().size(),
                     objects.objectCount(),
                     objects.owners());
+                Set<sh.oso.connect.oracle.core.model.TableId> added =
+                    new java.util.LinkedHashSet<>(objects.tables());
+                added.removeAll(before);
+                Set<sh.oso.connect.oracle.core.model.TableId> removed =
+                    new java.util.LinkedHashSet<>(before);
+                removed.removeAll(objects.tables());
+                if (!added.isEmpty() || !removed.isEmpty()) {
+                  tablesChanged.accept(added, removed);
+                }
                 return objects.owners();
               },
               cause -> {

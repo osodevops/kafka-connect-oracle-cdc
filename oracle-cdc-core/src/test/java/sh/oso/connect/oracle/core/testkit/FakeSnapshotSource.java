@@ -37,7 +37,7 @@ import sh.oso.connect.oracle.core.snapshot.SnapshotSource;
  * #chunkSize} rows, an SCN that moves on with every batch, recorded reads and injectable read
  * faults. Every "connection" is this one instance.
  */
-public final class FakeSnapshotSource implements SnapshotSource {
+public class FakeSnapshotSource implements SnapshotSource {
 
   public final Map<TableId, NavigableMap<BigDecimal, Map<String, Object>>> tables =
       new ConcurrentHashMap<>();

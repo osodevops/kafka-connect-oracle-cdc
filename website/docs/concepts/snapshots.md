@@ -68,5 +68,9 @@ metrics, show progress.
 - A keyless table with row movement enabled can have rows that move between ROWID ranges during the
   snapshot; `oracle-cdc-doctor` warns about such tables.
 - Partitions are read through the table's key or ROWID ranges, not one partition at a time.
-- Tables that start matching `cdc.tables.include` after the first start are streamed but not
-  snapshotted.
+- Columns of type BOOLEAN, JSON, VECTOR or BFILE have no record mapping yet. A table with one stops
+  the snapshot with `CDC-3001`, or with `cdc.on.decode.error=dlq` is skipped with a
+  `snapshot-complete` event whose `skipped` detail gives the reason.
+- A table added to `cdc.tables.include` by a configuration change is streamed from the restart
+  but not snapshotted; send a `snapshot` signal for it. Tables that appear while the connector runs
+  are snapshotted (see [multi-PDB capture](multi-pdb.md)).

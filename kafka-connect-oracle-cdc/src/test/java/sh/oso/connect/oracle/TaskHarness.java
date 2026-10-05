@@ -102,7 +102,14 @@ final class TaskHarness implements AutoCloseable {
   final sh.oso.connect.oracle.core.testkit.FakeSnapshotSource snapshots =
       new sh.oso.connect.oracle.core.testkit.FakeSnapshotSource();
 
-  List<TableId> captured = List.of(T);
+  volatile List<TableId> captured = List.of(T);
+
+  /** Runs on the engine thread when the ids are refreshed (after a CREATE TABLE in the fake). */
+  volatile Runnable onRefresh;
+
+  /** What the session reports to the task when the captured set changes (SRC-SEL-4). */
+  volatile java.util.function.BiConsumer<java.util.Set<TableId>, java.util.Set<TableId>>
+      tablesListener;
 
   /** The signal topic as Kafka would hold it; offsets are list positions. */
   final List<sh.oso.connect.oracle.signals.SignalReader.RawSignal> signalTopic =
@@ -218,6 +225,11 @@ final class TaskHarness implements AutoCloseable {
             return captured;
           }
 
+          public void onTablesChanged(
+              java.util.function.BiConsumer<java.util.Set<TableId>, java.util.Set<TableId>> l) {
+            tablesListener = l;
+          }
+
           public sh.oso.connect.oracle.core.snapshot.SnapshotSource openSnapshotSource() {
             return snapshots;
           }
@@ -255,7 +267,12 @@ final class TaskHarness implements AutoCloseable {
                     EngineSettings.from(cfg.core()).maxAgeAction()),
                 new OraErrorClassifier(),
                 Set.of("APP"),
-                () -> Set.of("APP"),
+                () -> {
+                  if (onRefresh != null) {
+                    onRefresh.run();
+                  }
+                  return Set.of("APP");
+                },
                 cause ->
                     new CaptureEngine.Sources(
                         fake,

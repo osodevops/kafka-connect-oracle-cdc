@@ -53,6 +53,16 @@ public interface EngineFactory {
      * PRD-03 section 3 step 5: starts the scheduled dictionary builds when they are configured;
      * closing the session stops them.
      */
+    /**
+     * SRC-SEL-4: {@code listener} hears, on the engine thread, which tables a refresh of the object
+     * ids added to or removed from the captured set.
+     */
+    default void onTablesChanged(
+        java.util.function.BiConsumer<
+                java.util.Set<sh.oso.connect.oracle.core.model.TableId>,
+                java.util.Set<sh.oso.connect.oracle.core.model.TableId>>
+            listener) {}
+
     /** The captured tables the engine resolved; valid once {@link #engine} has run. */
     default java.util.List<sh.oso.connect.oracle.core.model.TableId> capturedTables() {
       return java.util.List.of();

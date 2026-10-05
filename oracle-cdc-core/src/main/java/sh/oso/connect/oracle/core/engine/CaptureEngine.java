@@ -194,6 +194,16 @@ public final class CaptureEngine {
     actions.add(action);
   }
 
+  private volatile MiningEvent.Ddl refreshCause;
+
+  /**
+   * During a refresh of the object ids after a DDL step cut, the DDL that caused it; null during a
+   * refresh asked for by a signal or outside a refresh (SRC-SEL-4).
+   */
+  public MiningEvent.Ddl refreshCause() {
+    return refreshCause;
+  }
+
   /** SRC-SIG-1 refresh-tables: the object ids are re-resolved before the next step. */
   public void requestRefresh() {
     pendingRefresh = true;
@@ -310,7 +320,16 @@ public final class CaptureEngine {
     metrics.minedToScn.set(cursor.scn());
     if (outcome.kind() == StepOutcome.Kind.CUT) {
       metrics.stepCuts.incrementAndGet();
-      refreshIds();
+      java.util.List<MiningEvent> events = outcome.events();
+      refreshCause =
+          events.isEmpty() || !(events.get(events.size() - 1) instanceof MiningEvent.Ddl d)
+              ? null
+              : d;
+      try {
+        refreshIds();
+      } finally {
+        refreshCause = null;
+      }
     } else {
       scheduler.stepCompleted(elapsed);
     }

@@ -304,6 +304,7 @@ public final class JdbcSnapshotSource implements SnapshotSource {
     return switch (col.type()) {
       case DATE, TIMESTAMP, TIMESTAMP_TZ, TIMESTAMP_LTZ, INTERVAL_YM, INTERVAL_DS ->
           "TO_CHAR(" + q + ")";
+      case XMLTYPE -> "XMLSERIALIZE(CONTENT " + q + " AS CLOB)"; // text, as the stream has it
       case VARCHAR2,
           CHAR,
           NVARCHAR2,
@@ -328,7 +329,8 @@ public final class JdbcSnapshotSource implements SnapshotSource {
                   + " has type "
                   + col.typeText()
                   + " which the snapshot reader does not support",
-              "Exclude the column's table, or wait for a release that supports the type (DOC-5).");
+              "Exclude the table, or set cdc.on.decode.error=dlq to skip its snapshot with an ops"
+                  + " event (DOC-5).");
     };
   }
 
@@ -372,6 +374,7 @@ public final class JdbcSnapshotSource implements SnapshotSource {
       case LONG_RAW:
         return rs.getBytes(i);
       case CLOB:
+      case XMLTYPE:
         return lob(rs.getString(i), col);
       case NCLOB:
         return lob(rs.getNString(i), col);
