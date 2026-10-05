@@ -45,3 +45,8 @@ consume: ## TOPIC=cdc.FREEPDB1.WORKLOAD.ORDERS make consume
 
 oracle-sql: ## open sqlplus as the capture user at CDB$ROOT
 	docker exec -it oracle-cdc-lab-oracle sqlplus 'c##cdc/cdc@//localhost:1521/FREE'
+
+check: ## run the correctness oracle against the compose stack (after a bench workload)
+	java -jar $(REPO_ROOT)/bench/target/bench-*-cli.jar check --bootstrap-servers localhost:9092 \
+	  --url jdbc:oracle:thin:@//localhost:1521/FREEPDB1 --user workload --password workload \
+	  --topic-prefix cdc --pdb FREEPDB1 --tables WL_T1,WL_T2,WL_T3 --out /tmp/oracle-cdc-evidence.json
