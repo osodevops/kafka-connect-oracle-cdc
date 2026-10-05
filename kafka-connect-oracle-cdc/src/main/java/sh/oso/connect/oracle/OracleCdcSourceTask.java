@@ -70,6 +70,7 @@ public class OracleCdcSourceTask extends SourceTask {
   private sh.oso.connect.oracle.delivery.EosBoundaries boundaries;
   private final AckTracker acks = new AckTracker();
   private volatile Position startPosition;
+  private TopicRouter router;
 
   public OracleCdcSourceTask() {
     this(new JdbcEngineFactory());
@@ -150,7 +151,7 @@ public class OracleCdcSourceTask extends SourceTask {
         position = position.withSnapshot(progress.toMap());
       }
       startPosition = position;
-      TopicRouter router =
+      router =
           new TopicRouter(
               config.topicTemplate(session.cdb()), config.topicPrefix(), session.databaseName());
       DebeziumEnvelope envelope = new DebeziumEnvelope(config, router, session.databaseName());
@@ -218,6 +219,11 @@ public class OracleCdcSourceTask extends SourceTask {
           "version",
           Version.VERSION);
       CaptureEngine engine = session.engine(position, sink, bufferSetup);
+      // CDC-6004: captured tables that share a topic only because of sanitising stop the task
+      // here, before a record of either is built
+      for (sh.oso.connect.oracle.core.model.TableId t : session.capturedTables()) {
+        router.topic(t);
+      }
       checkExcludedColumns();
       RecordQueueSink opsSink = sink;
       session.startDictionaryBuilds(
@@ -621,6 +627,9 @@ public class OracleCdcSourceTask extends SourceTask {
   private void tablesChanged(
       java.util.Set<sh.oso.connect.oracle.core.model.TableId> added,
       java.util.Set<sh.oso.connect.oracle.core.model.TableId> removed) {
+    // CDC-6004 for a table that joins: checked before any of its records is built
+    removed.forEach(router::release);
+    added.forEach(router::topic);
     if (config.core().snapshotMode() == CoreConfig.SnapshotMode.INITIAL) {
       sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl cause = engine.refreshCause();
       for (sh.oso.connect.oracle.core.model.TableId t : added) {

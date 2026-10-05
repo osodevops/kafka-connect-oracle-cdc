@@ -22,6 +22,13 @@ otherwise, where the prefix is `cdc.topic.prefix`. Characters Kafka does not all
 become underscores. For example, table `APP.ORDERS` in `FREEPDB1` with prefix `cdc` goes to
 `cdc.FREEPDB1.APP.ORDERS`.
 
+If that replacement alone would send two tables to one topic, for example `APP.ORDER#` and
+`APP.ORDER$` (both `cdc.FREEPDB1.APP.ORDER_`), the task stops with
+[CDC-6004](../operations/runbooks/name-collision.md) before it publishes a record of the second
+table, because equal keys of the two tables would overwrite each other on a compacted topic. A
+template that sends several tables to one topic on purpose, by leaving out `${table}` or
+`${schema}`, is not affected.
+
 ## Key
 
 The record key is a struct named `<prefix>.<pdb>.<schema>.<table>.Key` (without the PDB part in a
@@ -175,6 +182,51 @@ finds one at start, or after a DDL that moves the key onto an excluded column, s
 Changing the patterns takes effect at the next task start; records already in Kafka are not
 rewritten. A transaction restored from the journal written before a column was excluded can still
 hold that column's values until it commits, but its records are built without the column.
+
+## Avro and other strict naming rules
+
+The names in a record come from Oracle and from the configuration: the key, value and envelope
+schema names are built from `cdc.topic.prefix`, the PDB, the owner and the table, and the row and
+key field names are the column names. Oracle allows `$` and `#` in unquoted names and almost
+anything in quoted ones (lower case, spaces, slashes), and a topic prefix may contain a hyphen.
+Avro allows only letters, digits and underscores in each dot-separated part of a name, and no
+digit at the start, so a worker with an Avro converter fails the task on such a table. Two
+settings adjust the names. Names change only when a mode is set: with the default, `none`, every
+name is exactly as Oracle and the configuration give it.
+
+| Mode | What it does | `my-cdc`, `ORDER#`, `1ST`, `ORDER_LINES` become |
+|---|---|---|
+| `none` (default) | Names are used as they are | unchanged |
+| `avro` | Each character that is not a letter, a digit or an underscore becomes an underscore; a part that starts with a digit gets an underscore in front | `my_cdc`, `ORDER_`, `_1ST`, `ORDER_LINES` |
+| `avro_unicode` | Each such character, and the underscore itself, becomes `_u` and the four hexadecimal digits of its UTF-16 code unit; a leading digit is written the same way | `my_u002dcdc`, `ORDER_u0023`, `_u0031ST`, `ORDER_u005fLINES` |
+
+- `cdc.schema.name.adjustment.mode` applies to each dot-separated part of the per-table schema
+  names (`.Key`, `.Value`, `.Envelope`). With `avro`, table `APP.ORDER#` in `FREEPDB1` and prefix
+  `my-cdc` gives `my_cdc.FREEPDB1.APP.ORDER_.Value`. The fixed names, such as
+  `io.debezium.connector.oracle.Source`, `event.block` and the `io.debezium.time` semantic types,
+  are already valid and never change.
+- `cdc.field.name.adjustment.mode` applies to the key and value fields taken from columns: with
+  `avro`, column `AMOUNT$` becomes field `AMOUNT_`. The envelope's own fields (`before`, `after`,
+  `source`, `op`, `ts_ms` and the rest), the source block and the transaction block keep their
+  names. A field still carries the value of its own column, in `before`, `after` and the key alike.
+  Excluded columns have no field, so the adjustment applies to the columns that remain.
+
+Topic names do not change with these settings: they follow `cdc.topic.template` and the topic
+rules above. The values match Debezium's `schema.name.adjustment.mode` and
+`field.name.adjustment.mode`; `avro` field names match Debezium 1.x `sanitize.field.names=true`.
+
+`avro` can map two names to one. If two columns of a table would become the same field (`AMOUNT#`
+and `AMOUNT$`, or `AMOUNT$` next to an existing `AMOUNT_`), the task stops with
+[CDC-6004](../operations/runbooks/name-collision.md) before it writes a record of that table, rather
+than let one value overwrite the other. `avro_unicode` never maps two names to one, at the price of
+less readable names: every underscore becomes `_u005f`.
+
+Schema Registry subjects follow the adjusted names wherever the subject comes from the record name
+(`RecordNameStrategy`, `TopicRecordNameStrategy`); with the default `TopicNameStrategy` the subject
+follows the topic, and the schema registered under it carries the adjusted names. Changing a mode
+on a running connector therefore changes the schemas registered from then on, and Avro treats a
+renamed record or field as a different one, so choose the modes before the first record or plan
+the change as a change of record format.
 
 ## LOB columns
 

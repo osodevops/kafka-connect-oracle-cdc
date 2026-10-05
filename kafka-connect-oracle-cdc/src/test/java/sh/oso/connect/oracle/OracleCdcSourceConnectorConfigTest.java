@@ -175,4 +175,25 @@ public class OracleCdcSourceConnectorConfigTest {
         .hasMessageContaining("FREEPDB1.APP.CUSTOMERS.SSN")
         .hasMessageContaining("key column cannot be excluded");
   }
+
+  @Test
+  void nameAdjustmentModesDefaultToNoneAndAcceptOnlyTheThreeValues() {
+    OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(minimal());
+    assertThat(c.schemaNameAdjustment())
+        .isEqualTo(sh.oso.connect.oracle.envelope.NameAdjustment.NONE);
+    assertThat(c.fieldNameAdjustment())
+        .isEqualTo(sh.oso.connect.oracle.envelope.NameAdjustment.NONE);
+    Map<String, String> p = minimal();
+    p.put(OracleCdcSourceConnectorConfig.SCHEMA_NAME_ADJUSTMENT_MODE, "AVRO");
+    p.put(OracleCdcSourceConnectorConfig.FIELD_NAME_ADJUSTMENT_MODE, "avro_unicode");
+    OracleCdcSourceConnectorConfig set = new OracleCdcSourceConnectorConfig(p);
+    assertThat(set.schemaNameAdjustment())
+        .isEqualTo(sh.oso.connect.oracle.envelope.NameAdjustment.AVRO);
+    assertThat(set.fieldNameAdjustment())
+        .isEqualTo(sh.oso.connect.oracle.envelope.NameAdjustment.AVRO_UNICODE);
+    p.put(OracleCdcSourceConnectorConfig.FIELD_NAME_ADJUSTMENT_MODE, "unicode");
+    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(p))
+        .isInstanceOf(ConfigException.class)
+        .hasMessageContaining(OracleCdcSourceConnectorConfig.FIELD_NAME_ADJUSTMENT_MODE);
+  }
 }

@@ -60,6 +60,18 @@
       <groupId>ch.qos.logback</groupId>
       <artifactId>logback-classic</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.apache.avro</groupId>
+      <artifactId>avro</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.apicurio</groupId>
+      <artifactId>apicurio-registry-utils-converter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.apicurio</groupId>
+      <artifactId>apicurio-registry-serde-common-avro</artifactId>
+    </dependency>
   </dependencies>
 
   <build>

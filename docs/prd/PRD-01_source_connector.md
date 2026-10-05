@@ -141,6 +141,8 @@ Structured JSON events: `startup`, `position-committed` (sampled), `log-switch-d
 | `cdc.decimal.mode` | enum | `precise` | Numeric mapping |
 | `cdc.decimal.default.scale` | int | 127 | Scale for unconstrained NUMBER in Confluent format |
 | `cdc.temporal.mode` | enum | `adaptive` | Temporal mapping |
+| `cdc.schema.name.adjustment.mode` | enum | `none` | `none`, `avro`, `avro_unicode` (ADR-0020) |
+| `cdc.field.name.adjustment.mode` | enum | `none` | `none`, `avro`, `avro_unicode` (ADR-0020) |
 | `cdc.temporal.timezone` | string | UTC | DATE and TIMESTAMP zone |
 | `cdc.temporal.date.mode` | enum | `timestamp` | `date` or `timestamp` for DATE columns |
 | `cdc.binary.mode` | enum | `bytes` | Binary mapping |

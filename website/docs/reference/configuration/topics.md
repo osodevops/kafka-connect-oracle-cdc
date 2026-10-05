@@ -11,7 +11,7 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | Property | Type | Default | Importance | Description |
 |---|---|---|---|---|
 | `cdc.topic.prefix` | string | required | high | Prefix of every topic this connector writes; also the logical server name in the Debezium-compatible envelope and the offset partition. |
-| `cdc.topic.template` | string | none | medium | Topic name template. Variables: $\{prefix\}, $\{pdb\}, $\{schema\}, $\{table\}, $\{database\}. Default $\{prefix\}.$\{pdb\}.$\{schema\}.$\{table\} in a CDB and $\{prefix\}.$\{schema\}.$\{table\} otherwise. Characters Kafka does not allow become underscores. |
+| `cdc.topic.template` | string | none | medium | Topic name template. Variables: $\{prefix\}, $\{pdb\}, $\{schema\}, $\{table\}, $\{database\}. Default $\{prefix\}.$\{pdb\}.$\{schema\}.$\{table\} in a CDB and $\{prefix\}.$\{schema\}.$\{table\} otherwise. Characters Kafka does not allow become underscores. Tables the template names differently that end up on one topic only through that replacement (APP.ORDER# and APP.ORDER$ both become ORDER_) stop the task with CDC-6004 before either is published; a template that leaves out $\{table\} or $\{schema\} on purpose is not affected. |
 | `cdc.tables.include` | list | required | high | Comma-separated regular expressions over PDB.SCHEMA.TABLE (CDB) or SCHEMA.TABLE (non-CDB) selecting the tables to capture. |
 | `cdc.tables.exclude` | list | empty | medium | Comma-separated regular expressions removing tables from the included set. |
 | `cdc.tables.case.sensitive` | boolean | `false` | low | Match table and column patterns case-sensitively. Oracle stores unquoted names in upper case. |

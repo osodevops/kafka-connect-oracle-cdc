@@ -29,6 +29,7 @@ import org.apache.kafka.connect.source.SourceRecord;
 import sh.oso.connect.oracle.OracleCdcSourceConnectorConfig;
 import sh.oso.connect.oracle.Version;
 import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
+import sh.oso.connect.oracle.core.errors.NameCollisionException;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.position.Position;
@@ -44,7 +45,9 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  * create. Every record carries the offset a restart may use once that record is acknowledged.
  * Records and their Connect schemas are built from the table's layout without the columns {@code
  * cdc.columns.exclude} names (SRC-SEL-2), so an excluded column has no field even when a change
- * restored from an older journal still carries it.
+ * restored from an older journal still carries it. With {@code cdc.schema.name.adjustment.mode} or
+ * {@code cdc.field.name.adjustment.mode} set, per-table schema names and column field names are
+ * adjusted ({@link NameAdjustment}); values are still looked up by the column's own name.
  */
 public final class DebeziumEnvelope {
 
@@ -61,8 +64,19 @@ public final class DebeziumEnvelope {
   private final sh.oso.connect.oracle.core.config.CoreConfig.LobMode lobMode;
   private final String placeholder;
   private final sh.oso.connect.oracle.core.schema.ColumnFilter excluded;
+  private final NameAdjustment schemaNames;
+  private final NameAdjustment fieldNames;
 
-  record Schemas(Schema key, Schema value, Schema envelope, List<ColumnSpec> keyColumns) {}
+  /**
+   * The Connect schemas of one table version; {@code columns} maps each key and value field name to
+   * its column, whose own name keys the decoded images.
+   */
+  record Schemas(
+      Schema key,
+      Schema value,
+      Schema envelope,
+      List<ColumnSpec> keyColumns,
+      Map<String, ColumnSpec> columns) {}
 
   public DebeziumEnvelope(
       OracleCdcSourceConnectorConfig config, TopicRouter router, String databaseName) {
@@ -73,6 +87,8 @@ public final class DebeziumEnvelope {
     this.partition = Map.of("server", config.topicPrefix());
     this.lobMode = config.core().lobMode();
     this.excluded = config.columnFilter();
+    this.schemaNames = config.schemaNameAdjustment();
+    this.fieldNames = config.fieldNameAdjustment();
     this.placeholder =
         config
             .core()
@@ -361,9 +377,9 @@ public final class DebeziumEnvelope {
     }
     Struct v = new Struct(s.value());
     for (org.apache.kafka.connect.data.Field f : s.value().fields()) {
-      ColumnSpec col = columnOf(s, f.name());
-      if (image.containsKey(f.name())) {
-        v.put(f, types.value(col, f.schema(), image.get(f.name())));
+      ColumnSpec col = s.columns().get(f.name());
+      if (image.containsKey(col.name())) {
+        v.put(f, types.value(col, f.schema(), image.get(col.name())));
       } else if (col.type().isLob()) {
         // SRC-LOB-1: a LOB the redo did not carry (or too large) is unavailable, not null
         v.put(
@@ -383,19 +399,13 @@ public final class DebeziumEnvelope {
     }
     Struct k = new Struct(s.key());
     for (org.apache.kafka.connect.data.Field f : s.key().fields()) {
-      if (!image.containsKey(f.name())) {
+      ColumnSpec col = s.columns().get(f.name());
+      if (!image.containsKey(col.name())) {
         return null; // partial image without the key: no key
       }
-      ColumnSpec col = columnOf(s, f.name());
-      k.put(f, types.value(col, f.schema(), image.get(f.name())));
+      k.put(f, types.value(col, f.schema(), image.get(col.name())));
     }
     return k;
-  }
-
-  private final Map<Schemas, Map<String, ColumnSpec>> columnIndex = new HashMap<>();
-
-  private ColumnSpec columnOf(Schemas s, String name) {
-    return columnIndex.get(s).get(name);
   }
 
   private Object keyOf(Schemas s, TableSchema schema, RowChange change, Map<String, Object> image) {
@@ -419,16 +429,19 @@ public final class DebeziumEnvelope {
             + t.schema()
             + "."
             + t.table();
-    SchemaBuilder value = SchemaBuilder.struct().name(base + ".Value").optional();
-    Map<String, ColumnSpec> byName = new HashMap<>();
+    SchemaBuilder value =
+        SchemaBuilder.struct().name(schemaNames.fullName(base + ".Value")).optional();
+    // field name to column; a collision stops the task before the table's first record (CDC-6004)
+    Map<String, ColumnSpec> byField = new HashMap<>();
     for (ColumnSpec c : schema.columns()) {
       if (c.type().isLob()
           && lobMode == sh.oso.connect.oracle.core.config.CoreConfig.LobMode.SKIP) {
         continue; // SRC-LOB-1: cdc.lob.mode=skip leaves LOB columns out of the records
       }
+      String field = claimField(byField, t, c);
       // value fields are optional: a partial before image (primary-key-only logging) omits columns
       value.field(
-          c.name(),
+          field,
           types.schema(
               new ColumnSpec(
                   c.name(),
@@ -439,21 +452,23 @@ public final class DebeziumEnvelope {
                   c.precision(),
                   c.scale(),
                   true)));
-      byName.put(c.name(), c);
     }
     Schema valueSchema = value.build();
     Schema keySchema = null;
     List<ColumnSpec> keyCols = new ArrayList<>();
     if (schema.keySource() == KeySource.ROWID) {
       keySchema =
-          SchemaBuilder.struct().name(base + ".Key").field("ROWID", Schema.STRING_SCHEMA).build();
+          SchemaBuilder.struct()
+              .name(schemaNames.fullName(base + ".Key"))
+              .field("ROWID", Schema.STRING_SCHEMA)
+              .build();
     } else if (!schema.keyColumns().isEmpty()) {
-      SchemaBuilder key = SchemaBuilder.struct().name(base + ".Key");
+      SchemaBuilder key = SchemaBuilder.struct().name(schemaNames.fullName(base + ".Key"));
       for (String k : schema.keyColumns()) {
         ColumnSpec c = schema.column(k);
         keyCols.add(c);
         key.field(
-            c.name(),
+            claimField(byField, t, c),
             types.schema(
                 new ColumnSpec(
                     c.name(),
@@ -469,7 +484,7 @@ public final class DebeziumEnvelope {
     }
     Schema envelope =
         SchemaBuilder.struct()
-            .name(base + ".Envelope")
+            .name(schemaNames.fullName(base + ".Envelope"))
             .version(1)
             .field("before", valueSchema)
             .field("after", valueSchema)
@@ -480,9 +495,39 @@ public final class DebeziumEnvelope {
             .field("ts_ns", Schema.OPTIONAL_INT64_SCHEMA)
             .field("transaction", transactionSchema)
             .build();
-    Schemas s = new Schemas(keySchema, valueSchema, envelope, keyCols);
+    Schemas s = new Schemas(keySchema, valueSchema, envelope, keyCols, Map.copyOf(byField));
     cache.put(schema, s);
-    columnIndex.put(s, byName);
     return s;
+  }
+
+  /**
+   * The field name of column {@code c}, recorded in {@code byField}. Two columns whose names adjust
+   * to the same field would overwrite each other's values, so that stops the task.
+   */
+  private String claimField(Map<String, ColumnSpec> byField, TableId t, ColumnSpec c) {
+    String field = fieldNames.simpleName(c.name());
+    ColumnSpec held = byField.putIfAbsent(field, c);
+    if (held != null && !held.name().equals(c.name())) {
+      throw new NameCollisionException(
+          "Columns "
+              + held.name()
+              + " and "
+              + c.name()
+              + " of table "
+              + t.fqn()
+              + " both become field "
+              + field
+              + " under "
+              + OracleCdcSourceConnectorConfig.FIELD_NAME_ADJUSTMENT_MODE
+              + "="
+              + fieldNames.name().toLowerCase(java.util.Locale.ROOT)
+              + ".",
+          "Rename one of the columns, exclude one with "
+              + OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE
+              + ", or set "
+              + OracleCdcSourceConnectorConfig.FIELD_NAME_ADJUSTMENT_MODE
+              + "=avro_unicode, which never maps two names to one; then restart the task.");
+    }
+    return field;
   }
 }

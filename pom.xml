@@ -67,6 +67,8 @@
     <awaitility.version>4.3.0</awaitility.version>
     <testcontainers.version>1.21.4</testcontainers.version>
     <logback.version>1.5.38</logback.version>
+    <avro.version>1.12.2</avro.version>
+    <apicurio.version>3.3.3</apicurio.version>
   </properties>
 
   <dependencyManagement>
@@ -155,6 +157,38 @@
         <artifactId>logback-classic</artifactId>
         <version>${logback.version}</version>
         <scope>test</scope>
+      </dependency>
+      <!-- Avro round trip of the record schemas (ADR-0020); test only, Apache-2.0 -->
+      <dependency>
+        <groupId>org.apache.avro</groupId>
+        <artifactId>avro</artifactId>
+        <version>${avro.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.apicurio</groupId>
+        <artifactId>apicurio-registry-utils-converter</artifactId>
+        <version>${apicurio.version}</version>
+        <scope>test</scope>
+        <exclusions>
+          <!-- only AvroData is used; the registry clients and other serdes are not needed -->
+          <exclusion>
+            <groupId>*</groupId>
+            <artifactId>*</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>io.apicurio</groupId>
+        <artifactId>apicurio-registry-serde-common-avro</artifactId>
+        <version>${apicurio.version}</version>
+        <scope>test</scope>
+        <exclusions>
+          <exclusion>
+            <groupId>*</groupId>
+            <artifactId>*</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
     </dependencies>
   </dependencyManagement>

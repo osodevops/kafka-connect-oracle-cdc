@@ -135,6 +135,17 @@ public enum ErrorCode {
       false,
       "At start, a schema version on the schema topic differs from the dictionary and no DDL ahead"
           + " of the resume point explains it."),
+  /**
+   * Two source names map to one target name only because characters were replaced: two columns to
+   * one field, or two tables to one topic.
+   */
+  NAME_COLLISION(
+      "CDC-6004",
+      "name-collision",
+      false,
+      "Two columns of a table adjust to the same field name under"
+          + " cdc.field.name.adjustment.mode, or two tables route to the same topic only because"
+          + " characters Kafka does not allow became underscores."),
   /** A COMMIT arrived for a transaction that orphan detection had released. */
   ORPHAN_RELEASE_VIOLATION(
       "CDC-7001",

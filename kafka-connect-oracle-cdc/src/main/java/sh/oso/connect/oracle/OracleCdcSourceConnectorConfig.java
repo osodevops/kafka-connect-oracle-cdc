@@ -62,6 +62,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public static final String OUTPUT_FORMAT = "cdc.output.format";
   public static final String DECIMAL_MODE = "cdc.decimal.mode";
   public static final String TEMPORAL_MODE = "cdc.temporal.mode";
+  public static final String SCHEMA_NAME_ADJUSTMENT_MODE = "cdc.schema.name.adjustment.mode";
+  public static final String FIELD_NAME_ADJUSTMENT_MODE = "cdc.field.name.adjustment.mode";
 
   // internal topics and broker access (SRC-TOP-6)
   public static final String OPS_TOPIC = "cdc.ops.topic";
@@ -235,6 +237,18 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
     return TemporalMode.valueOf(getString(TEMPORAL_MODE).toUpperCase(Locale.ROOT));
   }
 
+  /** How per-table Connect schema names are adjusted (ADR-0020). */
+  public sh.oso.connect.oracle.envelope.NameAdjustment schemaNameAdjustment() {
+    return sh.oso.connect.oracle.envelope.NameAdjustment.parse(
+        getString(SCHEMA_NAME_ADJUSTMENT_MODE));
+  }
+
+  /** How field names taken from column names are adjusted (ADR-0020). */
+  public sh.oso.connect.oracle.envelope.NameAdjustment fieldNameAdjustment() {
+    return sh.oso.connect.oracle.envelope.NameAdjustment.parse(
+        getString(FIELD_NAME_ADJUSTMENT_MODE));
+  }
+
   private String expand(String key) {
     return getString(key).replace("${prefix}", topicPrefix());
   }
@@ -379,7 +393,11 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
             + DEFAULT_TEMPLATE_CDB
             + " in a CDB and "
             + DEFAULT_TEMPLATE_NON_CDB
-            + " otherwise. Characters Kafka does not allow become underscores.",
+            + " otherwise. Characters Kafka does not allow become underscores. Tables the template"
+            + " names differently that end up on one topic only through that replacement"
+            + " (APP.ORDER# and APP.ORDER$ both become ORDER_) stop the task with CDC-6004 before"
+            + " either is published; a template that leaves out ${table} or ${schema} on purpose is"
+            + " not affected.",
         GROUP_TOPICS,
         ++o,
         Width.LONG,
@@ -519,6 +537,47 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++f,
         Width.SHORT,
         "Temporal mode");
+    def.define(
+        SCHEMA_NAME_ADJUSTMENT_MODE,
+        Type.STRING,
+        "none",
+        ConfigDef.CaseInsensitiveValidString.in("none", "avro", "avro_unicode"),
+        Importance.MEDIUM,
+        "How the names of the per-table key, value and envelope schemas are adjusted for"
+            + " converters with strict naming rules, such as Avro, where each dot-separated part of"
+            + " a name must be letters, digits and underscores and must not start with a digit."
+            + " none (default) uses the topic prefix, PDB, owner and table names as they are. avro"
+            + " replaces every other character, for example $, # or a space in a table name or a"
+            + " hyphen in the topic prefix, with an underscore, and puts an underscore before a"
+            + " part that starts with a digit. avro_unicode replaces every such character, and the"
+            + " underscore itself, with _u and the four hexadecimal digits of its UTF-16 code"
+            + " unit, so different names stay different. The fixed schema names (the source"
+            + " block, the transaction block, the semantic types) are already valid and never"
+            + " change. Schema Registry subjects named after the record follow the adjusted"
+            + " names. Same values and meaning as Debezium's schema.name.adjustment.mode.",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Schema name adjustment");
+    def.define(
+        FIELD_NAME_ADJUSTMENT_MODE,
+        Type.STRING,
+        "none",
+        ConfigDef.CaseInsensitiveValidString.in("none", "avro", "avro_unicode"),
+        Importance.MEDIUM,
+        "How the key and value field names taken from column names are adjusted, with the same"
+            + " modes as cdc.schema.name.adjustment.mode: none (default) keeps the column names,"
+            + " avro replaces each character not allowed in an Avro name with an underscore and"
+            + " puts an underscore before a leading digit, avro_unicode replaces each such"
+            + " character and the underscore with _u and four hexadecimal digits. Values are still"
+            + " read from the column they belong to. If two columns of a table adjust to the same"
+            + " field name, the task stops with CDC-6004 before it writes a record of that table."
+            + " Same values and meaning as Debezium's field.name.adjustment.mode; avro matches"
+            + " Debezium 1.x sanitize.field.names=true.",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Field name adjustment");
     def.define(
         OPS_TOPIC,
         Type.STRING,
