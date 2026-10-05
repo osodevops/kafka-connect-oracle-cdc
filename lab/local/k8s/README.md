@@ -61,5 +61,9 @@ so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.
   stopped with `CDC-2002 LOG_PURGED` naming the missing archived log, which is the right outcome
   and exactly what the ledger check reported (three transactions in that log). The archive
   directory now lives on the data PVC (`subPath: archive`). Resetting the lab connector after
-  such a loss: stop the `KafkaConnector` (`spec.state: stopped`), annotate it
-  `strimzi.io/connector-offsets=delete`, then set it running again.
+  such a loss: set the `KafkaConnector` to `spec.state: stopped`, write a tombstone for the offset
+  key `["oracle-cdc",{"server":"cdc"}]` to `_connect_offsets` (console producer with
+  `parse.key=true` and `null.marker=NULL`), then set it running; the task logs "No stored offset".
+  On this lab Strimzi 1.2's `strimzi.io/connector-offsets` annotation rejected both `delete` and
+  `DELETE` and the worker's `GET /connectors/oracle-cdc/offsets` returned HTTP 500, so neither
+  shortcut was usable.

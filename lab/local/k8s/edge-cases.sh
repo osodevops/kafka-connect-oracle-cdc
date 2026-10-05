@@ -42,8 +42,10 @@ cleanup() { [ -n "$wl_pid" ] && kill "$wl_pid" 2>/dev/null || true; [ -n "$pf_pi
 trap cleanup EXIT
 
 workload_available() { [ -n "$BENCH_JAR" ] && command -v java >/dev/null; }
+# A fresh forward for every case: kubectl keeps a forward alive but broken after the Oracle pod
+# it was bound to is deleted, and the generator then fails to connect.
 port_forward() {
-  [ -n "$pf_pid" ] && kill -0 "$pf_pid" 2>/dev/null && return 0
+  if [ -n "$pf_pid" ]; then kill "$pf_pid" 2>/dev/null || true; wait "$pf_pid" 2>/dev/null || true; fi
   $K port-forward svc/oracle "${PF_PORT}:1521" >/dev/null 2>&1 &
   pf_pid=$!; sleep 3
 }
