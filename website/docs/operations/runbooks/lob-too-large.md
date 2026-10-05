@@ -37,3 +37,9 @@ WHERE DBMS_LOB.GETLENGTH(c) > :limit;
 - Set `cdc.lob.oversize.action=placeholder` to publish `cdc.unavailable.placeholder` for values above
   the limit instead. Consumers keep the previous value of a column that carries the placeholder.
 - Set `cdc.lob.mode=skip` if the topic does not need LOB values at all.
+
+Restart the task with:
+
+```bash
+curl -s -X POST "$CONNECT/connectors/$NAME/restart?includeTasks=true&onlyFailed=true"
+```

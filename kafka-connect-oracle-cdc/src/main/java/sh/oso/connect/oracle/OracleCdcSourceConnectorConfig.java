@@ -428,8 +428,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         "debezium",
         ConfigDef.ValidString.in("debezium"),
         Importance.MEDIUM,
-        "Record envelope: debezium (before, after, source, op, ts_ms). The Confluent-compatible"
-            + " flat format arrives in Phase 2.",
+        "Record envelope. Only debezium (before, after, source, op, ts_ms) is available; a"
+            + " Confluent-compatible flat format is not built yet.",
         GROUP_FORMAT,
         ++f,
         Width.SHORT,
@@ -508,7 +508,9 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.BOOLEAN,
         false,
         Importance.LOW,
-        "Write BEGIN and END records per Oracle transaction to the transaction metadata topic.",
+        "Creates the transaction metadata topic when the connector has broker access. Writing BEGIN"
+            + " and END records per Oracle transaction to it is not built yet, so the topic stays"
+            + " empty in this release.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,
@@ -518,7 +520,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.STRING,
         "${prefix}.cdc.transactions",
         Importance.LOW,
-        "Transaction metadata topic.",
+        "Transaction metadata topic (see cdc.transactions.topic.enabled).",
         GROUP_TOPICS,
         ++o,
         Width.MEDIUM,

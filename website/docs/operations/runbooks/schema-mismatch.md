@@ -6,7 +6,7 @@ slug: /runbooks/schema-mismatch
 
 # CDC-6003 Schema mismatch
 
-**Code:** `CDC-6003` (`SCHEMA_MISMATCH`). Raised at task start.
+**Code:** `CDC-6003` (`SCHEMA_MISMATCH`). Raised at task start. Not retried.
 
 ## What the connector observed
 
@@ -35,10 +35,27 @@ SELECT SCN_TO_TIMESTAMP(:resume_scn) FROM dual;
 ## Recover
 
 - If the redo from before the DDL is still available, stop the connector and move its offset back
-  before the DDL with Connect's `PATCH /connectors/{name}/offsets`, then resume. The DDL is mined
-  again and becomes a version; records between the two positions are delivered again.
+  before the DDL
+  ([moving the offset by hand](../../concepts/offsets-and-recovery.md#reading-and-moving-the-offset-by-hand)),
+  then resume. The DDL is mined again and becomes a version. Commits already delivered are skipped
+  as long as the `last_commit_*` fields are kept.
 - If the schema topic belongs to another connector or database, point `cdc.schema.topic` at the
   right topic, then restart.
-- If the change is understood and the records published since the DDL are acceptable, produce a
-  tombstone for the table's key on the schema topic and restart. The table then starts again from
-  the dictionary's current layout.
+- If the change is understood and the records published since the DDL are acceptable, clear the
+  table's entry: with the connector stopped, produce a tombstone (a record with a null value) for
+  the table's key on the schema topic, then resume. The table then starts again from the
+  dictionary's current layout. Copy the key exactly as it is stored, for example with kcat:
+
+  ```bash
+  kcat -C -b "$BROKERS" -t cdc.cdc.schema -e -f '%k\n' | sort -u     # find the table's key
+  printf '%s|\n' "$KEY" | kcat -P -b "$BROKERS" -t cdc.cdc.schema -K '|' -Z
+  ```
+
+  The key holds the server (the topic prefix), the PDB, the owner and the table. Reload the table
+  with a [`snapshot` signal](../signals.md) if consumers need its rows in the new layout.
+
+Restart a failed task with:
+
+```bash
+curl -s -X POST "$CONNECT/connectors/$NAME/restart?includeTasks=true&onlyFailed=true"
+```

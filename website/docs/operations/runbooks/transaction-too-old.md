@@ -38,3 +38,9 @@ WHERE t.xidusn = :usn AND t.xidslot = :slot AND t.xidsqn = :sqn;
   `transaction-discarded` event to the ops topic and a record to the DLQ topic, adds the transaction
   to the released ledger, and stops with `CDC-7001` if a COMMIT for it arrives later, because the
   discarded changes cannot be published any more.
+
+Restart the task with:
+
+```bash
+curl -s -X POST "$CONNECT/connectors/$NAME/restart?includeTasks=true&onlyFailed=true"
+```

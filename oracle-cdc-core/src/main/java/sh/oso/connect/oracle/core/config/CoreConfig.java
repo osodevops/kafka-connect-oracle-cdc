@@ -391,7 +391,8 @@ public class CoreConfig extends AbstractConfig {
         Type.STRING,
         null,
         Importance.LOW,
-        "Kerberos credential cache file (Phase 2).",
+        "Kerberos credential cache file. Not used in this release: Kerberos authentication is not"
+            + " built yet.",
         GROUP_DATABASE,
         ++o,
         Width.LONG,
@@ -412,8 +413,8 @@ public class CoreConfig extends AbstractConfig {
         300000L,
         Range.atLeast(10000L),
         Importance.LOW,
-        "Idle network guard: an application-level probe runs at half this interval so load"
-            + " balancers with idle timeouts never hang the connector.",
+        "Not used in this release. Reserved for an idle network guard that probes the connection at"
+            + " half this interval, so a load balancer idle timeout cannot hang the connector.",
         GROUP_DATABASE,
         ++o,
         Width.SHORT,
@@ -433,7 +434,8 @@ public class CoreConfig extends AbstractConfig {
         Type.BOOLEAN,
         false,
         Importance.LOW,
-        "Subscribe to RAC Fast Application Notification events.",
+        "Not used in this release: RAC is not supported yet. Reserved for subscribing to RAC Fast"
+            + " Application Notification events.",
         GROUP_DATABASE,
         ++o,
         Width.SHORT,
@@ -537,8 +539,9 @@ public class CoreConfig extends AbstractConfig {
         1000,
         Range.between(1, 100000),
         Importance.LOW,
-        "Above this many object ids the mining query joins a temporary table instead of using an IN"
-            + " list.",
+        "Most captured object ids in one IN list of the mining query; more ids are split across"
+            + " several IN lists. Oracle allows at most 1000 entries in one list, and the task"
+            + " fails at start with a larger value.",
         GROUP_MINING,
         ++o,
         Width.SHORT,
@@ -549,7 +552,8 @@ public class CoreConfig extends AbstractConfig {
         300000L,
         Range.atLeast(1000L),
         Importance.LOW,
-        "Lag that enables parallel catch-up mining (Phase 2).",
+        "Not used in this release: parallel catch-up mining is not built yet. Reserved for the lag"
+            + " that would enable it.",
         GROUP_MINING,
         ++o,
         Width.SHORT,
@@ -560,7 +564,8 @@ public class CoreConfig extends AbstractConfig {
         2,
         Range.between(1, 8),
         Importance.LOW,
-        "Catch-up sessions over adjacent SCN windows (Phase 2).",
+        "Not used in this release: parallel catch-up mining is not built yet. Reserved for the"
+            + " number of catch-up sessions over adjacent SCN windows.",
         GROUP_MINING,
         ++o,
         Width.SHORT,
@@ -570,8 +575,8 @@ public class CoreConfig extends AbstractConfig {
         Type.LONG,
         -1L,
         Importance.LOW,
-        "Hold-back from the cluster SCN on RAC so late-archiving threads are not missed; -1 means"
-            + " 3000 on RAC and 0 otherwise.",
+        "Not used in this release: RAC is not supported yet. Reserved for the hold-back from the"
+            + " cluster SCN on RAC so late-archiving threads are not missed.",
         GROUP_MINING,
         ++o,
         Width.SHORT,

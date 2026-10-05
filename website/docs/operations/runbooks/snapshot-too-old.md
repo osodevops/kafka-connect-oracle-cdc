@@ -6,7 +6,8 @@ slug: /runbooks/snapshot-too-old
 
 # CDC-8001 Snapshot too old
 
-**Code:** `CDC-8001` (`SNAPSHOT_TOO_OLD`). Raised while a snapshot reads a table.
+**Code:** `CDC-8001` (`SNAPSHOT_TOO_OLD`). Raised while a snapshot reads a table, after the retries
+described below.
 
 ## What the connector observed
 
@@ -33,3 +34,9 @@ WHERE ROWNUM <= 12 ORDER BY begin_time DESC;
 Raise `UNDO_RETENTION` and give the undo tablespace room for it, or lower
 `cdc.snapshot.chunk.rows`, then restart the task. The snapshot resumes at the chunk that failed;
 chunks already published are not read again.
+
+Restart the task with:
+
+```bash
+curl -s -X POST "$CONNECT/connectors/$NAME/restart?includeTasks=true&onlyFailed=true"
+```
