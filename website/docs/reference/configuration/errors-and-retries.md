@@ -1,7 +1,7 @@
 ---
 title: "Errors and retries"
 description: "Errors and retries properties of the OSO CDC Connector for Oracle Database."
-sidebar_position: 8
+sidebar_position: 9
 ---
 
 # Errors and retries properties

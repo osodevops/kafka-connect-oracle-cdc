@@ -20,6 +20,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0012 | Correctness oracle protocol | Accepted |
 | 0013 | Metrics transport | Accepted |
 | 0014 | Mining cursor is a redo byte address | Accepted |
+| 0015 | LOBs are assembled per statement, and undo targets the newest change | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 

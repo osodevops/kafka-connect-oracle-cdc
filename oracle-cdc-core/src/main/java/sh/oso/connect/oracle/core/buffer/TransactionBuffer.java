@@ -17,8 +17,10 @@ package sh.oso.connect.oracle.core.buffer;
 
 import java.util.Optional;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
+import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.model.TxKey;
 
 /**
@@ -39,7 +41,18 @@ public interface TransactionBuffer {
    * same ROWID (reference/operation-codes.md). An undo with no match is counted, not fatal: the
    * change it undoes predates what this connector buffered.
    */
-  void undo(TxKey key, RedoRecordId undoId, String rowId);
+  default void undo(TxKey key, RedoRecordId undoId, String rowId) {
+    undo(key, undoId, rowId, null, null);
+  }
+
+  /**
+   * Applies a ROLLBACK=1 row of {@code table} with operation {@code op} (ADR-0015). Oracle undoes a
+   * transaction newest first, so when the newest surviving change carries a synthetic ROWID, is on
+   * the same table and is reversed by {@code op}, the undo targets it; otherwise it targets the
+   * latest earlier change with the same ROWID. A targeted LOB group is downgraded rather than
+   * removed. Returns the ROWID targeted, or null when nothing matched.
+   */
+  String undo(TxKey key, RedoRecordId undoId, String rowId, TableId table, Operation op);
 
   /** COMMIT: releases the entry, if any, with its surviving changes in redo order. */
   Optional<CommittedTransaction> commit(MiningEvent.Commit commit);

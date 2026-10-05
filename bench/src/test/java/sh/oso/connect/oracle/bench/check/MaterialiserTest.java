@@ -77,6 +77,43 @@ class MaterialiserTest {
   }
 
   @Test
+  void anUnavailablePlaceholderKeepsThePreviousValue() throws Exception {
+    Materialiser m = new Materialiser();
+    m.apply(
+        new RecordJson(
+            record(
+                0,
+                "{\"ID\":1}",
+                "c",
+                null,
+                "{\"ID\":1,\"NOTE\":\"text\",\"B\":\"AQ==\"}",
+                "1.1.1",
+                100,
+                0,
+                1)));
+    String blobPlaceholder =
+        java.util.Base64.getEncoder()
+            .encodeToString(
+                Materialiser.DEFAULT_PLACEHOLDER.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    m.apply(
+        new RecordJson(
+            record(
+                1,
+                "{\"ID\":1}",
+                "u",
+                null,
+                "{\"ID\":1,\"NOTE\":\"__cdc_unavailable_value\",\"B\":\""
+                    + blobPlaceholder
+                    + "\",\"N\":2}",
+                "1.1.2",
+                110,
+                0,
+                1)));
+    assertThat(m.tables().values().iterator().next().get("{\"ID\":1}").toString())
+        .isEqualTo("{\"ID\":1,\"NOTE\":\"text\",\"B\":\"AQ==\",\"N\":2}");
+  }
+
+  @Test
   void materialisesInsertUpdateDeleteAndTracksTransactions() throws Exception {
     Materialiser m = new Materialiser();
     m.apply(

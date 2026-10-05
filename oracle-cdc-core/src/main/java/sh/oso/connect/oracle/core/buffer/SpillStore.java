@@ -214,6 +214,7 @@ public class SpillStore implements AutoCloseable {
     Resolved resolve() throws IOException {
       seal();
       BitSet removed = new BitSet();
+      BitSet downgraded = new BitSet();
       int unmatched = 0;
       if (undoFrames > 0) {
         // pass 1: which ROWIDs are undone at all
@@ -241,6 +242,8 @@ public class SpillStore implements AutoCloseable {
               java.util.ArrayDeque<Integer> stack = latest.get(rowId);
               if (stack == null || stack.isEmpty()) {
                 unmatched++;
+              } else if (sh.oso.connect.oracle.core.model.RowIds.isLobGroup(rowId)) {
+                downgraded.set(stack.pop()); // ADR-0015: kept, its LOB values unavailable
               } else {
                 removed.set(stack.pop());
               }
@@ -251,7 +254,9 @@ public class SpillStore implements AutoCloseable {
       }
       int survivors = changeFrames + undoFrames - removed.cardinality();
       return new Resolved(
-          new SpilledChanges(this, removed, survivors), undoFrames - unmatched, unmatched);
+          new SpilledChanges(this, removed, downgraded, survivors),
+          undoFrames - unmatched,
+          unmatched);
     }
 
     private void seal() throws IOException {
@@ -374,16 +379,18 @@ public class SpillStore implements AutoCloseable {
    * get(i)} is O(1) amortised; a backward jump re-reads from the start. The size is known from the
    * resolve pass, so callers that iterate by index behave exactly as with a heap list.
    */
-  final class SpilledChanges extends AbstractList<RowChange> {
+  final class SpilledChanges extends AbstractList<RowChange> implements CommittedTransaction.Lazy {
     private final SpillFile file;
     private final BitSet removed;
+    private final BitSet downgraded;
     private final int size;
     private FrameReader reader;
     private int nextLogical; // logical index of the next survivor the reader will deliver
 
-    SpilledChanges(SpillFile file, BitSet removed, int size) {
+    SpilledChanges(SpillFile file, BitSet removed, BitSet downgraded, int size) {
       this.file = file;
       this.removed = removed;
+      this.downgraded = downgraded;
       this.size = size;
     }
 
@@ -413,7 +420,8 @@ public class SpillStore implements AutoCloseable {
           }
           int logical = nextLogical++;
           if (logical == index) {
-            return RowChangeCodec.decode(reader.payload);
+            RowChange c = RowChangeCodec.decode(reader.payload);
+            return downgraded.get(f) ? TransactionEntry.inert(c) : c;
           }
         }
       } catch (IOException e) {

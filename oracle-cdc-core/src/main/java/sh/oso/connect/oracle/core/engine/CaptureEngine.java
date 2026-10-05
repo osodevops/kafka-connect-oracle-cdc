@@ -89,7 +89,8 @@ public final class CaptureEngine {
   private final IdRefresher idRefresher;
   private final Position start;
   private final EngineMetrics metrics = new EngineMetrics();
-  private final LobInsertCoalescer coalescer = new LobInsertCoalescer();
+  private final LobAssembler lobs;
+  private LobReselector reselector;
   private final Supplier<Instant> clock;
   private sh.oso.connect.oracle.core.orphan.OrphanDetector orphans =
       sh.oso.connect.oracle.core.orphan.OrphanDetector.disabled();
@@ -130,6 +131,13 @@ public final class CaptureEngine {
     this.reconnector = reconnector;
     this.clock = clock;
     this.cursor = StepCursor.resume(start.resumePoint());
+    this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
+  }
+
+  /** CORE-DEC-7: how unavailable LOB values are fetched at commit in reselect mode. */
+  public CaptureEngine withReselector(LobReselector r) {
+    this.reselector = r;
+    return this;
   }
 
   /** CORE-TX-7: the orphan detector to run between steps; disabled by default. */
@@ -294,7 +302,7 @@ public final class CaptureEngine {
                 + " drop such transactions with an ops event and a DLQ record; then restart the"
                 + " task.");
       }
-      coalescer.discard(t.key());
+      lobs.discard(t.key());
       buffer.discard(t.key());
       orphans.releasedByPolicy(t.key());
       metrics.transactionsDiscarded.incrementAndGet();
@@ -307,7 +315,7 @@ public final class CaptureEngine {
     java.util.List<sh.oso.connect.oracle.core.orphan.OrphanDetector.Release> releases =
         orphans.check(clock.get(), cursor.scn(), buffer.open());
     for (sh.oso.connect.oracle.core.orphan.OrphanDetector.Release r : releases) {
-      coalescer.discard(r.tx().key());
+      lobs.discard(r.tx().key());
       buffer.discard(r.tx().key());
       metrics.orphansReleased.incrementAndGet();
       sink.orphanReleased(r, orphans.released());
@@ -337,9 +345,14 @@ public final class CaptureEngine {
       if (e instanceof MiningEvent.TxStart s) {
         buffer.start(s);
       } else if (e instanceof MiningEvent.Dml d) {
-        if (d.undo()) {
-          coalescer.flush(d.tx()).ifPresent(held -> buffer.add(d.tx(), held));
-          buffer.undo(d.tx(), d.id(), d.rowId());
+        if (d.op() == sh.oso.connect.oracle.core.model.Operation.SELECT_LOB_LOCATOR) {
+          // 23ai: no SQL_REDO, and every LOB_WRITE row selects its own locator (ADR-0015)
+          continue;
+        } else if (d.undo() && !d.op().isLobOp()) {
+          lobs.flush(d.tx()).ifPresent(held -> buffer.add(d.tx(), held));
+          buffer.undo(d.tx(), d.id(), d.rowId(), d.table(), d.op());
+        } else if (d.op().isLobOp()) {
+          decodeLobAndBuffer(d);
         } else {
           decodeAndBuffer(d);
         }
@@ -357,14 +370,33 @@ public final class CaptureEngine {
                   + " so the transaction is re-mined whole, or resnapshot the affected tables;"
                   + " then raise cdc.transaction.orphan.check.interval.ms.");
         }
-        coalescer.flush(c.tx()).ifPresent(held -> buffer.add(c.tx(), held));
+        lobs.flush(c.tx()).ifPresent(held -> buffer.add(c.tx(), held));
+        Optional<LobAssembler.Oversize> over = lobs.takeOversize(c.tx());
+        if (over.isPresent() && settings.lobOversizeFail()) {
+          throw new sh.oso.connect.oracle.core.errors.LobTooLargeException(
+              "Transaction "
+                  + c.tx()
+                  + " committed at SCN "
+                  + c.scn()
+                  + " wrote "
+                  + over.get().bytes()
+                  + " bytes or more into "
+                  + over.get().table()
+                  + "."
+                  + over.get().column()
+                  + ", above cdc.lob.max.bytes="
+                  + settings.lobMaxBytes()
+                  + ".",
+              "Raise cdc.lob.max.bytes, or set cdc.lob.oversize.action=placeholder to publish the"
+                  + " placeholder for such values.");
+        }
         Optional<CommittedTransaction> tx = buffer.commit(c);
         if (tx.isPresent()) {
           emit(tx.get());
           buffer.release(tx.get().key()); // the sink has consumed the events; a spilled copy can go
         }
       } else if (e instanceof MiningEvent.Rollback r) {
-        coalescer.discard(r.tx());
+        lobs.discard(r.tx());
         buffer.rollback(r);
       } else if (e instanceof MiningEvent.Ddl d) {
         if (d.objectName() != null && d.owner() != null) {
@@ -403,22 +435,46 @@ public final class CaptureEngine {
       sink.decodeFailed(d, ex);
       return;
     }
-    java.util.Set<String> lobs = new java.util.HashSet<>();
-    for (sh.oso.connect.oracle.core.schema.ColumnSpec col : schema.columns()) {
-      if (col.type().isLob()) {
-        lobs.add(col.name());
-      }
-    }
-    for (RowChange ready : coalescer.accept(d.tx(), change, lobs)) {
+    for (RowChange ready : lobs.accept(d.tx(), change, schema)) {
       buffer.add(d.tx(), ready);
     }
-    metrics.lobInsertsMerged.set(coalescer.merged());
+    metrics.lobInsertsMerged.set(lobs.merged());
   }
 
-  /** Oldest unfinished work: open buffer entries and inserts held by the coalescer. */
+  /** CORE-DEC-6: a LOB_WRITE, LOB_TRIM or LOB_ERASE row joins the change of its statement. */
+  private void decodeLobAndBuffer(MiningEvent.Dml d) throws SQLException {
+    TableSchema schema = schemas.current(d.table());
+    sh.oso.connect.oracle.core.decode.LobFragment f;
+    try {
+      if (d.undo()) {
+        throw new DecodeException(
+            "LogMiner returned a ROLLBACK=1 "
+                + d.op()
+                + " row for "
+                + d.table().fqn()
+                + " at "
+                + d.id(),
+            "Report the row shape with the Oracle version (reference/lob-redo-shapes.md).");
+      }
+      f = sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema);
+    } catch (DecodeException ex) {
+      if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
+        throw ex;
+      }
+      metrics.decodeFailures.incrementAndGet();
+      sink.decodeFailed(d, ex);
+      return;
+    }
+    for (RowChange ready : lobs.acceptLob(d.tx(), f, schema)) {
+      buffer.add(d.tx(), ready);
+    }
+    metrics.lobRowsApplied.set(lobs.fragments());
+  }
+
+  /** Oldest unfinished work: open buffer entries and changes held by the LOB assembler. */
   private Optional<sh.oso.connect.oracle.core.model.RedoRecordId> oldestOpen() {
     Optional<sh.oso.connect.oracle.core.model.RedoRecordId> oldest = buffer.oldestFirstCaptured();
-    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> pending = coalescer.oldestPending();
+    Optional<sh.oso.connect.oracle.core.model.RedoRecordId> pending = lobs.oldestPending();
     if (pending.isPresent() && (oldest.isEmpty() || pending.get().compareTo(oldest.get()) < 0)) {
       return pending;
     }
@@ -426,6 +482,16 @@ public final class CaptureEngine {
   }
 
   private void emit(CommittedTransaction tx) {
+    if (settings.lobMode() == LobAssembler.Mode.RESELECT && reselector != null) {
+      tx =
+          ReselectingEvents.wrap(
+              tx,
+              schemas,
+              reselector,
+              classifier,
+              settings.lobMaxBytes(),
+              settings.lobOversizeFail());
+    }
     int skip = SkipRule.eventsToSkip(start, tx);
     if (skip >= tx.size()) {
       metrics.transactionsSkipped.incrementAndGet();

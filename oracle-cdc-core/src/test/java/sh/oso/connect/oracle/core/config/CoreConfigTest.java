@@ -43,7 +43,7 @@ class CoreConfigTest {
       assertThat(k.displayName).as(k.name).isNotBlank();
       assertThat(k.documentation).as(k.name).isNotBlank();
     }
-    assertThat(CoreConfig.configDef().names()).hasSize(43);
+    assertThat(CoreConfig.configDef().names()).hasSize(47);
   }
 
   @Test
@@ -58,6 +58,12 @@ class CoreConfigTest {
     assertThat(c.getLong(CoreConfig.TXJOURNAL_THRESHOLD_MS)).isEqualTo(300000L);
     assertThat(c.getLong(CoreConfig.TRANSACTION_MAX_AGE_MS)).isEqualTo(-1L);
     assertThat(c.maxAgeAction()).isEqualTo(CoreConfig.MaxAgeAction.FAIL);
+    // SRC-LOB-1, SRC-LOB-2
+    assertThat(c.lobMode()).isEqualTo(CoreConfig.LobMode.SKIP);
+    assertThat(c.getLong(CoreConfig.LOB_MAX_BYTES)).isEqualTo(1048576L);
+    assertThat(c.lobOversizeAction()).isEqualTo(CoreConfig.LobOversizeAction.FAIL);
+    assertThat(c.getString(CoreConfig.UNAVAILABLE_PLACEHOLDER))
+        .isEqualTo("__cdc_unavailable_value");
     assertThat(c.orphanAction()).isEqualTo(CoreConfig.OrphanAction.RELEASE);
     assertThat(c.decodeErrorAction()).isEqualTo(CoreConfig.DecodeErrorAction.FAIL);
     assertThat(c.getLong(CoreConfig.RETRY_MAX_TIME_MS)).isEqualTo(86400000L);

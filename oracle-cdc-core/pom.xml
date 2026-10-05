@@ -76,6 +76,7 @@
                 <exclude>sh/oso/connect/oracle/core/mining/JdbcLogMinerSession*</exclude>
                 <exclude>sh/oso/connect/oracle/core/mining/JdbcObjectCatalog*</exclude>
                 <exclude>sh/oso/connect/oracle/core/schema/JdbcDictionaryReader*</exclude>
+                <exclude>sh/oso/connect/oracle/core/engine/JdbcLobReselector*</exclude>
               </excludes>
               <rules>
                 <rule>

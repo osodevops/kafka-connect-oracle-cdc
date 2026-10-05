@@ -24,10 +24,11 @@ the current code, is being built, or is planned. Nothing on this site is a bench
 | Database preflight (`oracle-cdc-doctor check`, `setup-sql`) | Available in the repository |
 | Deterministic workload generator and ledger (`bench workload`) | Available in the repository |
 | Docker Compose and Strimzi labs | Available in the repository |
-| Capture engine, Debezium-compatible envelope, at-least-once delivery for one or more PDBs (no LOB values, no DDL replay yet) | Available in the repository (Phase 1a) |
+| Capture engine, Debezium-compatible envelope, at-least-once delivery for one or more PDBs (no DDL replay yet) | Available in the repository (Phase 1a) |
 | Spill to disk for large transactions, transaction journal, ops topic, internal topic creation, archive-only capture mode | Implemented |
 | Orphan detection, long-transaction policy, decode DLQ | Implemented |
-| LOB columns, metrics and dashboards | Planned (Phase 1b) |
+| LOB columns: `skip`, `inline` assembly from redo, `reselect` as of the commit SCN | Implemented |
+| Metrics and dashboards | Planned (Phase 1b) |
 | Exactly-once delivery, snapshots, DDL replay, multi-PDB | Planned (Phase 1c) |
 | RAC, Confluent record format, RDS, Autonomous Database | Planned (Phase 2 and 3) |
 

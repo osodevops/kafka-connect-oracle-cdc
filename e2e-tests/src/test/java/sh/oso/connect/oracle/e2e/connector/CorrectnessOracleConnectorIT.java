@@ -60,10 +60,14 @@ class CorrectnessOracleConnectorIT {
       spec.savepointRollbackProbability = 0.15;
       spec.fullRollbackProbability = 0.1;
       spec.keyChangeWeight = 1;
-      spec.lobWeight = 0;
+      // CORE-DEC-6 and CORE-DEC-7: LOBs in and out of row; reselect fills what the redo cannot
+      // carry, such as the LOB of a row whose primary key changed
+      spec.lobWeight = 1;
+      spec.lobMaxChars = 12000;
       WorkloadGenerator g =
           new WorkloadGenerator(spec, db.jdbcUrl(OracleTestDatabase.PDB1), schema, schema);
       g.reset();
+      Thread.sleep(3500); // flashback queries need the SCN-to-time mapping past the CREATE TABLE
 
       Map<String, String> c = new HashMap<>(ConnectCluster.oracleDatabaseProps("FREEPDB1"));
       c.put("connector.class", FirstRecordConnectorIT.CONNECTOR_CLASS);
@@ -71,6 +75,7 @@ class CorrectnessOracleConnectorIT {
       c.put("cdc.topic.prefix", "co");
       c.put("cdc.tables.include", "FREEPDB1\\." + schema + "\\.WL_.*");
       c.put("cdc.tables.exclude", "FREEPDB1\\." + schema + "\\.WL_LEDGER");
+      c.put("cdc.lob.mode", "reselect");
       c.put("cdc.poll.linger.ms", "100");
       cluster.register("oracle-cdc", c);
       cluster.awaitRunning("oracle-cdc", Duration.ofMinutes(2));

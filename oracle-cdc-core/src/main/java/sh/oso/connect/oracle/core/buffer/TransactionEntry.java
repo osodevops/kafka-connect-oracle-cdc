@@ -22,6 +22,7 @@ import java.util.List;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
 import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.model.RowIds;
 import sh.oso.connect.oracle.core.model.TxKey;
 
 /**
@@ -83,6 +84,7 @@ final class TransactionEntry {
     if (c.id() != null) {
       lastSeen = c.id();
     }
+    track(c);
     if (journaled) {
       pendingJournal.add(JournalFrames.Frame.of(c));
     }
@@ -100,9 +102,96 @@ final class TransactionEntry {
    * spilled entry the undo is appended and resolved at commit, so it returns true and the match is
    * counted then.
    */
-  boolean undo(RedoRecordId undoId, String rowId) throws IOException {
+  /** Undo results: nothing matched, the change was removed, or a LOB group was downgraded. */
+  static final int NONE = 0;
+
+  static final int REMOVED = 1;
+  static final int DOWNGRADED = 2;
+
+  /** Synthetic-ROWID changes in order, with runs of other changes between them (ADR-0015). */
+  private final java.util.ArrayDeque<Object> stack = new java.util.ArrayDeque<>();
+
+  private record Synthetic(
+      String rowId,
+      sh.oso.connect.oracle.core.model.TableId table,
+      sh.oso.connect.oracle.core.model.Operation op) {}
+
+  private static final class Run {
+    int n;
+  }
+
+  /** The ROWID an undo of {@code table} with {@code op} targets: the newest change if it fits. */
+  String resolve(
+      String rowId,
+      sh.oso.connect.oracle.core.model.TableId table,
+      sh.oso.connect.oracle.core.model.Operation op) {
+    if (table != null
+        && op != null
+        && stack.peekLast() instanceof Synthetic s
+        && s.table().equals(table)
+        && s.op().inverse() == op
+        && (RowIds.real(s.rowId()) == null || RowIds.real(s.rowId()).equals(rowId))) {
+      return s.rowId();
+    }
+    return rowId;
+  }
+
+  private void track(RowChange c) {
+    if (RowIds.isInert(c.rowId())) {
+      return; // a downgraded LOB group is no longer undone by anything
+    }
+    if (RowIds.isSynthetic(c.rowId())) {
+      stack.addLast(new Synthetic(c.rowId(), c.table(), c.op()));
+    } else if (stack.peekLast() instanceof Run r) {
+      r.n++;
+    } else {
+      Run r = new Run();
+      r.n = 1;
+      stack.addLast(r);
+    }
+  }
+
+  private void untrack(String target) {
+    java.util.Iterator<Object> it = stack.descendingIterator();
+    while (it.hasNext()) {
+      Object o = it.next();
+      if (RowIds.isSynthetic(target)) {
+        if (o instanceof Synthetic s && s.rowId().equals(target)) {
+          it.remove();
+          return;
+        }
+      } else if (o instanceof Run r) {
+        if (--r.n == 0) {
+          it.remove();
+        }
+        return;
+      }
+    }
+  }
+
+  /** A LOB group after an undo: the row as it was, its LOB values unavailable (ADR-0015). */
+  static RowChange inert(RowChange c) {
+    return new RowChange(
+        c.table(),
+        sh.oso.connect.oracle.core.model.Operation.UPDATE,
+        c.before(),
+        c.before(),
+        c.partial(),
+        RowIds.inert(c.rowId()),
+        c.id(),
+        c.tx(),
+        c.timestamp());
+  }
+
+  /**
+   * Applies an undo whose target ROWID is already resolved (live, or replayed from the journal):
+   * removes the latest earlier change with that ROWID, or downgrades it when it is a LOB group. For
+   * a spilled entry the undo is appended and resolved at commit, so the result is {@link #REMOVED}
+   * and the match is counted then.
+   */
+  int undo(RedoRecordId undoId, String rowId) throws IOException {
     if (rowId == null) {
-      return false;
+      return NONE;
     }
     if (undoId != null) {
       lastSeen = undoId;
@@ -111,19 +200,27 @@ final class TransactionEntry {
       pendingJournal.add(JournalFrames.Frame.undo(undoId, rowId));
     }
     if (spill != null) {
+      untrack(rowId); // resolved at commit; the undo stack follows the decision now
       spill.appendUndo(undoId, rowId);
       spilledUndos++;
-      return true;
+      return REMOVED;
     }
     for (int i = changes.size() - 1; i >= 0; i--) {
       RowChange c = changes.get(i);
       if (rowId.equals(c.rowId())) {
-        changes.remove(i);
+        untrack(rowId);
         estimatedBytes -= SizeEstimate.of(c);
-        return true;
+        if (RowIds.isLobGroup(rowId)) {
+          RowChange d = inert(c);
+          changes.set(i, d);
+          estimatedBytes += SizeEstimate.of(d);
+          return DOWNGRADED;
+        }
+        changes.remove(i);
+        return REMOVED;
       }
     }
-    return false;
+    return NONE;
   }
 
   List<RowChange> changes() {

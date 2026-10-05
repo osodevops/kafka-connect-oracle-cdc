@@ -53,5 +53,7 @@ java -jar oracle-cdc-doctor/target/oracle-cdc-doctor-*-cli.jar check \
 ```
 
 Tables created after the connector started are picked up at the CREATE TABLE in the redo, so the
-bench tool's `--reset` needs no restart. LOB values are not captured yet (Phase 1b): keep the
-workload's `lobWeight` at 0 until then.
+bench tool's `--reset` needs no restart. LOB columns are left out of the records unless
+`cdc.lob.mode` is `inline` or `reselect` (see [record formats](../reference/record-formats.md)); to
+compare a workload with `lobWeight` above 0 using `bench check`, run the connector with
+`cdc.lob.mode=reselect`.

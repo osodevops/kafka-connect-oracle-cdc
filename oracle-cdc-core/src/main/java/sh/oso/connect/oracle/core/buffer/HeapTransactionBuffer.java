@@ -119,30 +119,43 @@ public final class HeapTransactionBuffer implements TransactionBuffer {
   }
 
   @Override
-  public void undo(TxKey key, RedoRecordId undoId, String rowId) {
+  public String undo(
+      TxKey key,
+      RedoRecordId undoId,
+      String rowId,
+      sh.oso.connect.oracle.core.model.TableId table,
+      sh.oso.connect.oracle.core.model.Operation op) {
     TransactionEntry e = open.get(key);
     if (e == null) {
       unmatchedUndo++;
-      return;
+      return null;
     }
+    String target = e.resolve(rowId, table, op);
+    return apply(e, undoId, target) == TransactionEntry.NONE ? null : target;
+  }
+
+  private int apply(TransactionEntry e, RedoRecordId undoId, String target) {
     long before = e.estimatedBytes();
-    boolean matched;
+    int result;
     try {
-      matched = e.undo(undoId, rowId);
+      result = e.undo(undoId, target);
     } catch (IOException ex) {
       throw spillFailed(ex);
     }
-    if (!matched) {
+    if (result == TransactionEntry.NONE) {
       unmatchedUndo++;
-      return;
+      return result;
     }
     if (!e.spilled()) {
       // spilled undos are counted when the file is resolved at commit
       undone++;
-      bufferedEvents--;
+      if (result == TransactionEntry.REMOVED) {
+        bufferedEvents--;
+      }
       estimatedBytes -= before - e.estimatedBytes();
     }
     enforceBudget();
+    return result;
   }
 
   @Override
@@ -367,12 +380,14 @@ public final class HeapTransactionBuffer implements TransactionBuffer {
             JournalFrames.decode(c.payload(), "Journal chunk " + c.chunk() + " of " + key)) {
           long before = e.estimatedBytes();
           if (f.isUndo()) {
-            boolean matched = e.undo(f.undoId(), f.undoRowId());
-            if (matched && !e.spilled()) {
+            int result = e.undo(f.undoId(), f.undoRowId());
+            if (result != TransactionEntry.NONE && !e.spilled()) {
               undone++;
-              bufferedEvents--;
+              if (result == TransactionEntry.REMOVED) {
+                bufferedEvents--;
+              }
               estimatedBytes -= before - e.estimatedBytes();
-            } else if (!matched) {
+            } else if (result == TransactionEntry.NONE) {
               unmatchedUndo++;
             }
           } else {

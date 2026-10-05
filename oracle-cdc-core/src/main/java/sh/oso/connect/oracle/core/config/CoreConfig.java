@@ -42,6 +42,7 @@ public class CoreConfig extends AbstractConfig {
   public static final String GROUP_JOURNAL = "Transaction journal";
   public static final String GROUP_TRANSACTIONS = "Transactions";
   public static final String GROUP_ERRORS = "Errors and retries";
+  public static final String GROUP_LOBS = "LOBs";
 
   public static final String DATABASE_HOST = "cdc.database.host";
   public static final String DATABASE_PORT = "cdc.database.port";
@@ -91,6 +92,11 @@ public class CoreConfig extends AbstractConfig {
       "cdc.transaction.orphan.check.interval.ms";
   public static final String TRANSACTION_ORPHAN_ACTION = "cdc.transaction.orphan.action";
 
+  public static final String LOB_MODE = "cdc.lob.mode";
+  public static final String LOB_MAX_BYTES = "cdc.lob.max.bytes";
+  public static final String LOB_OVERSIZE_ACTION = "cdc.lob.oversize.action";
+  public static final String UNAVAILABLE_PLACEHOLDER = "cdc.unavailable.placeholder";
+
   public static final String ON_DECODE_ERROR = "cdc.on.decode.error";
   public static final String RETRY_MAX_TIME_MS = "cdc.retry.max.time.ms";
   public static final String RETRY_EXTRA_ERROR_CODES = "cdc.retry.extra.error.codes";
@@ -109,6 +115,17 @@ public class CoreConfig extends AbstractConfig {
   public enum OrphanAction {
     RELEASE,
     FAIL
+  }
+
+  public enum LobMode {
+    SKIP,
+    INLINE,
+    RESELECT
+  }
+
+  public enum LobOversizeAction {
+    FAIL,
+    PLACEHOLDER
   }
 
   public enum DecodeErrorAction {
@@ -164,6 +181,14 @@ public class CoreConfig extends AbstractConfig {
 
   public OrphanAction orphanAction() {
     return OrphanAction.valueOf(getString(TRANSACTION_ORPHAN_ACTION).toUpperCase(Locale.ROOT));
+  }
+
+  public LobMode lobMode() {
+    return LobMode.valueOf(getString(LOB_MODE).toUpperCase(Locale.ROOT));
+  }
+
+  public LobOversizeAction lobOversizeAction() {
+    return LobOversizeAction.valueOf(getString(LOB_OVERSIZE_ACTION).toUpperCase(Locale.ROOT));
   }
 
   public DecodeErrorAction decodeErrorAction() {
@@ -642,6 +667,58 @@ public class CoreConfig extends AbstractConfig {
         ++o,
         Width.SHORT,
         "Orphan action");
+    // LOBs
+    def.define(
+        LOB_MODE,
+        Type.STRING,
+        "skip",
+        caseInsensitiveEnum(LobMode.class),
+        Importance.MEDIUM,
+        "skip leaves CLOB, NCLOB, BLOB and XMLTYPE columns out of the records; inline assembles"
+            + " values from redo and publishes cdc.unavailable.placeholder where a value is not in"
+            + " the redo; reselect does the same and then queries the values that are still"
+            + " unavailable AS OF the commit SCN, one query per row.",
+        GROUP_LOBS,
+        ++o,
+        Width.SHORT,
+        "LOB mode");
+    def.define(
+        LOB_MAX_BYTES,
+        Type.LONG,
+        1048576L,
+        ConfigDef.Range.atLeast(1),
+        Importance.MEDIUM,
+        "Largest LOB value published, in bytes (UTF-8 for CLOB and NCLOB). Larger values follow"
+            + " cdc.lob.oversize.action; assembly memory per value is bounded by this limit.",
+        GROUP_LOBS,
+        ++o,
+        Width.SHORT,
+        "LOB size limit");
+    def.define(
+        LOB_OVERSIZE_ACTION,
+        Type.STRING,
+        "fail",
+        caseInsensitiveEnum(LobOversizeAction.class),
+        Importance.MEDIUM,
+        "fail stops the task with CDC-3003 when a committed transaction wrote a LOB value above"
+            + " cdc.lob.max.bytes; placeholder publishes cdc.unavailable.placeholder instead.",
+        GROUP_LOBS,
+        ++o,
+        Width.SHORT,
+        "LOB oversize action");
+    def.define(
+        UNAVAILABLE_PLACEHOLDER,
+        Type.STRING,
+        "__cdc_unavailable_value",
+        Importance.LOW,
+        "Value published for a LOB column whose value is not available (a before image, an"
+            + " unchanged LOB in an update, a partial write or an oversize value); BLOB columns"
+            + " carry its UTF-8 bytes.",
+        GROUP_LOBS,
+        ++o,
+        Width.MEDIUM,
+        "Unavailable placeholder");
+
     // Errors
     def.define(
         ON_DECODE_ERROR,

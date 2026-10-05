@@ -22,14 +22,15 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `ec66f77` and earlier | Phase 0 (P0-01 to P0-13, P0-15, P0-16) and Phase 1a (P1-01 to P1-05, P1-07 to P1-10) | full gate on JDK 17 and 21, engine and connector tiers, Strimzi edge cases kill_worker, rolling_update, oracle_restart, rebalance |
 | `ae3c34e` | P1-13 correctness oracle (`bench check`, ADR-0012) | `CorrectnessOracleConnectorIT` PASS |
 | `cafbccc` | P1-11 ops topic and internal topics, P1-06 spill store, P1-14 transaction journal, P1-15 orphan detection, ADR-0014 redo-address cursor | full gate, connector tier 7 suites, engine tier 31 tests, all green |
-| next after `cafbccc` (hash recorded at the following commit) | P1-21 decode DLQ (`cdc.dlq.topic`), long-transaction policy (`cdc.transaction.max.age.ms`, `CDC-4004`), archive-only coverage, `dbz-2713` regression | full gate, connector tier 7 suites plus the two surefire tests, engine tier 33 tests, all green |
+| `ddb4c4d` | P1-21 decode DLQ (`cdc.dlq.topic`), long-transaction policy (`cdc.transaction.max.age.ms`, `CDC-4004`), archive-only coverage, `dbz-2713` regression | full gate, connector tier 7 suites plus the two surefire tests, engine tier 33 tests, all green |
+| next after `ddb4c4d` (hash recorded at the following commit) | P1-18 LOBs: `cdc.lob.mode` skip, inline, reselect; `cdc.lob.max.bytes`, `cdc.lob.oversize.action` (`CDC-3003`), `cdc.unavailable.placeholder`; per-statement assembly and newest-change undo (ADR-0015); LOB_ERASE code 29 | full gate, connector tier 7 suites plus the two surefire tests (oracle suite with LOBs in reselect mode), engine tier 37 tests, all green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. The next increment is P1-18 (LOBs), section 5.
+Nothing. The next increment is P1-23 (pipelining, JMX metrics, ops assets), section 5.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -118,6 +119,26 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
   `cdc.transaction.orphan.action=fail`. Engine: `withOrphanDetector(...)`, `checkOrphans()`.
 - Age (P1-21): `enforceTransactionAge()` runs after `flushJournal()` in both engine paths.
 
+### LOBs (P1-18, ADR-0015, `reference/lob-redo-shapes.md`)
+
+- LOB rows (`LOB_WRITE` 10, `LOB_TRIM` 11, `LOB_ERASE` 29) have STATUS 2 but a complete PL/SQL block;
+  `SqlRedoParser.parseLob` and `RowDecoder.decodeLob` turn them into a `LobFragment`. Code 9 rows
+  (labelled INTERNAL, no SQL_REDO) are skipped in `CaptureEngine.apply`. Text offsets and amounts are
+  code points, not UTF-16 units.
+- `engine/LobAssembler` replaced `LobInsertCoalescer`: one open change per transaction (a row piece
+  with the placeholder ROWID, or LOB rows alone), folded until another row arrives. Unavailable LOB
+  values are absent from the image; the envelope renders them per `cdc.lob.mode` (placeholder in
+  inline and reselect, field omitted in skip). Never put a null for "unavailable": null is a real
+  NULL.
+- `model/RowIds`: synthetic ROWIDs `#R` (row piece), `#L` (LOB group), `#X` (downgraded group).
+  `TransactionEntry` keeps the order of synthetic changes (`resolve`, `track`, `untrack`) and an undo
+  of the same table that reverses the newest one targets it; the resolved target goes into spill and
+  journal frames. Use `TransactionBuffer.undo(key, id, rowId, table, op)` for new code.
+- Reselect: `ReselectingEvents` wraps the committed transaction (a `CommittedTransaction.Lazy` list,
+  never copied) and `JdbcLobReselector` queries AS OF the commit SCN on its own connection
+  (`JdbcEngineFactory` opens it on first use and drops it on reconnect). It runs while the sink reads
+  the events, inside the engine's step, so its exceptions stop the task like any other.
+
 ### Ops topic, internal topics, DLQ
 
 - `ops/OpsEvent` wire names (PRD-01 section 4.9): `startup`, `stop`, `ddl-seen`, `ids-refreshed`,
@@ -164,15 +185,22 @@ now move a log aside with `OracleSql.hideArchivedLog` and put it back with
 6. Update `docs/HANDOVER.md` section 1 and the plan status in your own notes; the PRDs are amended
    only through ADRs plus one-line edits.
 
-Expected tier contents after P1-21: connector tier 8 suites (`FirstRecord`, `RestartNoLoss`,
+Expected tier contents after P1-18: connector tier 8 suites (`FirstRecord`, `RestartNoLoss`,
 `CorrectnessOracle`, `OpsTopic`, `JournaledTransaction`, `DecodeDlq`, `AdvancesOffsetsOnQuietDatabase`,
-plus the two surefire tests), engine tier 33 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
+plus the two surefire tests), engine tier 37 tests. `RestartNoLossConnectorIT` prints LogMiner rows,
 ops and heartbeat records on a miss; a miss is a product bug until proven otherwise.
 
 ---
 
 ## 4. Pitfalls met on this workstation (read before debugging a red run)
 
+- A flashback query within about three seconds of a DDL on the table raises ORA-01466; reselect
+  treats it as unavailable. Suites that reselect sleep 3.5 s after creating their tables.
+- Spikes that filter LogMiner rows by `SEG_OWNER` miss the code 9 rows and anything else without an
+  owner; filter by `DATA_OBJ#` and attribute rows to scenarios by XID
+  (`DBMS_TRANSACTION.LOCAL_TRANSACTION_ID` before the commit).
+- `sed` on a Java source holding a literal non-ASCII character (Spotless keeps the emoji as typed)
+  silently does nothing; patch such files with Python and assert the match.
 - Never `rm` an archived log in a suite: the Oracle container is shared by every suite in the JVM
   and the catalog keeps listing the file. Use `OracleSql.hideArchivedLog` and
   `OracleSql.restoreHiddenLogs` (finally block).
@@ -214,34 +242,24 @@ Each item lists what to build, where it plugs in, and the tests that prove it. K
 patterns: core logic with a fake for T0, a `*EngineIT` against Oracle, a `*ConnectorIT` through a
 real worker where Kafka matters, docs regenerated, runbook per new error code.
 
-### P1-18 LOBs (CORE-DEC, SRC-LOB)
+### P1-18 follow-ups (not blocking; record decisions in ADR-0015 amendments)
 
-- Today an INSERT into a LOB table arrives as a placeholder-ROWID INSERT plus a locator UPDATE and
-  `LobInsertCoalescer` folds them; LOB_WRITE / LOB_TRIM / LOB_ERASE chains (operation codes 9, 10, 11)
-  and SEL_LOB_LOCATOR (255?) are not assembled: check `reference/operation-codes.md` for what was
-  observed. The engine currently stops on LOB rows for captured tables (DecodeException) unless the
-  DLQ policy is on.
-- Build `decode/LobAssembler` in core: per (transaction, ROWID, column) accumulate LOB_WRITE
-  fragments (SQL_REDO carries `DBMS_LOB.WRITE` calls with HEXTORAW or string chunks) until the next
-  non-LOB row or commit, then fold the value into the owning row change. `cdc.lob.mode`:
-  `skip` (drop LOB columns from records), `inline` (default up to `cdc.lob.max.bytes`, else stop
-  with a typed error), `reselect` (fetch the LOB value with the metadata connection
-  `SELECT col FROM t AS OF SCN :commitScn WHERE ROWID = :rid`, one query per row, documented as a
-  latency cost). Add the keys to `CoreConfig` (group Decoding) and regenerate docs.
-- Hook: `CaptureEngine.decodeAndBuffer` already collects `lobs` column names; route LOB rows to the
-  assembler before `buffer.add`. `TypeToConnect` maps CLOB to string and BLOB to bytes already.
-- Tests: T0 with `FakeLogMiner` rows shaped like `reference/sql-redo-shapes.md` (a `lobWrite(...)`
-  DSL method is needed), T1 `LobModesEngineIT` (small and large CLOB, BLOB, NCLOB, three modes,
-  savepoint rollback of a LOB write per the rollback corpus), connector run with the workload spec
-  `lobWeight > 0` through `CorrectnessOracleConnectorIT` (`Normaliser` must compare LOB values).
-- Docs: `website/docs/reference/record-formats.md` LOB section; DOC-5 doctor text.
+- XMLTYPE: XML DOC BEGIN, WRITE and END rows are ignored today (`Operation.UNKNOWN`), so XMLTYPE
+  values are unavailable; assemble them or reselect them.
+- Asynchronous reselect with a bounded queue (PRD-00 CORE-DEC-7) instead of one synchronous query
+  per row at commit.
+- 19c and 21c (P1-30): rerun `LobRedoShapesRefEngineIT`; older releases may split the locator select
+  from the writes.
+- P1-26: the LOB savepoint invariants (corpus row "Savepoint bugs fixed in Debezium 3.7") are proven
+  by `LobModesEngineIT` and `LobUndoBufferTest`; decide with Sion how rows without an issue number
+  are tagged before moving them into `e2e/regression`.
 
 ### P1-23 Pipelining, JMX metrics, ops assets (ADR-0013)
 
 - `metrics/JmxEngineMetrics` in core: one MBean per task (`sh.oso.cdc:type=task,server=<prefix>`)
   exposing `EngineMetrics` counters (steps, rowsMined, stepRetries, stepTimeouts, stepCuts,
   reconnects, idlePolls, transactionsCommitted, transactionsSkipped, decodeFailures,
-  lobInsertsMerged, orphansReleased, transactionsDiscarded, minedToScn, safeEndScn, lastStepMillis,
+  lobInsertsMerged, lobRowsApplied, orphansReleased, transactionsDiscarded, minedToScn, safeEndScn, lastStepMillis,
   windowLogs) and `BufferMetricsSnapshot` gauges (open, buffered events, heap bytes, spilled
   transactions and bytes, journaled transactions) plus `RecordQueueSink` counters (heartbeats, ops
   events, journal chunks and tombstones, DLQ records, queue depth, lag = now minus last commit

@@ -78,6 +78,7 @@ public final class JdbcEngineFactory implements EngineFactory {
     private final ConnectionFactory connections;
     private volatile Connection meta;
     private volatile Connection mining;
+    private volatile Connection reselect; // cdc.lob.mode=reselect only, opened on first use
     private final JdbcCatalogSource catalog;
     private DatabaseInfo info;
     private final SchemaRegistry schemas;
@@ -218,6 +219,8 @@ public final class JdbcEngineFactory implements EngineFactory {
                 LOG.warn("Reconnecting to the database after: {}", cause.getMessage());
                 closeQuietly(source);
                 closeQuietly(meta);
+                closeQuietly(reselect);
+                reselect = null;
                 meta = connections.open(ConnectionRole.METADATA);
                 mining = connections.open(ConnectionRole.MINING);
                 source = newSource(inventory);
@@ -225,6 +228,23 @@ public final class JdbcEngineFactory implements EngineFactory {
                 return new CaptureEngine.Sources(source, inventory, safeEnd);
               },
               Instant::now);
+      if (core.lobMode() == CoreConfig.LobMode.RESELECT) {
+        // CORE-DEC-7: AS OF queries on a connection of their own, which switches container
+        engine.withReselector(
+            new sh.oso.connect.oracle.core.engine.JdbcLobReselector(
+                () -> {
+                  if (reselect == null) {
+                    try {
+                      reselect = connections.open(ConnectionRole.METADATA);
+                    } catch (InterruptedException e) {
+                      Thread.currentThread().interrupt();
+                      throw new IllegalStateException(
+                          "interrupted opening the reselect session", e);
+                    }
+                  }
+                  return reselect;
+                }));
+      }
       // CORE-TX-7: orphan checks against GV$TRANSACTION on the metadata connection
       engine.withOrphanDetector(
           new sh.oso.connect.oracle.core.orphan.OrphanDetector(
@@ -303,6 +323,8 @@ public final class JdbcEngineFactory implements EngineFactory {
     @Override
     public void close() throws Exception {
       closeQuietly(source); // ends the LogMiner session and closes the mining connection
+      closeQuietly(reselect);
+      reselect = null;
       Connection m = meta;
       meta = null;
       if (m != null) {

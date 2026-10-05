@@ -1,7 +1,7 @@
 ---
 title: "Topics"
 description: "Topics properties of the OSO CDC Connector for Oracle Database."
-sidebar_position: 9
+sidebar_position: 10
 ---
 
 # Topics properties

@@ -70,17 +70,114 @@ public final class RowDecoder {
         before = where;
         after = new LinkedHashMap<>(where);
         after.putAll(set);
-        partial = where.size() < columns.size();
+        partial = where.size() < nonLobColumns(schema);
         break;
       default:
         before = where;
         after = null;
-        partial = where.size() < columns.size();
+        partial = where.size() < nonLobColumns(schema);
         break;
     }
     String rowId = p.rowId() != null ? p.rowId() : dml.rowId();
     return new RowChange(
         schema.table(), p.op(), before, after, partial, rowId, dml.id(), dml.tx(), dml.timestamp());
+  }
+
+  /**
+   * Decodes a LOB_WRITE, LOB_TRIM or LOB_ERASE row (ADR-0015). Its STATUS is 2 with INFO "LOB
+   * sql_redo not re-executable" although the block is complete, so the status is not checked; a
+   * buffer whose length differs from the call's amount is a {@link DecodeException}.
+   */
+  public static LobFragment decodeLob(MiningEvent.Dml dml, TableSchema schema) {
+    if (dml.sqlRedo() == null) {
+      throw new DecodeException(
+          dml.op()
+              + " row of "
+              + schema.table().fqn()
+              + " at "
+              + dml.id()
+              + " has no SQL_REDO (STATUS "
+              + dml.status()
+              + (dml.info() == null ? "" : ", " + dml.info())
+              + ")",
+          "Report the row with the Oracle version (reference/lob-redo-shapes.md).");
+    }
+    LobRedo r = SqlRedoParser.parseLob(dml.sqlRedo());
+    if (!r.owner().equals(schema.table().schema()) || !r.table().equals(schema.table().table())) {
+      throw new DecodeException(
+          "LOB row at "
+              + dml.id()
+              + " names "
+              + r.owner()
+              + "."
+              + r.table()
+              + " but belongs to "
+              + schema.table().fqn(),
+          "Report the row; the connector stops rather than guess.");
+    }
+    Map<String, ColumnSpec> columns = schema.columnsByName();
+    ColumnSpec col = columns.get(r.column());
+    if (col == null || !col.type().isLob()) {
+      throw new DecodeException(
+          "LOB row at "
+              + dml.id()
+              + " writes "
+              + r.column()
+              + ", which is not a LOB column of "
+              + schema.table().fqn(),
+          "A DDL changed the table after this redo was written; see the runbook for decode"
+              + " errors.");
+    }
+    boolean binary = col.type() == sh.oso.connect.oracle.core.schema.OracleType.BLOB;
+    java.util.List<LobFragment.Edit> edits = new java.util.ArrayList<>();
+    for (LobRedo.Op op : r.ops()) {
+      if (op instanceof LobRedo.Write w) {
+        Object data = OracleTypeCodec.decode(col, w.data());
+        if (data == null) {
+          throw new DecodeException(
+              "LOB write at " + dml.id() + " has a NULL buffer", "Report the row shape.");
+        }
+        LobFragment.Write write = new LobFragment.Write(w.offset(), data);
+        if (write.length() != w.amount()) {
+          throw new DecodeException(
+              "LOB write at "
+                  + dml.id()
+                  + " declares "
+                  + w.amount()
+                  + (binary ? " bytes" : " characters")
+                  + " but its buffer holds "
+                  + write.length(),
+              "Report the row shape with the database character set; the connector stops"
+                  + " rather than guess.");
+        }
+        edits.add(write);
+      } else if (op instanceof LobRedo.Trim t) {
+        edits.add(new LobFragment.Trim(t.length()));
+      } else if (op instanceof LobRedo.Erase e) {
+        edits.add(new LobFragment.Erase(e.amount(), e.offset()));
+      }
+    }
+    return new LobFragment(
+        schema.table(),
+        col.name(),
+        binary,
+        values(r.where(), columns, schema),
+        edits,
+        dml.rowId(),
+        dml.id(),
+        dml.tx(),
+        dml.timestamp());
+  }
+
+  /** LOB columns never appear in a WHERE clause, so they do not make an image partial. */
+  static int nonLobColumns(TableSchema schema) {
+    int n = 0;
+    for (ColumnSpec c : schema.columns()) {
+      if (!c.type().isLob()) {
+        n++;
+      }
+    }
+    return n;
   }
 
   private static Map<String, Object> values(

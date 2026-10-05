@@ -50,6 +50,26 @@ public final class Materialiser {
   private long tombstones;
   private long maxCommitScn = -1;
 
+  /**
+   * The connector's cdc.unavailable.placeholder: a field carrying it (as text, or as the base64 of
+   * its UTF-8 bytes for a BLOB) keeps the row's previous value, as a consumer must (SRC-LOB-1).
+   */
+  public static final String DEFAULT_PLACEHOLDER = "__cdc_unavailable_value";
+
+  private final String placeholder;
+  private final String placeholderBase64;
+
+  public Materialiser() {
+    this(DEFAULT_PLACEHOLDER);
+  }
+
+  public Materialiser(String placeholder) {
+    this.placeholder = placeholder;
+    this.placeholderBase64 =
+        java.util.Base64.getEncoder()
+            .encodeToString(placeholder.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  }
+
   public void apply(RecordJson r) {
     records++;
     if (r.tombstone) {
@@ -66,8 +86,11 @@ public final class Materialiser {
       case "c":
       case "r":
       case "u":
-        rows.put(key == null ? r.after.toString() : key, r.after);
-        break;
+        {
+          String k = key == null ? r.after.toString() : key;
+          rows.put(k, keepUnavailable(rows.get(k), r.after));
+          break;
+        }
       case "d":
         rows.remove(key == null ? r.before.toString() : key);
         break;
@@ -100,6 +123,30 @@ public final class Materialiser {
       return r.schema + "." + r.table;
     }
     return r.topic;
+  }
+
+  private JsonNode keepUnavailable(JsonNode previous, JsonNode after) {
+    if (!(after instanceof com.fasterxml.jackson.databind.node.ObjectNode a)) {
+      return after;
+    }
+    com.fasterxml.jackson.databind.node.ObjectNode merged = null;
+    java.util.Iterator<Map.Entry<String, JsonNode>> it = a.fields();
+    while (it.hasNext()) {
+      Map.Entry<String, JsonNode> f = it.next();
+      String text = f.getValue().isTextual() ? f.getValue().asText() : null;
+      if (placeholder.equals(text) || placeholderBase64.equals(text)) {
+        if (merged == null) {
+          merged = a.deepCopy();
+        }
+        JsonNode old = previous == null ? null : previous.get(f.getKey());
+        if (old == null) {
+          merged.remove(f.getKey());
+        } else {
+          merged.set(f.getKey(), old);
+        }
+      }
+    }
+    return merged == null ? after : merged;
   }
 
   public Map<String, Map<String, JsonNode>> tables() {

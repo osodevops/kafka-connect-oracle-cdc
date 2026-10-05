@@ -43,8 +43,11 @@ public record CommittedTransaction(
     Objects.requireNonNull(firstCaptured, "firstCaptured");
     Objects.requireNonNull(commitId, "commitId");
     // a spilled transaction's events are read from disk on demand; copying would defeat the budget
-    events = events instanceof SpillStore.SpilledChanges ? events : List.copyOf(events);
+    events = events instanceof Lazy ? events : List.copyOf(events);
   }
+
+  /** An event list read on demand (spilled, or reselected at commit): never copied. */
+  public interface Lazy {}
 
   public long commitScn() {
     return commitId.scn();

@@ -30,12 +30,55 @@ public record EngineSettings(
     int maxConsecutiveRetries,
     DecodeErrorAction onDecodeError,
     Duration transactionMaxAge,
-    MaxAgeAction maxAgeAction) {
+    MaxAgeAction maxAgeAction,
+    LobAssembler.Mode lobMode,
+    long lobMaxBytes,
+    boolean lobOversizeFail) {
 
   /** CORE-TX-6: what happens to a transaction open longer than {@code transactionMaxAge}. */
   public enum MaxAgeAction {
     FAIL,
     DISCARD
+  }
+
+  /** The pre-CORE-DEC-6 shape: LOB values inline up to 1 MiB, an oversize value stops. */
+  public EngineSettings(
+      Duration targetLatency,
+      int maxLogsPerStep,
+      Duration sessionMaxAge,
+      Duration idlePoll,
+      int maxConsecutiveRetries,
+      DecodeErrorAction onDecodeError,
+      Duration transactionMaxAge,
+      MaxAgeAction maxAgeAction) {
+    this(
+        targetLatency,
+        maxLogsPerStep,
+        sessionMaxAge,
+        idlePoll,
+        maxConsecutiveRetries,
+        onDecodeError,
+        transactionMaxAge,
+        maxAgeAction,
+        LobAssembler.Mode.INLINE,
+        1L << 20,
+        true);
+  }
+
+  /** The same knobs with another LOB handling (CORE-DEC-6, SRC-LOB). */
+  public EngineSettings withLobs(LobAssembler.Mode mode, long maxBytes, boolean oversizeFail) {
+    return new EngineSettings(
+        targetLatency,
+        maxLogsPerStep,
+        sessionMaxAge,
+        idlePoll,
+        maxConsecutiveRetries,
+        onDecodeError,
+        transactionMaxAge,
+        maxAgeAction,
+        mode,
+        maxBytes,
+        oversizeFail);
   }
 
   /** The pre-CORE-TX-6 shape: no age limit. */
@@ -69,7 +112,10 @@ public record EngineSettings(
         maxAge <= 0 ? null : Duration.ofMillis(maxAge),
         "discard".equalsIgnoreCase(c.getString(CoreConfig.TRANSACTION_MAX_AGE_ACTION))
             ? MaxAgeAction.DISCARD
-            : MaxAgeAction.FAIL);
+            : MaxAgeAction.FAIL,
+        LobAssembler.Mode.valueOf(c.lobMode().name()),
+        c.getLong(CoreConfig.LOB_MAX_BYTES),
+        c.lobOversizeAction() == CoreConfig.LobOversizeAction.FAIL);
   }
 
   public static EngineSettings defaults() {

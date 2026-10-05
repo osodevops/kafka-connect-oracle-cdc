@@ -32,6 +32,7 @@ public final class EngineMetrics {
   public final AtomicLong idlePolls = new AtomicLong();
   public final AtomicLong sessionRecycles = new AtomicLong();
   public final AtomicLong lobInsertsMerged = new AtomicLong();
+  public final AtomicLong lobRowsApplied = new AtomicLong();
   public final AtomicLong reconnects = new AtomicLong();
   public final AtomicLong orphansReleased = new AtomicLong();
   public final AtomicLong transactionsDiscarded = new AtomicLong();

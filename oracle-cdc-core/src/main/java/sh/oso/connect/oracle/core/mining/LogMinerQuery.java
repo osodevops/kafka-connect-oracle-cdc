@@ -69,7 +69,8 @@ public final class LogMinerQuery {
           "SQL_UNDO");
 
   /** Row changes on captured objects, plus UNSUPPORTED rows for them (CORE-MINE-10). */
-  static final List<Integer> ROW_CODES = List.of(1, 2, 3, 9, 10, 11, 28, 255);
+  /** Row changes and LOB rows; LOB_ERASE is 29 on 23ai (reference/lob-redo-shapes.md). */
+  static final List<Integer> ROW_CODES = List.of(1, 2, 3, 9, 10, 11, 29, 255);
 
   static final int DDL_CODE = 5;
   static final List<Integer> TX_CODES = List.of(6, 7, 36);

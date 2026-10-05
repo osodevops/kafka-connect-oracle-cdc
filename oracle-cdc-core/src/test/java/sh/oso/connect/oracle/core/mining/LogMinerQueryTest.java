@@ -56,7 +56,7 @@ class LogMinerQueryTest {
   void emptyObjectSetsStillMineDdlAndTransactionControl() {
     String sql = LogMinerQuery.sql(MiningFilter.of(Map.of(), Set.of()));
     assertThat(sql)
-        .contains("(OPERATION_CODE IN (1, 2, 3, 9, 10, 11, 28, 255) AND 1 = 0)")
+        .contains("(OPERATION_CODE IN (1, 2, 3, 9, 10, 11, 29, 255) AND 1 = 0)")
         .contains("(OPERATION_CODE = 5 AND (SEG_OWNER IS NULL OR SEG_OWNER NOT IN (")
         .contains("(OPERATION_CODE IN (6, 7, 36))");
   }

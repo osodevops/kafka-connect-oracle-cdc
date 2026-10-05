@@ -233,4 +233,77 @@ class DebeziumEnvelopeTest {
     assertThat(del).as("no key, so no tombstone").hasSize(1);
     assertThat(del.get(0).key()).isNull();
   }
+
+  static DebeziumEnvelope lobEnvelope(String mode) {
+    Map<String, String> p = OracleCdcSourceConnectorConfigTest.minimal();
+    p.put(sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE, mode);
+    OracleCdcSourceConnectorConfig cfg = new OracleCdcSourceConnectorConfig(p);
+    return new DebeziumEnvelope(
+        cfg, new TopicRouter(cfg.topicTemplate(true), "cdc", "FREE"), "FREE");
+  }
+
+  static final TableSchema DOCS = sh.oso.connect.oracle.core.testkit.LobRedoShapes.SCHEMA;
+
+  static RowChange lobUpdate(Map<String, Object> after, String rowId) {
+    Map<String, Object> before = Map.of("ID", java.math.BigDecimal.ONE, "NAME", "a");
+    return new RowChange(
+        DOCS.table(),
+        Operation.UPDATE,
+        before,
+        after,
+        false,
+        rowId,
+        new RedoRecordId(800, "0x8", 0),
+        K,
+        Instant.ofEpochSecond(100));
+  }
+
+  @Test
+  void lobColumnsAreLeftOutInSkipModeAndUnavailableValuesCarryThePlaceholder() {
+    Map<String, Object> after =
+        new java.util.HashMap<>(Map.of("ID", java.math.BigDecimal.ONE, "NAME", "b", "C", "text"));
+    RowChange c =
+        lobUpdate(
+            after, sh.oso.connect.oracle.core.model.RowIds.lobGroup("AAAR5FAAYAAAAANAAB", "1"));
+
+    Struct skipped =
+        (Struct) lobEnvelope("skip").records(tx(c), 0, 1, DOCS, offset()).get(0).value();
+    assertThat(skipped.getStruct("after").schema().field("C")).isNull();
+    assertThat(skipped.getStruct("after").getString("NAME")).isEqualTo("b");
+    // a synthetic ROWID publishes only the real ROWID inside it
+    assertThat(skipped.getStruct("source").getString("row_id")).isEqualTo("AAAR5FAAYAAAAANAAB");
+
+    Struct inline =
+        (Struct) lobEnvelope("inline").records(tx(c), 0, 1, DOCS, offset()).get(0).value();
+    Struct a = inline.getStruct("after");
+    assertThat(a.getString("C")).isEqualTo("text");
+    assertThat(a.getString("NC")).isEqualTo("__cdc_unavailable_value");
+    assertThat(new String(a.getBytes("B"), java.nio.charset.StandardCharsets.UTF_8))
+        .isEqualTo("__cdc_unavailable_value");
+    assertThat(inline.getStruct("before").getString("C")).isEqualTo("__cdc_unavailable_value");
+    assertThat(inline.getStruct("source").getString("reselect")).isNull();
+
+    Struct reselect =
+        (Struct) lobEnvelope("reselect").records(tx(c), 0, 1, DOCS, offset()).get(0).value();
+    assertThat(reselect.getStruct("source").getString("reselect")).isEqualTo("failed");
+    RowChange complete =
+        lobUpdate(
+            Map.of(
+                "ID",
+                java.math.BigDecimal.ONE,
+                "NAME",
+                "b",
+                "C",
+                "t",
+                "NC",
+                "n",
+                "B",
+                new byte[] {1}),
+            sh.oso.connect.oracle.core.model.RowIds.rowPiece(
+                sh.oso.connect.oracle.core.model.RowIds.PLACEHOLDER, "2"));
+    Struct ok =
+        (Struct) lobEnvelope("reselect").records(tx(complete), 0, 1, DOCS, offset()).get(0).value();
+    assertThat(ok.getStruct("source").getString("reselect")).isNull();
+    assertThat(ok.getStruct("source").getString("row_id")).isNull();
+  }
 }

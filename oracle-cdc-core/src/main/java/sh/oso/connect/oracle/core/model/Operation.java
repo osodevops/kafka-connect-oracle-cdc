@@ -31,7 +31,8 @@ public enum Operation {
   LOB_WRITE(10),
   LOB_TRIM(11),
   SELECT_FOR_UPDATE(25),
-  LOB_ERASE(28),
+  /** 29 on 23ai (reference/lob-redo-shapes.md), not the documented 28. */
+  LOB_ERASE(29),
   MISSING_SCN(34),
   ROLLBACK(36),
   UNSUPPORTED(255),
@@ -65,6 +66,22 @@ public enum Operation {
         || this == LOB_WRITE
         || this == LOB_TRIM
         || this == LOB_ERASE;
+  }
+
+  /** LOB rows: a PL/SQL block on the row's locator, folded into its change (CORE-DEC-6). */
+  public boolean isLobOp() {
+    return this == SELECT_LOB_LOCATOR || this == LOB_WRITE || this == LOB_TRIM || this == LOB_ERASE;
+  }
+
+  /** The operation of the undo row that reverses this one: INSERT and DELETE swap. */
+  public Operation inverse() {
+    if (this == INSERT) {
+      return DELETE;
+    }
+    if (this == DELETE) {
+      return INSERT;
+    }
+    return this;
   }
 
   public boolean isTransactionControl() {

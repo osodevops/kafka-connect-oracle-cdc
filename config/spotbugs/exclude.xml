@@ -26,12 +26,13 @@
       <Class name="~sh\.oso\.connect\.oracle\.bench\..*"/>
     </Or>
   </Match>
-  <!-- the workload generator and doctor catalog build statements from table names by design; values are bound -->
+  <!-- the workload generator, doctor catalog and LOB reselect build statements from quoted identifiers by design; values are bound -->
   <Match>
     <Bug pattern="SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING,SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE"/>
     <Or>
       <Class name="~sh\.oso\.connect\.oracle\.bench\.workload\..*"/>
       <Class name="~sh\.oso\.connect\.oracle\.core\.doctor\.JdbcDoctorCatalog"/>
+      <Class name="~sh\.oso\.connect\.oracle\.core\.engine\.JdbcLobReselector"/>
     </Or>
   </Match>
   <!-- test support code -->

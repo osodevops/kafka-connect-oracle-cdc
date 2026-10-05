@@ -55,6 +55,8 @@ public final class DebeziumEnvelope {
   private final Schema sourceSchema;
   private final Schema transactionSchema;
   private final String databaseName;
+  private final sh.oso.connect.oracle.core.config.CoreConfig.LobMode lobMode;
+  private final String placeholder;
 
   record Schemas(Schema key, Schema value, Schema envelope, List<ColumnSpec> keyColumns) {}
 
@@ -65,6 +67,11 @@ public final class DebeziumEnvelope {
     this.router = router;
     this.databaseName = databaseName;
     this.partition = Map.of("server", config.topicPrefix());
+    this.lobMode = config.core().lobMode();
+    this.placeholder =
+        config
+            .core()
+            .getString(sh.oso.connect.oracle.core.config.CoreConfig.UNAVAILABLE_PLACEHOLDER);
     this.sourceSchema =
         SchemaBuilder.struct()
             .name("io.debezium.connector.oracle.Source")
@@ -86,6 +93,7 @@ public final class DebeziumEnvelope {
             .field("user_name", Schema.OPTIONAL_STRING_SCHEMA)
             .field("row_id", Schema.OPTIONAL_STRING_SCHEMA)
             .field("pdb", Schema.OPTIONAL_STRING_SCHEMA)
+            .field("reselect", Schema.OPTIONAL_STRING_SCHEMA)
             .build();
     this.transactionSchema =
         SchemaBuilder.struct()
@@ -120,6 +128,9 @@ public final class DebeziumEnvelope {
     Headers headers = headers(tx, change, index);
     long tsMs = tx.commitTimestamp() == null ? 0 : tx.commitTimestamp().toEpochMilli();
     Struct source = source(tx, change);
+    if (reselectFailed(schema, change)) {
+      source.put("reselect", "failed"); // CORE-DEC-7: the value could not be fetched
+    }
     Struct txBlock =
         new Struct(transactionSchema)
             .put("id", tx.key().xid().toString())
@@ -252,8 +263,27 @@ public final class DebeziumEnvelope {
         .put("ssn", c.id().ssn())
         .put("redo_thread", tx.thread())
         .put("user_name", tx.username())
-        .put("row_id", c.rowId())
+        .put("row_id", sh.oso.connect.oracle.core.model.RowIds.real(c.rowId()))
         .put("pdb", t.pdb());
+  }
+
+  /** Reselect mode and an INSERT or UPDATE still missing a CLOB, NCLOB or BLOB value. */
+  private boolean reselectFailed(TableSchema schema, RowChange c) {
+    if (lobMode != sh.oso.connect.oracle.core.config.CoreConfig.LobMode.RESELECT
+        || c.after() == null
+        || c.op() == sh.oso.connect.oracle.core.model.Operation.DELETE) {
+      return false;
+    }
+    for (ColumnSpec col : schema.columns()) {
+      sh.oso.connect.oracle.core.schema.OracleType t = col.type();
+      if ((t == sh.oso.connect.oracle.core.schema.OracleType.CLOB
+              || t == sh.oso.connect.oracle.core.schema.OracleType.NCLOB
+              || t == sh.oso.connect.oracle.core.schema.OracleType.BLOB)
+          && !c.after().containsKey(col.name())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private Headers headers(CommittedTransaction tx, RowChange c, int index) {
@@ -273,9 +303,17 @@ public final class DebeziumEnvelope {
     }
     Struct v = new Struct(s.value());
     for (org.apache.kafka.connect.data.Field f : s.value().fields()) {
+      ColumnSpec col = columnOf(s, f.name());
       if (image.containsKey(f.name())) {
-        ColumnSpec col = columnOf(s, f.name());
         v.put(f, types.value(col, f.schema(), image.get(f.name())));
+      } else if (col.type().isLob()) {
+        // SRC-LOB-1: a LOB the redo did not carry (or too large) is unavailable, not null
+        v.put(
+            f,
+            f.schema().type() == Schema.Type.BYTES
+                ? java.nio.ByteBuffer.wrap(
+                    placeholder.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                : placeholder);
       }
     }
     return v;
@@ -304,9 +342,8 @@ public final class DebeziumEnvelope {
 
   private Object keyOf(Schemas s, TableSchema schema, RowChange change, Map<String, Object> image) {
     if (schema.keySource() == KeySource.ROWID) {
-      return s.key() == null || change.rowId() == null
-          ? null
-          : new Struct(s.key()).put("ROWID", change.rowId());
+      String rowId = sh.oso.connect.oracle.core.model.RowIds.real(change.rowId());
+      return s.key() == null || rowId == null ? null : new Struct(s.key()).put("ROWID", rowId);
     }
     return key(s, image);
   }
@@ -327,6 +364,10 @@ public final class DebeziumEnvelope {
     SchemaBuilder value = SchemaBuilder.struct().name(base + ".Value").optional();
     Map<String, ColumnSpec> byName = new HashMap<>();
     for (ColumnSpec c : schema.columns()) {
+      if (c.type().isLob()
+          && lobMode == sh.oso.connect.oracle.core.config.CoreConfig.LobMode.SKIP) {
+        continue; // SRC-LOB-1: cdc.lob.mode=skip leaves LOB columns out of the records
+      }
       // value fields are optional: a partial before image (primary-key-only logging) omits columns
       value.field(
           c.name(),

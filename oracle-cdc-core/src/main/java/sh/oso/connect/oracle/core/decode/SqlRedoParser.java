@@ -64,6 +64,140 @@ public final class SqlRedoParser {
     }
   }
 
+  /**
+   * Parses the PL/SQL block of a LOB_WRITE, LOB_TRIM or LOB_ERASE row: the declarations are
+   * skipped, then {@code select "COL" into loc from "OWNER"."TABLE" where ... for update;} followed
+   * by buffer assignments and {@code dbms_lob.write}, {@code trim} or {@code erase} calls up to
+   * {@code END;}.
+   */
+  public static LobRedo parseLob(String sql) {
+    if (sql == null) {
+      throw new DecodeException(
+          "SQL_REDO of a LOB row is null", "Report the row with its OPERATION and STATUS.");
+    }
+    try {
+      return new SqlRedoParser(sql).lobBlock();
+    } catch (DecodeException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      throw new DecodeException(
+          "LOB SQL_REDO could not be parsed: " + e.getMessage(),
+          "Report the statement shape with the Oracle version.",
+          e);
+    }
+  }
+
+  private LobRedo lobBlock() {
+    keyword("declare");
+    while (!(t.kind() == Kind.WORD && t.text().equalsIgnoreCase("begin"))) {
+      if (t.kind() == Kind.EOF) {
+        throw sc.error("no BEGIN in LOB block", t.pos());
+      }
+      t = sc.next();
+    }
+    t = sc.next();
+    keyword("select");
+    String column = expect(Kind.QUOTED, "LOB column").text();
+    keyword("into");
+    word();
+    keyword("from");
+    String[] name = tableName();
+    List<ColumnValue> where = new ArrayList<>();
+    whereClause(where);
+    keyword("for");
+    keyword("update");
+    expect(Kind.SEMI, ";");
+    java.util.Map<String, SqlLiteral> buffers = new java.util.HashMap<>();
+    java.util.Map<String, Long> numbers = new java.util.HashMap<>();
+    List<LobRedo.Op> ops = new ArrayList<>();
+    while (!acceptKeyword("end")) {
+      String head = word();
+      if (head.equalsIgnoreCase("dbms_lob")) {
+        expect(Kind.DOT, ".");
+        String call = word().toLowerCase(Locale.ROOT);
+        expect(Kind.LPAREN, "(");
+        word(); // the locator
+        switch (call) {
+          case "write":
+            {
+              expect(Kind.COMMA, ",");
+              long amount = number(numbers);
+              expect(Kind.COMMA, ",");
+              long offset = number(numbers);
+              expect(Kind.COMMA, ",");
+              Token buf = expect(Kind.WORD, "buffer variable");
+              SqlLiteral data = buffers.get(buf.text().toLowerCase(Locale.ROOT));
+              if (data == null) {
+                throw sc.error("buffer " + buf.text() + " was never assigned", buf.pos());
+              }
+              ops.add(new LobRedo.Write(amount, offset, data));
+              break;
+            }
+          case "trim":
+            expect(Kind.COMMA, ",");
+            ops.add(new LobRedo.Trim(number(numbers)));
+            break;
+          case "erase":
+            {
+              expect(Kind.COMMA, ",");
+              long amount = number(numbers);
+              expect(Kind.COMMA, ",");
+              ops.add(new LobRedo.Erase(amount, number(numbers)));
+              break;
+            }
+          default:
+            throw sc.error("unsupported call dbms_lob." + call, t.pos());
+        }
+        expect(Kind.RPAREN, ")");
+      } else {
+        // an assignment: the scanner reads ':=' as the word ':' followed by '='
+        Token colon = expect(Kind.WORD, ":=");
+        if (!colon.text().equals(":")) {
+          throw sc.error("expected := after " + head, colon.pos());
+        }
+        expect(Kind.EQ, ":=");
+        String var = head.toLowerCase(Locale.ROOT);
+        if (t.kind() == Kind.WORD && isNumber(t.text())) {
+          numbers.put(var, Long.parseLong(t.text()));
+          t = sc.next();
+        } else {
+          buffers.put(var, literal());
+        }
+      }
+      expect(Kind.SEMI, ";");
+    }
+    accept(Kind.SEMI);
+    expect(Kind.EOF, "end of LOB block");
+    if (ops.isEmpty()) {
+      throw sc.error("LOB block has no dbms_lob call", 0);
+    }
+    return new LobRedo(name[0], name[1], column, where, ops);
+  }
+
+  private long number(java.util.Map<String, Long> variables) {
+    Token tok = expect(Kind.WORD, "number");
+    if (isNumber(tok.text())) {
+      return Long.parseLong(tok.text());
+    }
+    Long v = variables.get(tok.text().toLowerCase(Locale.ROOT));
+    if (v == null) {
+      throw sc.error("expected a number but found '" + tok.text() + "'", tok.pos());
+    }
+    return v;
+  }
+
+  private static boolean isNumber(String text) {
+    if (text.isEmpty() || text.length() > 18) {
+      return false;
+    }
+    for (int i = 0; i < text.length(); i++) {
+      if (!Character.isDigit(text.charAt(i))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private ParsedDml statement() {
     String verb = word();
     ParsedDml dml;

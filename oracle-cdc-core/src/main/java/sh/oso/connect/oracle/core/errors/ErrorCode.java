@@ -36,6 +36,8 @@ public enum ErrorCode {
   DECODE("CDC-3001", "decode", false),
   /** CORRUPTED_BLOCKS or MISSING_SCN for a captured object. */
   CORRUPTION("CDC-3002", "corruption", false),
+  /** cdc.lob.oversize.action=fail found a LOB value above cdc.lob.max.bytes. */
+  LOB_TOO_LARGE("CDC-3003", "lob-too-large", false),
   /** The spill cap was exceeded. */
   BUFFER_EXHAUSTED("CDC-4001", "buffer-exhausted", false),
   /** A journal chunk is missing or inconsistent on reload. */

@@ -17,6 +17,7 @@ Groups:
 - Capture: online or archive-only mining, archive destination
 - Mining: step sizing, timeouts, fetch size, session age
 - Transaction buffer, transaction journal and transactions: memory budget, spill, journal thresholds, long and orphaned transactions
+- LOBs: how CLOB, NCLOB and BLOB values are published, the size limit and the placeholder for values the redo does not carry
 - Errors and retries: decode error policy, retry budget, extra transient codes
 - Topics: prefix and template, table and user selection, key policy, tombstones
 - Record format: output format, decimal and temporal modes

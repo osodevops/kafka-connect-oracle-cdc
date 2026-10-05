@@ -20,7 +20,8 @@ import sh.oso.connect.oracle.core.errors.DecodeException;
 /**
  * Tokeniser for LogMiner's reconstructed SQL. Hand-written, no regular expressions: words,
  * double-quoted identifiers (with doubled quotes), single-quoted strings (with doubled quotes),
- * parentheses, commas, equals and dots. Anything else is a {@link DecodeException}.
+ * parentheses, commas, equals, dots and semicolons (the PL/SQL blocks of LOB rows). Anything else
+ * is a {@link DecodeException}.
  */
 final class SqlRedoScanner {
 
@@ -33,6 +34,7 @@ final class SqlRedoScanner {
     COMMA,
     EQ,
     DOT,
+    SEMI,
     EOF
   }
 
@@ -74,6 +76,9 @@ final class SqlRedoScanner {
       case '.':
         i++;
         return new Token(Kind.DOT, ".", start);
+      case ';':
+        i++;
+        return new Token(Kind.SEMI, ";", start);
       case '"':
         return new Token(Kind.QUOTED, quoted('"'), start);
       case '\'':
