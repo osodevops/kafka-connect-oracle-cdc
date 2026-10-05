@@ -551,7 +551,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.STRING,
         "sh.oso.connect.oracle.journal.TolerantJsonConverter",
         Importance.LOW,
-        "Converter the task uses to read the transaction journal topic back at start. The default"
+        "Converter the task uses to read the transaction journal and schema topics back at start."
+            + " The default"
             + " reads JSON written with or without the schema envelope, so it matches a worker"
             + " using the JSON converter in either mode. Set it to the worker's converter class"
             + " when the worker uses another converter (Avro, Protobuf); settings for it go under"

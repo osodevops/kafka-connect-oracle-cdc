@@ -47,7 +47,6 @@ import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.core.testkit.FakeCatalog;
 import sh.oso.connect.oracle.core.testkit.FakeLogMiner;
-import sh.oso.connect.oracle.core.testkit.InMemorySchemaStore;
 
 /**
  * Drives {@link OracleCdcSourceTask} against the fake engine, simulating Connect's offset storage:
@@ -110,6 +109,10 @@ final class TaskHarness implements AutoCloseable {
   final List<org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]>> journalTopic =
       new ArrayList<>();
 
+  /** The schema topic, held the same way. */
+  final List<org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]>> schemaTopic =
+      new ArrayList<>();
+
   private final org.apache.kafka.connect.json.JsonConverter journalKeys =
       new org.apache.kafka.connect.json.JsonConverter();
   private final org.apache.kafka.connect.json.JsonConverter journalValues =
@@ -121,36 +124,54 @@ final class TaskHarness implements AutoCloseable {
     journalValues.configure(Map.of("schemas.enable", "true"), false);
   }
 
-  SchemaRegistry registry() {
-    InMemorySchemaStore store = new InMemorySchemaStore();
-    store.save(
-        new TableSchema(
-            T,
-            List.of(
-                new ColumnSpec("ID", 1, OracleType.NUMBER, "NUMBER", 0, 18, 0, false),
-                ColumnSpec.of("SQL", 2, OracleType.VARCHAR2)),
-            List.of("ID"),
-            KeySource.PRIMARY_KEY,
-            true,
-            false));
-    DictionaryReader none =
+  /** The test table as the data dictionary describes it; tests change it to model a DDL. */
+  static TableSchema tableSchema(ColumnSpec... extra) {
+    List<ColumnSpec> cols = new ArrayList<>();
+    cols.add(new ColumnSpec("ID", 1, OracleType.NUMBER, "NUMBER", 0, 18, 0, false));
+    cols.add(ColumnSpec.of("SQL", 2, OracleType.VARCHAR2));
+    cols.addAll(List.of(extra));
+    return new TableSchema(T, cols, List.of("ID"), KeySource.PRIMARY_KEY, true, false);
+  }
+
+  /** What the fake data dictionary holds; a table missing here reads as dropped. */
+  final Map<TableId, TableSchema> dictionary =
+      new java.util.concurrent.ConcurrentHashMap<>(Map.of(T, tableSchema()));
+
+  /** The time the fake dictionary reports for every table's last DDL, and for every SCN. */
+  java.time.Instant lastDdlTime;
+
+  java.time.Instant scnTime;
+
+  SchemaRegistry registry(sh.oso.connect.oracle.core.schema.SchemaStore store) {
+    DictionaryReader fakeDictionary =
         new DictionaryReader() {
           public java.util.Optional<TableSchema> read(TableId t) {
-            return java.util.Optional.empty();
+            return java.util.Optional.ofNullable(dictionary.get(t));
           }
 
           public KeySelector.Candidates keyCandidates(TableId t) {
-            return new KeySelector.Candidates(List.of(), List.of());
+            return new KeySelector.Candidates(
+                dictionary.containsKey(t) ? List.of("ID") : List.of(), List.of());
+          }
+
+          @Override
+          public java.util.Optional<java.time.Instant> lastDdlTime(TableId t) {
+            return java.util.Optional.ofNullable(lastDdlTime);
+          }
+
+          @Override
+          public java.util.Optional<java.time.Instant> timeOfScn(long scn) {
+            return java.util.Optional.ofNullable(scnTime);
           }
         };
     return new SchemaRegistry(
-        store, none, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.NONE));
+        store, fakeDictionary, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.NONE));
   }
 
   final EngineFactory factory =
-      cfg -> {
+      (cfg, store) -> {
         sessionsOpened++;
-        SchemaRegistry registry = registry();
+        SchemaRegistry registry = registry(store);
         return new EngineFactory.Session() {
           public DatabaseIdentity identity() {
             return IDENTITY;
@@ -230,7 +251,8 @@ final class TaskHarness implements AutoCloseable {
           @Override
           sh.oso.connect.oracle.journal.JournalReader journalReader(
               java.util.Properties clientProps) {
-            return topic -> new ArrayList<>(journalTopic);
+            return topic ->
+                new ArrayList<>(topic.endsWith(".cdc.schema") ? schemaTopic : journalTopic);
           }
         };
     task.initialize(
@@ -323,15 +345,17 @@ final class TaskHarness implements AutoCloseable {
         committedOffsets.put(
             (Map<String, Object>) r.sourcePartition(), (Map<String, Object>) r.sourceOffset());
       }
-      if (isJournal(r)) {
+      if (isJournal(r) || isSchema(r)) {
+        List<org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]>> topic =
+            isJournal(r) ? journalTopic : schemaTopic;
         byte[] k = journalKeys.fromConnectData(r.topic(), r.keySchema(), r.key());
         byte[] v =
             r.value() == null
                 ? null
                 : journalValues.fromConnectData(r.topic(), r.valueSchema(), r.value());
-        journalTopic.add(
+        topic.add(
             new org.apache.kafka.clients.consumer.ConsumerRecord<>(
-                r.topic(), 0, journalTopic.size(), k, v));
+                r.topic(), 0, topic.size(), k, v));
       }
     }
   }
@@ -361,12 +385,16 @@ final class TaskHarness implements AutoCloseable {
     return r.topic().endsWith(".cdc.txjournal");
   }
 
+  static boolean isSchema(SourceRecord r) {
+    return r.topic().endsWith(".cdc.schema");
+  }
+
   static boolean isDlq(SourceRecord r) {
     return r.topic().endsWith(".cdc.dlq");
   }
 
   static boolean isInternal(SourceRecord r) {
-    return isHeartbeat(r) || isOps(r) || isJournal(r) || isDlq(r);
+    return isHeartbeat(r) || isOps(r) || isJournal(r) || isDlq(r) || isSchema(r);
   }
 
   static String opsType(SourceRecord r) {
@@ -390,6 +418,10 @@ final class TaskHarness implements AutoCloseable {
     if (isJournal(r)) {
       org.apache.kafka.connect.data.Struct k = (org.apache.kafka.connect.data.Struct) r.key();
       return (r.value() == null ? "<tombstone:" : "<chunk:") + k.getInt32("chunk") + ">";
+    }
+    if (isSchema(r)) {
+      org.apache.kafka.connect.data.Struct k = (org.apache.kafka.connect.data.Struct) r.key();
+      return (r.value() == null ? "<schema-removed:" : "<schema:") + k.getString("table") + ">";
     }
     if (isDlq(r)) {
       return "<dlq:" + ((org.apache.kafka.connect.data.Struct) r.value()).getString("kind") + ">";

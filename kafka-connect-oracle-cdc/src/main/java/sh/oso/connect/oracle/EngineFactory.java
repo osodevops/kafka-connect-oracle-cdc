@@ -27,7 +27,10 @@ import sh.oso.connect.oracle.core.schema.SchemaRegistry;
  */
 public interface EngineFactory {
 
-  Session open(OracleCdcSourceConnectorConfig config) throws Exception;
+  /** Connects; the session's schema registry keeps its versions in {@code schemas}. */
+  Session open(
+      OracleCdcSourceConnectorConfig config, sh.oso.connect.oracle.core.schema.SchemaStore schemas)
+      throws Exception;
 
   /** Connected to the database: identity and current SCN first, then the engine for a position. */
   interface Session extends AutoCloseable {

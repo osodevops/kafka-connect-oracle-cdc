@@ -167,6 +167,60 @@ public final class ConnectCluster implements AutoCloseable {
     }
   }
 
+  /** PUT /connectors/{name}/stop, /resume, or POST /restart?includeTasks=true, as an operator. */
+  public void lifecycle(String name, String action) throws IOException, InterruptedException {
+    String path = "restart".equals(action) ? "restart?includeTasks=true" : action;
+    HttpRequest.Builder b =
+        HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name + "/" + path));
+    b =
+        "restart".equals(action)
+            ? b.POST(HttpRequest.BodyPublishers.noBody())
+            : b.PUT(HttpRequest.BodyPublishers.noBody());
+    HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+    if (r.statusCode() / 100 != 2) {
+      throw new IllegalStateException(
+          action + " " + name + ": HTTP " + r.statusCode() + " " + r.body());
+    }
+  }
+
+  /** PATCH /connectors/{name}/offsets with one offset for the connector's partition. */
+  public void patchOffset(String name, Map<String, ?> partition, Map<String, ?> offset)
+      throws IOException, InterruptedException {
+    String body =
+        MAPPER.writeValueAsString(
+            Map.of("offsets", List.of(Map.of("partition", partition, "offset", offset))));
+    HttpResponse<String> r =
+        http.send(
+            HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name + "/offsets"))
+                .header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    if (r.statusCode() / 100 != 2) {
+      throw new IllegalStateException(
+          "patch offsets " + name + ": HTTP " + r.statusCode() + " " + r.body());
+    }
+  }
+
+  /** Waits until the task reports {@code state}; returns the status. */
+  public JsonNode awaitTaskState(String name, String state, Duration timeout) throws Exception {
+    long deadline = System.currentTimeMillis() + timeout.toMillis();
+    JsonNode last = null;
+    while (System.currentTimeMillis() < deadline) {
+      last = status(name);
+      JsonNode tasks = last.path("tasks");
+      if (tasks.size() > 0 && state.equals(tasks.get(0).path("state").asText())) {
+        return last;
+      }
+      if ("STOPPED".equals(state)
+          && "STOPPED".equals(last.path("connector").path("state").asText())) {
+        return last;
+      }
+      Thread.sleep(500);
+    }
+    throw new AssertionError("connector " + name + " task not " + state + ": " + last);
+  }
+
   public JsonNode status(String name) throws IOException, InterruptedException {
     HttpResponse<String> r =
         http.send(

@@ -57,7 +57,9 @@ public final class JdbcEngineFactory implements EngineFactory {
   private static final Logger LOG = LoggerFactory.getLogger(JdbcEngineFactory.class);
 
   @Override
-  public Session open(OracleCdcSourceConnectorConfig config) throws Exception {
+  public Session open(
+      OracleCdcSourceConnectorConfig config, sh.oso.connect.oracle.core.schema.SchemaStore schemas)
+      throws Exception {
     CoreConfig core = config.core();
     OraErrorClassifier classifier = new OraErrorClassifier(Set.copyOf(core.extraRetryErrorCodes()));
     ConnectionFactory connections =
@@ -65,7 +67,7 @@ public final class JdbcEngineFactory implements EngineFactory {
             OracleConnectionSpec.from(core),
             new RetryPolicy(Duration.ofMillis(core.getLong(CoreConfig.RETRY_MAX_TIME_MS))),
             classifier);
-    JdbcSession session = new JdbcSession(config, core, classifier, connections);
+    JdbcSession session = new JdbcSession(config, core, classifier, connections, schemas);
     session.meta = connections.open(ConnectionRole.METADATA);
     session.info = session.catalog.database();
     return session;
@@ -92,7 +94,8 @@ public final class JdbcEngineFactory implements EngineFactory {
         OracleCdcSourceConnectorConfig config,
         CoreConfig core,
         OraErrorClassifier classifier,
-        ConnectionFactory connections) {
+        ConnectionFactory connections,
+        sh.oso.connect.oracle.core.schema.SchemaStore schemaStore) {
       this.config = config;
       this.core = core;
       this.classifier = classifier;
@@ -103,7 +106,7 @@ public final class JdbcEngineFactory implements EngineFactory {
       this.catalog = new JdbcCatalogSource(() -> meta);
       this.schemas =
           new SchemaRegistry(
-              new MapSchemaStore(),
+              schemaStore,
               new JdbcDictionaryReader(() -> meta),
               new KeySelector(config.keyOverrides(), config.keyMissing()));
     }

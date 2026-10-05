@@ -62,6 +62,38 @@ public final class JdbcDictionaryReader implements DictionaryReader {
   }
 
   @Override
+  public Optional<java.time.Instant> lastDdlTime(TableId t) throws SQLException {
+    try (PreparedStatement ps =
+        c().prepareStatement(
+                "SELECT last_ddl_time FROM cdb_objects WHERE con_id = ? AND owner = ? AND"
+                    + " object_name = ? AND object_type = 'TABLE'")) {
+      ps.setInt(1, conId(t));
+      ps.setString(2, t.schema());
+      ps.setString(3, t.table());
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next() && rs.getTimestamp(1) != null
+            ? Optional.of(rs.getTimestamp(1).toInstant())
+            : Optional.empty();
+      }
+    }
+  }
+
+  @Override
+  public Optional<java.time.Instant> timeOfScn(long scn) throws SQLException {
+    try (PreparedStatement ps = c().prepareStatement("SELECT SCN_TO_TIMESTAMP(?) FROM dual")) {
+      ps.setLong(1, scn);
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next() ? Optional.of(rs.getTimestamp(1).toInstant()) : Optional.empty();
+      }
+    } catch (SQLException e) {
+      if (e.getErrorCode() == 8181) {
+        return Optional.empty(); // older than the SCN-to-time mapping keeps
+      }
+      throw e;
+    }
+  }
+
+  @Override
   public Optional<TableSchema> read(TableId t) throws SQLException {
     int con = conId(t);
     List<ColumnSpec> cols = new ArrayList<>();

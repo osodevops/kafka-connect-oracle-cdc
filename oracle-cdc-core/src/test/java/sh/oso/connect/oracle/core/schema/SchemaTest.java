@@ -176,4 +176,61 @@ class SchemaTest {
     assertThat(reg.applyDdl(T, 700)).isEmpty();
     assertThat(reg.known(T)).isFalse();
   }
+
+  @Test
+  void aStoredVersionThatDiffersFromTheDictionaryStopsUnlessItsDdlIsAhead() throws Exception {
+    InMemorySchemaStore store = new InMemorySchemaStore();
+    TableSchema stored = schema();
+    store.save(stored);
+    TableSchema[] dictionary = {stored};
+    java.time.Instant resumeTime = java.time.Instant.parse("2026-10-05T10:00:00Z");
+    java.time.Instant[] lastDdl = {resumeTime.minusSeconds(3600)};
+    DictionaryReader dict =
+        new DictionaryReader() {
+          public Optional<TableSchema> read(TableId table) {
+            return Optional.ofNullable(dictionary[0]);
+          }
+
+          public KeySelector.Candidates keyCandidates(TableId table) {
+            return new KeySelector.Candidates(List.of(), List.of());
+          }
+
+          @Override
+          public Optional<java.time.Instant> lastDdlTime(TableId table) {
+            return Optional.ofNullable(lastDdl[0]);
+          }
+
+          @Override
+          public Optional<java.time.Instant> timeOfScn(long scn) {
+            return scn == 1000 ? Optional.of(resumeTime) : Optional.empty();
+          }
+        };
+    SchemaRegistry reg =
+        new SchemaRegistry(
+            store, dict, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.NONE));
+
+    reg.validate(T, 1000); // the same layout
+    reg.validate(new TableId("FREEPDB1", "APP", "NEVER_SEEN"), 1000); // nothing stored
+
+    List<ColumnSpec> wider = new java.util.ArrayList<>(schema().columns());
+    wider.add(ColumnSpec.of("ADDED", wider.size() + 1, OracleType.VARCHAR2));
+    dictionary[0] = new TableSchema(T, wider, List.of(), KeySource.NONE, true, false);
+    assertThatThrownBy(() -> reg.validate(T, 1000))
+        .as("the table changed before the resume point: a DDL was missed")
+        .isInstanceOf(sh.oso.connect.oracle.core.errors.SchemaMismatchException.class)
+        .hasMessageContaining("CDC-6003")
+        .hasMessageContaining("APP.ORDERS");
+    assertThatThrownBy(() -> reg.validate(T, 2000))
+        .as("the resume point's time is unknown: nothing explains the difference")
+        .isInstanceOf(sh.oso.connect.oracle.core.errors.SchemaMismatchException.class);
+
+    lastDdl[0] = resumeTime.plusSeconds(60);
+    reg.validate(T, 1000); // the DDL is ahead in the redo and will be applied there
+    lastDdl[0] = resumeTime.minusSeconds(5);
+    reg.validate(T, 1000); // within SCN_TO_TIMESTAMP's precision: counted as ahead
+
+    dictionary[0] = null;
+    lastDdl[0] = null;
+    reg.validate(T, 1000); // dropped since: the DROP is ahead
+  }
 }

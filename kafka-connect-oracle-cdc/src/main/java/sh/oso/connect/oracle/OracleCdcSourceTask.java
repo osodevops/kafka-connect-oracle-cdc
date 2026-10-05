@@ -51,6 +51,7 @@ public class OracleCdcSourceTask extends SourceTask {
   private EngineFactory.Session session;
   private RecordQueueSink sink;
   private EngineLifecycle lifecycle;
+  private sh.oso.connect.oracle.schema.SchemaTopicStore schemaStore;
   private javax.management.ObjectName metricsName;
   private org.apache.kafka.connect.source.TransactionContext transactions;
   private sh.oso.connect.oracle.delivery.EosBoundaries boundaries;
@@ -74,7 +75,13 @@ public class OracleCdcSourceTask extends SourceTask {
   public void start(Map<String, String> props) {
     config = new OracleCdcSourceConnectorConfig(props);
     try {
-      session = factory.open(config);
+      // PRD-03: versions live in the schema topic. Only the position this start read back is
+      // known to be committed (Connect flushes offsets after acknowledging records), so versions
+      // are pruned below that one and no further
+      schemaStore =
+          new sh.oso.connect.oracle.schema.SchemaTopicStore(
+              () -> startPosition == null ? 0 : startPosition.resumeScn());
+      session = factory.open(config, schemaStore);
       DatabaseIdentity identity = session.identity();
       Map<String, Object> partition = Map.of("server", config.topicPrefix());
       Map<String, Object> stored =
@@ -128,6 +135,24 @@ public class OracleCdcSourceTask extends SourceTask {
                   config.dlqTopic(), config.topicPrefix(), envelope.partition()),
               config.heartbeatIntervalMs(),
               System::currentTimeMillis);
+      sink.schemaTopic(
+          new sh.oso.connect.oracle.schema.SchemaRecords.Writer(
+              config.schemaTopic(), config.topicPrefix(), envelope.partition()));
+      if (config.kafkaBootstrapServers() != null) {
+        RecordQueueSink queue = sink;
+        schemaStore.writeTo(
+            new sh.oso.connect.oracle.schema.SchemaTopicStore.Writer() {
+              public void versions(
+                  sh.oso.connect.oracle.core.model.TableId t,
+                  List<sh.oso.connect.oracle.core.schema.TableSchema> v) {
+                queue.schemaVersions(t, v);
+              }
+
+              public void removed(sh.oso.connect.oracle.core.model.TableId t) {
+                queue.schemaRemoved(t);
+              }
+            });
+      }
       // SRC-EOS: the worker hands out a transaction context only with
       // transaction.boundary=connector
       transactions = context.transactionContext();
@@ -140,6 +165,7 @@ public class OracleCdcSourceTask extends SourceTask {
       }
       ensureInternalTopics();
       sh.oso.connect.oracle.journal.BufferSetup bufferSetup = loadJournal(position, generation);
+      loadSchemas(position);
       // SRC-HB-1: the start position becomes durable with the first offset flush, before any
       // change record; a task killed before that would otherwise restart from a later SCN
       sink.heartbeatAtStart();
@@ -224,6 +250,47 @@ public class OracleCdcSourceTask extends SourceTask {
    * journal cannot be read back, so it is not written either and long transactions pin the position
    * as before.
    */
+  /**
+   * PRD-03: versions are read back from the schema topic and checked against the dictionary
+   * (SCH-6); from here on every change is written to the topic. Without broker access the topic is
+   * not read, versions start from the dictionary, and nothing is written either.
+   */
+  private void loadSchemas(Position position) throws java.sql.SQLException {
+    if (config.kafkaBootstrapServers() == null) {
+      return;
+    }
+    java.util.Properties p = config.kafkaClientProperties();
+    p.put("bootstrap.servers", config.kafkaBootstrapServers());
+    Map<
+            sh.oso.connect.oracle.core.model.TableId,
+            List<sh.oso.connect.oracle.core.schema.TableSchema>>
+        latest = new java.util.LinkedHashMap<>();
+    try (sh.oso.connect.oracle.journal.JournalReader reader = journalReader(p)) {
+      org.apache.kafka.connect.storage.Converter keys = converter(true);
+      org.apache.kafka.connect.storage.Converter values = converter(false);
+      String topic = config.schemaTopic();
+      for (org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]> r :
+          reader.readAll(topic)) {
+        sh.oso.connect.oracle.core.model.TableId t =
+            sh.oso.connect.oracle.schema.SchemaRecords.table(
+                keys.toConnectData(topic, r.key()).value(), config.topicPrefix());
+        if (t != null) {
+          Object value = r.value() == null ? null : values.toConnectData(topic, r.value()).value();
+          latest.put(t, sh.oso.connect.oracle.schema.SchemaRecords.versions(t, value));
+        }
+      }
+    } catch (OracleCdcException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new ConnectException("Reading the schema topic failed: " + e.getMessage(), e);
+    }
+    latest.forEach(schemaStore::seed);
+    for (sh.oso.connect.oracle.core.model.TableId t : schemaStore.tables()) {
+      session.schemas().validate(t, position.resumeScn());
+    }
+    LOG.info("Schema topic {}: {} tables", config.schemaTopic(), schemaStore.tables().size());
+  }
+
   private sh.oso.connect.oracle.journal.BufferSetup loadJournal(
       Position position, long generation) {
     sh.oso.connect.oracle.core.buffer.JournalPolicy policy = config.journalPolicy();

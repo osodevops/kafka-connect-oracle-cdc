@@ -411,6 +411,90 @@ class OracleCdcSourceTaskTest {
   }
 
   @Test
+  void schemaVersionsAreWrittenToTheSchemaTopicReloadedAndCheckedOnRestart() throws Exception {
+    // PRD-03 SCH-1, SCH-6: every version change is one compacted record per table; a restart
+    // reads them back instead of the dictionary and stops when the two differ unexplained
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+      String table = "<schema:" + TaskHarness.T.table() + ">";
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> first = h.pollUntil(4, 5000, true);
+      assertThat(TaskHarness.sqls(first)).contains(table, "c:a1");
+      assertThat(versions(h, first)).containsExactly(1);
+      h.acknowledge(first);
+
+      // ALTER TABLE ... ADD: version 2, written with the whole history the restart may need
+      h.dictionary.put(
+          TaskHarness.T,
+          TaskHarness.tableSchema(
+              sh.oso.connect.oracle.core.schema.ColumnSpec.of(
+                  "NOTE", 3, sh.oso.connect.oracle.core.schema.OracleType.VARCHAR2)));
+      TxKey d = h.fake.tx(2, 2, 2);
+      TxKey b = h.fake.tx(3, 3, 3);
+      long ddlScn = h.fake.nextScn();
+      h.fake
+          .ddl(d, TaskHarness.T, 4242, "ALTER TABLE orders ADD (note VARCHAR2(10))")
+          .start(b, "APP")
+          .insert(b, TaskHarness.T, "b1")
+          .commit(b);
+      h.safeEnd = h.fake.nextScn();
+      List<SourceRecord> second = h.pollUntil(4, 5000, true);
+      assertThat(TaskHarness.sqls(second))
+          .containsSubsequence("<ops:ddl-seen>", table, "<ops:ddl-applied>", "c:b1");
+      assertThat(versions(h, second)).containsExactly(1, 2);
+      SourceRecord v2 = second.stream().filter(TaskHarness::isSchema).findFirst().get();
+      assertThat(PositionCodec.read(v2.sourceOffset()).resumeScn())
+          .as("the schema record's offset never passes the DDL")
+          .isLessThanOrEqualTo(ddlScn);
+      h.acknowledge(second);
+      assertThat(h.schemaTopic).hasSize(2);
+
+      // restart: version 2 comes from the topic and matches the dictionary, so nothing is
+      // re-read or re-written
+      h.restart();
+      assertThat(h.pollUntil(3, 1000, true)).noneMatch(TaskHarness::isSchema);
+
+      // a column added while the task was stopped, but the DDL predates the resume point: the
+      // DDL was never mined, so the stored version cannot be trusted
+      h.task().stop();
+      h.dictionary.put(
+          TaskHarness.T,
+          TaskHarness.tableSchema(
+              sh.oso.connect.oracle.core.schema.ColumnSpec.of(
+                  "NOTE", 3, sh.oso.connect.oracle.core.schema.OracleType.VARCHAR2),
+              sh.oso.connect.oracle.core.schema.ColumnSpec.of(
+                  "MISSED", 4, sh.oso.connect.oracle.core.schema.OracleType.VARCHAR2)));
+      h.scnTime = java.time.Instant.parse("2026-10-05T10:00:00Z");
+      h.lastDdlTime = h.scnTime.minusSeconds(3600);
+      assertThatThrownBy(h::start)
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-6003");
+
+      // the same difference with the DDL after the resume point: it is ahead in the redo
+      h.lastDdlTime = h.scnTime.plusSeconds(60);
+      h.start();
+      assertThat(h.pollUntil(1, 500)).isEmpty();
+    }
+  }
+
+  /** The version numbers in the last schema topic record among {@code records}. */
+  private static List<Integer> versions(TaskHarness h, List<SourceRecord> records) {
+    SourceRecord last = null;
+    for (SourceRecord r : records) {
+      if (TaskHarness.isSchema(r)) {
+        last = r;
+      }
+    }
+    assertThat(last).as("a schema topic record").isNotNull();
+    return sh.oso.connect.oracle.schema.SchemaRecords.versions(TaskHarness.T, last.value()).stream()
+        .map(sh.oso.connect.oracle.core.schema.TableSchema::version)
+        .toList();
+  }
+
+  @Test
   void aJournaledLongTransactionSurvivesARestartPastItsStart() throws Exception {
     // CORE-TX-4, CORE-TX-5, ADR-0003: a transaction open across a restart whose start the resume
     // position has passed is rebuilt from the journal topic, and its commit arrives exactly once

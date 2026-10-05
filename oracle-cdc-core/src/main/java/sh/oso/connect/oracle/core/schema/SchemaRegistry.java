@@ -91,6 +91,54 @@ public final class SchemaRegistry {
     return Optional.of(next);
   }
 
+  /**
+   * SCN_TO_TIMESTAMP maps an SCN to a time only to within a few seconds: a DDL this close to the
+   * resume point counts as ahead of it rather than stopping the task on a rounding difference.
+   */
+  static final java.time.Duration SCN_TIME_SLACK = java.time.Duration.ofSeconds(10);
+
+  /**
+   * SCH-6, at start: the stored version of {@code table} must match the dictionary, unless the
+   * table's last DDL is later than the resume point, so the DDL is still ahead in the redo. A
+   * difference nothing explains means a DDL was missed: a stop.
+   */
+  public void validate(TableId table, long resumeScn) throws SQLException {
+    Optional<TableSchema> stored = store.load(table);
+    if (stored.isEmpty()) {
+      return;
+    }
+    Optional<TableSchema> read = dictionary.read(table);
+    if (read.isEmpty()) {
+      return; // dropped since: the DROP is ahead in the redo
+    }
+    TableSchema fresh = keys.select(read.get(), dictionary.keyCandidates(table));
+    if (fresh.sameLayout(stored.get())) {
+      return;
+    }
+    Optional<java.time.Instant> ddl = dictionary.lastDdlTime(table);
+    Optional<java.time.Instant> resume = dictionary.timeOfScn(resumeScn);
+    if (ddl.isPresent()
+        && resume.isPresent()
+        && ddl.get().isAfter(resume.get().minus(SCN_TIME_SLACK))) {
+      return;
+    }
+    throw new sh.oso.connect.oracle.core.errors.SchemaMismatchException(
+        "Stored schema version "
+            + stored.get().version()
+            + " of "
+            + table.fqn()
+            + " differs from the dictionary, and the table's last DDL ("
+            + ddl.map(Object::toString).orElse("unknown")
+            + ") is not after the resume point (SCN "
+            + resumeScn
+            + ", "
+            + resume.map(Object::toString).orElse("time unknown")
+            + ").",
+        "A DDL on the table was not captured. Move the offset back before the DDL while its redo is"
+            + " available, or, once the change is understood, write a tombstone for the table's key"
+            + " on the schema topic and restart.");
+  }
+
   /** A table dropped or renamed away: the next lookup under this name reads the dictionary. */
   public void forget(TableId table) {
     cache.remove(table);

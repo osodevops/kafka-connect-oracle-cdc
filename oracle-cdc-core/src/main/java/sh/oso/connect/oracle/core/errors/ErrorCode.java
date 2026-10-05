@@ -54,6 +54,8 @@ public enum ErrorCode {
   DICTIONARY_UNAVAILABLE("CDC-6001", "dictionary-unavailable", false),
   /** A DDL on a captured table could not be classified. */
   UNSUPPORTED_DDL("CDC-6002", "unsupported-ddl", false),
+  /** A stored schema version differs from the dictionary and no later DDL explains it (SCH-6). */
+  SCHEMA_MISMATCH("CDC-6003", "schema-mismatch", false),
   /** A COMMIT arrived for a transaction that orphan detection had released. */
   ORPHAN_RELEASE_VIOLATION("CDC-7001", "orphan-release-violation", false),
   /** cdc.transaction.orphan.action=fail found an orphaned transaction. */

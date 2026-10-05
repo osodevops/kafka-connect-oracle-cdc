@@ -24,9 +24,33 @@ Rows are applied in redo order, so every row decodes with the version of its mom
 before a column was added carry no value for it, rows written after carry it, and a renamed column
 appears under its new name from the rename onward.
 
+## The schema topic
+
+When the task has broker access (`cdc.kafka.bootstrap.servers`), every version change is written to
+the compacted schema topic (`cdc.schema.topic`, by default the topic prefix followed by
+`.cdc.schema`). Each record holds one table's versions, oldest first: the version valid at the
+position the task started from, and every later one. Older versions are dropped as the committed
+position moves on, so a restart always finds the version its first rows need. A dropped or renamed
+table is removed with a tombstone. Each record carries the offset a quiet heartbeat would, so
+committing it never moves the position past a change that has not been delivered.
+
+The record key names the server (the topic prefix), the PDB, the owner and the table. The value
+holds a format number and the list of versions; each version gives its number, the SCN it is valid
+from, the key columns and where they came from, the supplemental logging state and the columns with
+their types.
+
+At start the task reads the topic back with the converter set by `cdc.journal.converter` and checks
+each table against the data dictionary. When the two differ, the difference must be explained by a
+DDL that the connector has not mined yet: the table's last DDL time must be later than the time of
+the resume SCN. If it is not, a DDL was missed (for example, the offset was moved past it, or the
+topic belongs to another connector), and the task stops with `CDC-6003`. The time of an SCN is known
+only to within a few seconds, so a DDL within ten seconds of the resume point counts as ahead of it.
+
+Without broker access the topic is neither read nor written, and versions start from the dictionary
+at every start.
+
 ## Not yet in this release
 
-- The schema topic (`cdc.schema.topic`), which keeps versions across restarts, and optional schema
-  change events.
+- Optional schema change events on a topic of their own.
 - Redo older than the dictionary: after a restart, rows written before a DDL that the connector has
   not yet mined decode with a dictionary stored in the redo by `DBMS_LOGMNR_D.BUILD`.

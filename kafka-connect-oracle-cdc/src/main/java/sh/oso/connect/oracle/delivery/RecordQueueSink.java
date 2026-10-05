@@ -248,6 +248,33 @@ public final class RecordQueueSink
         action);
   }
 
+  private sh.oso.connect.oracle.schema.SchemaRecords.Writer schemaTopic;
+
+  /** PRD-03: where schema versions go (the compacted schema topic). */
+  public synchronized void schemaTopic(sh.oso.connect.oracle.schema.SchemaRecords.Writer w) {
+    this.schemaTopic = w;
+  }
+
+  /** A table's versions as one schema topic record; between transactions, so a boundary. */
+  public synchronized void schemaVersions(TableId table, List<TableSchema> versions) {
+    if (schemaTopic != null) {
+      put(
+          schemaTopic.versions(
+              table,
+              versions,
+              sh.oso.connect.oracle.core.position.PositionCodec.write(safePosition())));
+    }
+  }
+
+  /** A tombstone for a table dropped or renamed away. */
+  public synchronized void schemaRemoved(TableId table) {
+    if (schemaTopic != null) {
+      put(
+          schemaTopic.removed(
+              table, sh.oso.connect.oracle.core.position.PositionCodec.write(safePosition())));
+    }
+  }
+
   /** PRD-03: a captured table's schema version changed, or the table left under this name. */
   @Override
   public void schemaChanged(

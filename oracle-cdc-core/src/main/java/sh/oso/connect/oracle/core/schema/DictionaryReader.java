@@ -24,4 +24,14 @@ public interface DictionaryReader {
   Optional<TableSchema> read(TableId table) throws SQLException;
 
   KeySelector.Candidates keyCandidates(TableId table) throws SQLException;
+
+  /** DBA_OBJECTS.LAST_DDL_TIME of the table, when known (SCH-6). */
+  default Optional<java.time.Instant> lastDdlTime(TableId table) throws SQLException {
+    return Optional.empty();
+  }
+
+  /** SCN_TO_TIMESTAMP of an SCN, when the database still maps it (SCH-6). */
+  default Optional<java.time.Instant> timeOfScn(long scn) throws SQLException {
+    return Optional.empty();
+  }
 }

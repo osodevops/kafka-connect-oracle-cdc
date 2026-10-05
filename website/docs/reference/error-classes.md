@@ -24,4 +24,5 @@ them. `CDC-1xxx` conditions are retried within the retry budget; everything else
 | CDC-5002 | PRIVILEGE | The mining user lacks a grant | [privilege](operations/runbooks/privilege.md) |
 | CDC-6001 | DICTIONARY_UNAVAILABLE | Redo predates a schema change and no redo dictionary covers it | [dictionary-unavailable](operations/runbooks/dictionary-unavailable.md) |
 | CDC-6002 | UNSUPPORTED_DDL | A DDL on a captured table is not supported | [unsupported-ddl](operations/runbooks/unsupported-ddl.md) |
+| CDC-6003 | SCHEMA_MISMATCH | At start, a stored schema version differs from the dictionary and no DDL ahead in the redo explains it | [schema-mismatch](operations/runbooks/schema-mismatch.md) |
 | CDC-7001 | ORPHAN_RELEASE_VIOLATION | A transaction released as orphaned later committed | [orphan-release-violation](operations/runbooks/orphan-release-violation.md) |
