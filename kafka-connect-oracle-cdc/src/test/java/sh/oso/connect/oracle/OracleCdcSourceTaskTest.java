@@ -917,4 +917,31 @@ class OracleCdcSourceTaskTest {
         .isFalse();
     assertThat(OracleCdcSourceTask.createdEmpty(null, t)).as("a refresh by signal").isFalse();
   }
+
+  @Test
+  void aConfiguredStartScnTakesOverWhereAnotherConnectorStopped() throws Exception {
+    // PRD-04 takeover: with no stored offset, streaming starts at cdc.start.scn, not now
+    try (TaskHarness h = new TaskHarness()) {
+      TxKey a = h.fake.tx(1, 1, 1);
+      TxKey b = h.fake.tx(2, 2, 2);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "before").commit(a); // up to 1002
+      long takeover = h.fake.nextScn();
+      h.fake.start(b, "APP").insert(b, TaskHarness.T, "after").commit(b);
+      h.safeEnd = h.fake.nextScn();
+      h.currentScn = h.fake.nextScn();
+      h.props.put(CoreConfig.START_SCN, Long.toString(takeover));
+      h.start();
+      List<SourceRecord> got = h.pollUntil(1, 5000);
+      assertThat(TaskHarness.sqls(got)).containsExactly("c:after");
+      assertThat(PositionCodec.read(got.get(0).sourceOffset()).resumeScn())
+          .isGreaterThanOrEqualTo(takeover);
+    }
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.START_SCN, "999999");
+      assertThatThrownBy(h::start)
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-5001")
+          .hasMessageContaining("ahead of the database");
+    }
+  }
 }

@@ -66,6 +66,7 @@ public class CoreConfig extends AbstractConfig {
 
   public static final String CAPTURE_MODE = "cdc.capture.mode";
   public static final String ARCHIVE_DESTINATION = "cdc.archive.destination";
+  public static final String START_SCN = "cdc.start.scn";
 
   public static final String MINING_TARGET_LATENCY_MS = "cdc.mining.target.latency.ms";
   public static final String MINING_MAX_LOGS_PER_STEP = "cdc.mining.max.logs.per.step";
@@ -204,6 +205,11 @@ public class CoreConfig extends AbstractConfig {
 
   public OrphanAction orphanAction() {
     return OrphanAction.valueOf(getString(TRANSACTION_ORPHAN_ACTION).toUpperCase(Locale.ROOT));
+  }
+
+  /** {@code cdc.start.scn}, or null to start at the current SCN. */
+  public Long startScn() {
+    return getLong(START_SCN);
   }
 
   public SnapshotMode snapshotMode() {
@@ -453,6 +459,25 @@ public class CoreConfig extends AbstractConfig {
         ++o,
         Width.SHORT,
         "Capture mode");
+    def.define(
+        START_SCN,
+        Type.LONG,
+        null,
+        (name, value) -> {
+          if (value != null && (Long) value < 1) {
+            throw new org.apache.kafka.common.config.ConfigException(
+                name, value, "must be positive");
+          }
+        },
+        Importance.LOW,
+        "SCN to start streaming from when the connector has no stored offset, for example when it"
+            + " takes over from another connector; ignored once an offset exists. Every archived"
+            + " log from it onwards must still exist, or the task stops with CDC-2002. Empty starts"
+            + " at the current SCN.",
+        GROUP_CAPTURE,
+        ++o,
+        Width.MEDIUM,
+        "Start SCN");
     def.define(
         ARCHIVE_DESTINATION,
         Type.STRING,

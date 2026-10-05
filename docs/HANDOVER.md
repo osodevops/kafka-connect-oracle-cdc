@@ -31,19 +31,44 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `07e9ef6` | P1-17 lag case (ADR-0016): STATUS 2 rows with generic names trigger a replay of the step with the redo dictionary from the newest usable build; replayed rows decode with the version valid at their SCN (`SchemaRegistry.at`), rows carry `schemaVersion` and render with it; `TableSchema.exact`; `CDC-6001` when no build or no exact version; scheduled builds (`cdc.dictionary.build.*`) with a build at start when none exists; `dictionary-replay` and `dictionary-build` ops events, `LagReplays` metric | full gate, connector tier 10 suites plus the two surefire tests, engine tier 41 tests, all green |
 | `ca46304` | P1-19 snapshots (ADR-0017): `cdc.snapshot.*` (mode initial by default, none, snapshot_only, on_signal), chunks by key, ROWID or whole table, batches sharing one SCN published in key order with streaming held at an in-flight batch's SCN, a frontier per table in the offset's snapshot block, retries and halving to `CDC-8001`, `op=r` records, snapshot metrics and ops events | full gate, connector tier 11 suites plus the two surefire tests, engine tier 42 tests, all green |
 | `8cc2878` | P1-20 signals: `cdc.signals.topic` read from `poll()` and handled on the engine thread (`CaptureEngine.submit`); `snapshot` (tables, predicate; records `incremental`), `snapshot-pause`, `snapshot-resume`, `snapshot-stop`, `refresh-tables`, `log-state`; `signal-ack` for each; the last handled signal's offset in the position extras | full gate, connector tier 12 suites plus the two surefire tests, engine tier 42 tests, all green |
-| next after `8cc2878` (hash recorded at the following commit) | P1-22 new tables and multi-PDB: the JDBC session reports tables a refresh adds or removes; `table-added` and `table-removed` ops events; under `cdc.snapshot.mode=initial` added tables are snapshotted while streaming, pending in the position extras (`snapshot_pending`) until their snapshot starts; `MultiPdbConnectorIT` (FREEPDB1 and FREEPDB2) | full gate, connector tier 13 suites plus the two surefire tests, engine tier 42 tests, all green |
+| `e8b3236` | P1-22 new tables and multi-PDB: the JDBC session reports tables a refresh adds or removes; `table-added` and `table-removed` ops events; under `cdc.snapshot.mode=initial` added tables are snapshotted while streaming, pending in the position extras (`snapshot_pending`) until their snapshot starts; `MultiPdbConnectorIT` (FREEPDB1 and FREEPDB2) | full gate, connector tier 13 suites plus the two surefire tests, engine tier 42 tests, all green |
+| `08e2df2` | P1-27 and P1-29 (parallel branch): `release.yml` (version checks, gate, Central deploy, ZIP, CLI jar, SBOM, checksums, provenance, doctor image to GHCR), `verify-release-secrets.yml`, `nightly.yml` (two image tags), `dbz-issue-watch.yml`, `release/central-dry-run.sh` with a local Central stub, `HubManifestTest`, doctor Dockerfile | gate, actionlint; workflows not run (nothing pushed) |
+| `fc2720a`, `17cf14e` | P1-28 docs (parallel branch): generated error classes, ops event table and setup SQL pages with drift tests, `RunbookPresenceTest` and a runbook per code, site audit, record formats, comparison, first guide | gate, site build with `onBrokenLinks: throw` |
+| `6a325b0` | Integration of the parallel branches with P1-20 and P1-22; `cdc.mining.inlist.max` capped at 1,000; generated lab exporter ConfigMap and configuration index | gate, engine tier 42 tests, connector tier green except one `LagCaseConnectorIT` run refused by a loaded host (passed alone) |
+| `56dbbf1` | P1-25 migration tooling (parallel branch): `tools/migration` uv project, translators from Debezium and Confluent, `takeover_scn.py`, `verify_cutover.py`, 303 pytest tests | ruff, pytest |
+| `86d5dff` | P1-24 doctor and admin (parallel branch): doctor rules DOC-7 to DOC-20 and the lag-case rule, JUnit XML, `redo-profile`, `sizing`, `explain-lag`; `oracle-cdc-admin offsets show/set`, `resnapshot`, `transactions`, `journal inspect` | gate in its worktree |
+| next after `86d5dff` (hash recorded at the following commit) | `cdc.start.scn` (takeover start without a stored offset; ahead of the database is a CDC-5001 stop); `offsets-set` documented as emitted by the admin CLI; runbooks name the admin commands | full gate, connector tier, engine tier (see the chain logs) |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing on `main`. Parallel work in worktrees under `../kafka-connect-oracle-cdc-worktrees/`
-(branches from `ca46304` or `8cc2878`, each one commit to review and merge): P1-24 doctor and
-admin (`p1-24-doctor-admin`), P1-25 migration tooling (`p1-25-migration`), P1-27 and P1-29 CI and
-release (`p1-27-29-ci-release`), P1-28 docs (`p1-28-docs`). After merging P1-28, make sure
-`table-added` and `table-removed` are documented as live in the generated ops-topic page (P1-22
-emits them). Next on `main`: P1-26, then P1-30 and P1-31.
+Nothing. All parallel branches are merged (their worktrees under
+`../kafka-connect-oracle-cdc-worktrees/` can be removed). Next on `main`: the Docker-tier ITs the
+parallel branches could not run (below), P1-26, the nightly suites (P1-27 T2), then P1-30 and
+P1-31.
+
+ITs still to write, each designed in the agent reports:
+
+- `RedoProfileEngineIT`, `ExplainLagEngineIT` (doctor commands against Oracle Database Free).
+- `AdminOffsetsConnectorIT` (stop, `offsets set --reason`, a purged SCN refused, `offsets-set`
+  events), `ResnapshotConnectorIT` (the signal it writes, and the move past a purged gap).
+- `DebeziumCutoverConnectorIT` (Debezium 3.x and this plugin in one worker: stop Debezium,
+  `migrate_from_debezium.py`, `takeover_scn.py`, start with `cdc.start.scn`, `verify_cutover.py`
+  PASS; negative cases for a hidden archived log and a paused source), plus a `migration-tools`
+  CI job running ruff and pytest.
+- The T2 nightly suites (`*NightlyIT`): until they exist the release gate refuses to publish.
+
+Code issues found by the docs audit and still open: `LogSetProbe.probeReadable` is never called (a
+deleted archive file is found when LogMiner fails to add it, still CDC-2002); the doctor's DOC-3
+text mentions a `source.partial` field the envelope does not have; `cdc.log.sensitive.data` has no
+effect (nothing logs row values); the compose lab does not attach the JMX exporter.
+
+For Sion (outside the repository): create the Central and GPG secrets and run
+`verify-release-secrets.yml`; add required reviewers to the `release` environment; allow Actions
+to create pull requests; consider a token so release PRs run CI; decide whether a preview release
+may go out before the nightly suites exist.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 

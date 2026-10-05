@@ -58,8 +58,9 @@ connector can write.
 | `snapshot-chunk-done` | A snapshot chunk was published. | `table`, `scn`, `rows` |
 | `snapshot-complete` | A table's snapshot is complete, or the whole snapshot is complete or was stopped by a signal. | `table` (the table, or an asterisk for the whole snapshot), `stopped` (true when a snapshot-stop signal ended the snapshot), `skipped` (why the table was not read: it no longer exists, or a column type has no record mapping under `cdc.on.decode.error=dlq`) |
 | `signal-ack` | A signal addressed to this connector was handled. | `id`, `type`, `outcome` (ok, rejected, unknown, invalid or failed), `message` (when there is one), `mined_to_scn` (log-state only), `open_transactions` (log-state only), `buffered_events` (log-state only), `oldest_open_scn` (log-state only), `largest` (log-state only), `snapshot_running` (log-state only) |
+| `offsets-set` | oracle-cdc-admin offsets set changed the stored offset while the connector was stopped: one event before the change, one after it or on failure. | `connector`, `command`, `reason`, `operator`, `direction` (forward or backward), `previous_resume_scn` (none when there was no offset), `new_resume_scn`, `forgotten_released` (when released transactions were forgotten), `outcome` (applying, applied or failed), `error` (when failed) |
 
-The following types are reserved for features that are not built yet. No code path writes them, so they do not appear on the topic: `position-committed`, `log-switch-detected`, `thread-state-changed`, `transaction-journaled`, `offsets-set`.
+The following types are reserved for features that are not built yet. No code path writes them, so they do not appear on the topic: `position-committed`, `log-switch-detected`, `thread-state-changed`, `transaction-journaled`.
 
 <!-- END GENERATED: ops event types -->
 

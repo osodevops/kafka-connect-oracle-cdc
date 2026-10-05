@@ -103,8 +103,18 @@ public class OracleCdcSourceTask extends SourceTask {
               : context.offsetStorageReader().offset(partition);
       Position position;
       if (stored == null || stored.isEmpty()) {
-        position = Position.initial(session.currentScn(), identity);
-        LOG.info("No stored offset; starting at SCN {}", position.resumeScn());
+        long current = session.currentScn();
+        Long configured = config.core().startScn();
+        if (configured != null && configured > current) {
+          throw new TopologyException(
+              "cdc.start.scn " + configured + " is ahead of the database's current SCN " + current,
+              "Set cdc.start.scn to an SCN the database has reached, or leave it empty.");
+        }
+        position = Position.initial(configured != null ? configured : current, identity);
+        LOG.info(
+            "No stored offset; starting at SCN {}{}",
+            position.resumeScn(),
+            configured != null ? " (cdc.start.scn)" : "");
       } else {
         position = PositionCodec.read(stored);
         if (!position.identity().equals(identity)) {

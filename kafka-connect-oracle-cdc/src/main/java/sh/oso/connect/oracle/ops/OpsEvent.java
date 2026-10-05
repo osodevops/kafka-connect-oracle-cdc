@@ -176,7 +176,20 @@ public record OpsEvent(Type type, long tsMs, Long resumeScn, Map<String, String>
         "oldest_open_scn (log-state only)",
         "largest (log-state only)",
         "snapshot_running (log-state only)"),
-    OFFSETS_SET("offsets-set");
+    OFFSETS_SET(
+        "offsets-set",
+        "oracle-cdc-admin offsets set changed the stored offset while the connector was stopped:"
+            + " one event before the change, one after it or on failure.",
+        "connector",
+        "command",
+        "reason",
+        "operator",
+        "direction (forward or backward)",
+        "previous_resume_scn (none when there was no offset)",
+        "new_resume_scn",
+        "forgotten_released (when released transactions were forgotten)",
+        "outcome (applying, applied or failed)",
+        "error (when failed)");
 
     private final String wire;
     private final String description;
