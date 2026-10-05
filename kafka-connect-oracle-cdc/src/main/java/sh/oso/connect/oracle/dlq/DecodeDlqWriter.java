@@ -26,16 +26,22 @@ import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
 import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.position.PositionCodec;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 
 /**
  * Records for the decode DLQ topic (SRC-ERR-2, CORE-TX-6): a row the connector could not decode or
  * that LogMiner marked unsupported, with its raw SQL_REDO, or a transaction discarded by the long
  * transaction policy. Every record names the redo position, the transaction and the reason, so the
- * operator can reconcile the table from the database.
+ * operator can reconcile the table from the database. For a table whose columns {@code
+ * cdc.columns.exclude} may match, the raw SQL_REDO and SQL_UNDO could hold an excluded value, so
+ * they are replaced by {@link #WITHHELD} (SRC-SEL-2).
  */
 public final class DecodeDlqWriter {
 
   public static final int SCHEMA_VERSION = 1;
+
+  /** Stands in for SQL_REDO and SQL_UNDO of a table with excluded columns. */
+  public static final String WITHHELD = "<withheld: cdc.columns.exclude may match this table>";
 
   public static final Schema KEY_SCHEMA =
       SchemaBuilder.struct()
@@ -78,11 +84,23 @@ public final class DecodeDlqWriter {
   private final String topic;
   private final String server;
   private final Map<String, Object> partition;
+  private final ColumnFilter excluded;
 
   public DecodeDlqWriter(String topic, String server, Map<String, Object> partition) {
+    this(topic, server, partition, ColumnFilter.none());
+  }
+
+  public DecodeDlqWriter(
+      String topic, String server, Map<String, Object> partition, ColumnFilter excluded) {
     this.topic = topic;
     this.server = server;
     this.partition = partition;
+    this.excluded = excluded;
+  }
+
+  /** The raw redo text, or {@link #WITHHELD} when it may carry an excluded column's value. */
+  private String redo(sh.oso.connect.oracle.core.model.TableId table, String sql) {
+    return sql == null || !excluded.mayExclude(table) ? sql : WITHHELD;
   }
 
   public String topic() {
@@ -103,8 +121,8 @@ public final class DecodeDlqWriter {
             .put("operation", d.op().name())
             .put("status", d.status())
             .put("info", d.info())
-            .put("sql_redo", d.sqlRedo())
-            .put("sql_undo", d.sqlUndo())
+            .put("sql_redo", redo(d.table(), d.sqlRedo()))
+            .put("sql_undo", redo(d.table(), d.sqlUndo()))
             .put("schema_version", schemaEpoch)
             .put("exception", cause.getClass().getName())
             .put("message", cause.getMessage())
@@ -124,7 +142,7 @@ public final class DecodeDlqWriter {
             .put("ssn", u.id().ssn())
             .put("status", u.status())
             .put("info", u.info())
-            .put("sql_redo", u.sqlRedo());
+            .put("sql_redo", redo(u.table(), u.sqlRedo()));
     return record(u.tx().xid().toString(), v, offset, nowMs);
   }
 

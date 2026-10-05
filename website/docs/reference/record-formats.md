@@ -143,6 +143,39 @@ Column types not in the table, such as user-defined object types, are not suppor
 columns and BOOLEAN, JSON, VECTOR, BFILE and nested-table columns are not supported by LogMiner on
 the tested releases; `oracle-cdc-doctor` (rule DOC-5) reports them before the connector starts.
 
+## Excluded columns
+
+`cdc.columns.exclude` lists regular expressions over `PDB.SCHEMA.TABLE.COLUMN` in a container
+database and `SCHEMA.TABLE.COLUMN` otherwise. They match the whole name, case-insensitively unless
+`cdc.tables.case.sensitive=true`, as the table patterns do. For example, to keep a national
+insurance number and a date of birth out of every record:
+
+```json
+"cdc.columns.exclude": "FREEPDB1\\.APP\\.CUSTOMERS\\.(NI_NUMBER|DOB)"
+```
+
+An excluded column has no field in the row struct of the value schema, in `before` or `after`, for
+change and snapshot records alike, and its value is never read into the connector:
+
+- the decoder drops the column as soon as the parser has named it, before the value is converted,
+  so the transaction buffer, the spill files and the transaction journal never hold it;
+- snapshots leave the column out of their `SELECT`, and `reselect` mode never queries it;
+- a dead letter record (`cdc.dlq.topic`) for a table the patterns may match carries
+  `<withheld: cdc.columns.exclude may match this table>` instead of its SQL_REDO and SQL_UNDO,
+  and an error about a statement that failed to parse names the row without quoting the statement.
+  Whether a table may match is judged from its name, so a pattern that starts with `.*` counts for
+  every table;
+- a column added by a later DDL that matches a pattern is excluded from its first row.
+
+A column of the record key (the primary key, the unique index the connector chose, or a column
+named in `cdc.key.columns`) cannot be excluded. Validation reports such a pattern, and a task that
+finds one at start, or after a DDL that moves the key onto an excluded column, stops with
+[CDC-3001](../operations/runbooks/decode.md).
+
+Changing the patterns takes effect at the next task start; records already in Kafka are not
+rewritten. A transaction restored from the journal written before a column was excluded can still
+hold that column's values until it commits, but its records are built without the column.
+
 ## LOB columns
 
 `cdc.lob.mode` decides how CLOB, NCLOB and BLOB columns appear in records.

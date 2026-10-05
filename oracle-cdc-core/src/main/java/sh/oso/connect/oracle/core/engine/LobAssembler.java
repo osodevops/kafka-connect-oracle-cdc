@@ -30,6 +30,7 @@ import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.RowIds;
 import sh.oso.connect.oracle.core.model.TxKey;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 
@@ -47,7 +48,9 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  * <p>A LOB value is published only when it is known completely: the base was empty or set by the
  * row piece, or the writes cover it from the first character and a trim fixes its length. Anything
  * else, and anything above {@code maxBytes}, leaves the column out of the image, which the
- * connector renders according to {@code cdc.lob.mode}. In {@code skip} mode no content is kept.
+ * connector renders according to {@code cdc.lob.mode}. In {@code skip} mode no content is kept, and
+ * none is kept for a column {@code cdc.columns.exclude} names (SRC-SEL-2): its rows still shape the
+ * change, so an undo of the statement finds it, but the column never appears.
  *
  * <p>A held change counts as open work for the resume position (CORE-POS-2).
  */
@@ -68,6 +71,7 @@ public final class LobAssembler {
 
   private final Mode mode;
   private final long maxBytes;
+  private ColumnFilter excluded = ColumnFilter.none();
   private final Map<TxKey, Open> open = new HashMap<>();
   private final Map<TxKey, Oversize> oversize = new HashMap<>();
   private long counter;
@@ -77,6 +81,12 @@ public final class LobAssembler {
   public LobAssembler(Mode mode, long maxBytes) {
     this.mode = Objects.requireNonNull(mode, "mode");
     this.maxBytes = maxBytes;
+  }
+
+  /** SRC-SEL-2: LOB columns whose content is never kept, whatever the mode. */
+  public LobAssembler excluding(ColumnFilter excluded) {
+    this.excluded = Objects.requireNonNull(excluded, "excluded");
+    return this;
   }
 
   /** The pre-CORE-DEC-6 behaviour: values kept inline up to 1 MiB. */
@@ -192,7 +202,7 @@ public final class LobAssembler {
     }
     String unique = unique(o.id);
     if (o.piece == null) {
-      int nonLob = o.schema.columns().size() - o.lobColumns.size();
+      int nonLob = sh.oso.connect.oracle.core.decode.RowDecoder.nonLobColumns(o.schema, excluded);
       return new RowChange(
           o.schema.table(),
           Operation.UPDATE,
@@ -331,7 +341,7 @@ public final class LobAssembler {
             piece != null && piece.after() != null && piece.after().containsKey(f.column());
         Object base = known ? baseOf(piece.after().get(f.column()), f.binary()) : null;
         lob = new Lob(f.binary(), base);
-        if (mode == Mode.SKIP) {
+        if (mode == Mode.SKIP || excluded.excludes(f.table(), f.column())) {
           lob.lose(); // nothing is kept; the column is unavailable
         }
         lobs.put(f.column(), lob);

@@ -130,4 +130,49 @@ public class OracleCdcSourceConnectorConfigTest {
         .containsEntry("bootstrap.servers", "kafka:9092");
     assertThat(k.internalTopicReplication()).isEqualTo((short) 3);
   }
+
+  @Test
+  void columnExclusionsCompileWithTheTableCaseRulesAndSpareKeyOverrides() {
+    Map<String, String> p = minimal();
+    assertThat(new OracleCdcSourceConnectorConfig(p).columnFilter().isEmpty()).isTrue();
+    p.put(
+        OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE,
+        "freepdb1\\.app\\.customers\\.ssn, .*\\.DOB");
+    OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(p);
+    var customers = new sh.oso.connect.oracle.core.model.TableId("FREEPDB1", "APP", "CUSTOMERS");
+    assertThat(c.columnFilter().excludes(customers, "SSN")).isTrue();
+    assertThat(c.columnFilter().excludes(customers, "DOB")).isTrue();
+    assertThat(c.columnFilter().excludes(customers, "NAME")).isFalse();
+    assertThat(c.columnFilter()).as("one filter shared by every user").isSameAs(c.columnFilter());
+
+    p.put(OracleCdcSourceConnectorConfig.TABLES_CASE_SENSITIVE, "true");
+    assertThat(new OracleCdcSourceConnectorConfig(p).columnFilter().excludes(customers, "SSN"))
+        .as("case-sensitive like the table patterns")
+        .isFalse();
+  }
+
+  @Test
+  void anInvalidColumnPatternOrAnExcludedKeyOverrideIsAConfigurationError() {
+    Map<String, String> p = minimal();
+    p.put(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE, "APP\\.(SSN");
+    var errors =
+        OracleCdcSourceConnectorConfig.configDef().validate(p).stream()
+            .filter(v -> v.name().equals(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE))
+            .findFirst()
+            .orElseThrow()
+            .errorMessages();
+    assertThat(errors).singleElement().asString().contains("not a regular expression");
+    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(p))
+        .isInstanceOf(ConfigException.class)
+        .hasMessageContaining("not a regular expression");
+
+    Map<String, String> q = minimal();
+    q.put(OracleCdcSourceConnectorConfig.KEY_COLUMNS, "FREEPDB1.APP.CUSTOMERS:ID,SSN");
+    q.put(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE, ".*\\.SSN");
+    assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(q))
+        .isInstanceOf(ConfigException.class)
+        .hasMessageContaining(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE)
+        .hasMessageContaining("FREEPDB1.APP.CUSTOMERS.SSN")
+        .hasMessageContaining("key column cannot be excluded");
+  }
 }

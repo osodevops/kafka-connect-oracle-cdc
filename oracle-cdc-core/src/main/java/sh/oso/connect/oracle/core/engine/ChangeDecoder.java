@@ -18,13 +18,32 @@ package sh.oso.connect.oracle.core.engine;
 import sh.oso.connect.oracle.core.decode.RowDecoder;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
 import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 
 /** Decodes one DML event; the default is {@link RowDecoder}, tests may substitute a stub. */
 public interface ChangeDecoder {
   RowChange decode(MiningEvent.Dml dml, TableSchema schema);
 
+  /**
+   * SRC-SEL-2: decodes without the columns {@code excluded} names. {@link #rowDecoder()} drops them
+   * before their literals are converted; a substitute decoder's result is projected afterwards.
+   */
+  default RowChange decode(MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
+    return excluded.project(decode(dml, schema));
+  }
+
   static ChangeDecoder rowDecoder() {
-    return RowDecoder::decode;
+    return new ChangeDecoder() {
+      @Override
+      public RowChange decode(MiningEvent.Dml dml, TableSchema schema) {
+        return RowDecoder.decode(dml, schema);
+      }
+
+      @Override
+      public RowChange decode(MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
+        return RowDecoder.decode(dml, schema, excluded);
+      }
+    };
   }
 }

@@ -110,4 +110,73 @@ class DecodeDlqWriterTest {
     assertThat(dv.getInt64("age_ms")).isEqualTo(Duration.ofMinutes(90).toMillis());
     assertThat(dv.get("sql_redo")).isNull();
   }
+
+  @Test
+  void theRawRedoOfATableWithExcludedColumnsIsWithheld() {
+    DecodeDlqWriter filtered =
+        new DecodeDlqWriter(
+            "cdc.cdc.dlq",
+            "cdc",
+            Map.of("server", "cdc"),
+            sh.oso.connect.oracle.core.schema.ColumnFilter.of(
+                java.util.List.of("FREEPDB1\\.APP\\.ORDERS\\.CARD"), false));
+    MiningEvent.Dml d =
+        new MiningEvent.Dml(
+            TX,
+            new RedoRecordId(4990, " 0x000001.00000010.0010 ", 2),
+            1,
+            Operation.UPDATE,
+            T,
+            77,
+            78,
+            2,
+            "AAAr",
+            "update \"APP\".\"ORDERS\" set \"CARD\" = '4111' where ROWID = 'AAAr'",
+            "update \"APP\".\"ORDERS\" set \"CARD\" = '4000' where ROWID = 'AAAr'",
+            false,
+            0,
+            null,
+            "APP",
+            Instant.EPOCH);
+    Struct v =
+        (Struct) filtered.decodeError(d, new DecodeException("bad", "none"), 1, p, 1L).value();
+    assertThat(v.getString("sql_redo")).isEqualTo(DecodeDlqWriter.WITHHELD);
+    assertThat(v.getString("sql_undo")).isEqualTo(DecodeDlqWriter.WITHHELD);
+    assertThat(v.getString("table")).isEqualTo("ORDERS");
+    assertThat(v.getInt64("scn")).isEqualTo(4990L);
+    MiningEvent.Unsupported u =
+        new MiningEvent.Unsupported(
+            TX,
+            new RedoRecordId(4991, " 0x000001.00000011.0010 ", 0),
+            T,
+            77,
+            2,
+            "Unsupported",
+            "CARD '4111'");
+    assertThat(((Struct) filtered.unsupported(u, p, 1L).value()).getString("sql_redo"))
+        .isEqualTo(DecodeDlqWriter.WITHHELD);
+    // another table keeps its redo
+    MiningEvent.Dml other =
+        new MiningEvent.Dml(
+            TX,
+            d.id(),
+            1,
+            Operation.UPDATE,
+            new TableId("FREEPDB1", "APP", "LINES"),
+            77,
+            78,
+            2,
+            "AAAr",
+            "update lines",
+            null,
+            false,
+            0,
+            null,
+            "APP",
+            Instant.EPOCH);
+    Struct o =
+        (Struct) filtered.decodeError(other, new DecodeException("bad", "none"), 1, p, 1L).value();
+    assertThat(o.getString("sql_redo")).isEqualTo("update lines");
+    assertThat(o.getString("sql_undo")).isNull();
+  }
 }

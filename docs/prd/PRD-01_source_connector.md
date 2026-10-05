@@ -47,7 +47,7 @@ A production Kafka Connect source that captures inserts, updates, deletes, trunc
 | ID | Requirement |
 |---|---|
 | SRC-SEL-1 | `cdc.tables.include` and `cdc.tables.exclude`: comma-separated regular expressions over `PDB.SCHEMA.TABLE` (CDB) or `SCHEMA.TABLE` (non-CDB). Case-insensitive unless `cdc.tables.case.sensitive=true`. |
-| SRC-SEL-2 | `cdc.columns.exclude`: regular expressions over `SCHEMA.TABLE.COLUMN`; excluded columns are dropped after decoding and never logged. |
+| SRC-SEL-2 | `cdc.columns.exclude`: regular expressions over `PDB.SCHEMA.TABLE.COLUMN` (CDB) or `SCHEMA.TABLE.COLUMN` (non-CDB), with the case rules of SRC-SEL-1; excluded columns are dropped while decoding, before conversion, and never logged; key columns cannot be excluded (ADR-0018). |
 | SRC-SEL-3 | `cdc.users.include`, `cdc.users.exclude`: Oracle user filters pushed down into the mining query (PRD-00 CORE-MINE-2). |
 | SRC-SEL-4 | New tables that match include patterns are detected on CREATE TABLE DDL and on refresh; they are snapshotted (PRD-02) and then streamed with no gap, without restart. |
 

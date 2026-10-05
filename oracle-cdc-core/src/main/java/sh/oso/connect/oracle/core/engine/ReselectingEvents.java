@@ -26,6 +26,7 @@ import sh.oso.connect.oracle.core.errors.LobTooLargeException;
 import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 import sh.oso.connect.oracle.core.schema.OracleType;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
@@ -34,13 +35,15 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
 /**
  * A committed transaction's events with the unavailable CLOB, NCLOB and BLOB values of each INSERT
  * and UPDATE after image fetched AS OF the commit SCN (cdc.lob.mode=reselect), one query per row,
- * as the sink reads them, so a spilled transaction is still never held in memory whole.
+ * as the sink reads them, so a spilled transaction is still never held in memory whole. A column
+ * {@code cdc.columns.exclude} names is never selected (SRC-SEL-2).
  */
 final class ReselectingEvents extends AbstractList<RowChange> implements CommittedTransaction.Lazy {
 
   private final List<RowChange> base;
   private final long scn;
   private final SchemaRegistry schemas;
+  private final ColumnFilter excluded;
   private final LobReselector reselector;
   private final OraErrorClassifier classifier;
   private final long maxBytes;
@@ -52,6 +55,7 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
       List<RowChange> base,
       long scn,
       SchemaRegistry schemas,
+      ColumnFilter excluded,
       LobReselector reselector,
       OraErrorClassifier classifier,
       long maxBytes,
@@ -59,6 +63,7 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
     this.base = base;
     this.scn = scn;
     this.schemas = schemas;
+    this.excluded = excluded;
     this.reselector = reselector;
     this.classifier = classifier;
     this.maxBytes = maxBytes;
@@ -68,6 +73,7 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
   static CommittedTransaction wrap(
       CommittedTransaction tx,
       SchemaRegistry schemas,
+      ColumnFilter excluded,
       LobReselector reselector,
       OraErrorClassifier classifier,
       long maxBytes,
@@ -82,7 +88,14 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
         tx.username(),
         tx.clientId(),
         new ReselectingEvents(
-            tx.events(), tx.commitScn(), schemas, reselector, classifier, maxBytes, oversizeFail));
+            tx.events(),
+            tx.commitScn(),
+            schemas,
+            excluded,
+            reselector,
+            classifier,
+            maxBytes,
+            oversizeFail));
   }
 
   @Override
@@ -106,7 +119,8 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
       return c;
     }
     try {
-      TableSchema schema = schemas.version(c.table(), c.schemaVersion());
+      // SRC-SEL-2: an excluded LOB is absent from the image on purpose, never fetched
+      TableSchema schema = excluded.project(schemas.version(c.table(), c.schemaVersion()));
       List<String> missing = new ArrayList<>();
       for (ColumnSpec col : schema.columns()) {
         OracleType t = col.type();

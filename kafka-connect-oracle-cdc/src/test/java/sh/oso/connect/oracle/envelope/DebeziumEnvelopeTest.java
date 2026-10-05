@@ -306,4 +306,40 @@ class DebeziumEnvelopeTest {
     assertThat(ok.getStruct("source").getString("reselect")).isNull();
     assertThat(ok.getStruct("source").getString("row_id")).isNull();
   }
+
+  @Test
+  void anExcludedColumnHasNoFieldInRecordsOrTheirSchemas() {
+    Map<String, String> p = OracleCdcSourceConnectorConfigTest.minimal();
+    p.put(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE, "FREEPDB1\\.APP\\.ORDERS\\.NAME");
+    OracleCdcSourceConnectorConfig cfg = new OracleCdcSourceConnectorConfig(p);
+    DebeziumEnvelope e =
+        new DebeziumEnvelope(cfg, new TopicRouter(cfg.topicTemplate(true), "cdc", "FREE"), "FREE");
+    // a change still carrying the column (written to a journal before the filter was configured)
+    CommittedTransaction tx =
+        tx(change(Operation.UPDATE, row(1, "secret", "1.00"), row(1, "secret2", "2.00"), 801));
+    SourceRecord r =
+        e.records(tx, 0, 1, schema(KeySource.PRIMARY_KEY), offset().withCommit(900, 1, K, 1))
+            .get(0);
+    Struct v = (Struct) r.value();
+    org.apache.kafka.connect.data.Schema value = r.valueSchema().field("after").schema();
+    assertThat(value.fields())
+        .extracting(org.apache.kafka.connect.data.Field::name)
+        .containsExactly("ID", "AMOUNT");
+    assertThat(v.getStruct("before").schema().field("NAME")).isNull();
+    assertThat(v.getStruct("after").get("AMOUNT")).isEqualTo(new BigDecimal("2.00"));
+    assertThat(String.valueOf(v)).doesNotContain("secret");
+    assertThat(((Struct) r.key()).get("ID")).isEqualTo(1);
+
+    SourceRecord snap =
+        e.snapshotRecord(
+            T,
+            new sh.oso.connect.oracle.core.snapshot.SnapshotRow(row(2, "secret", "3.00"), null),
+            schema(KeySource.PRIMARY_KEY),
+            700,
+            1L,
+            "first",
+            offset());
+    assertThat(snap.valueSchema().field("after").schema().field("NAME")).isNull();
+    assertThat(String.valueOf(snap.value())).doesNotContain("secret");
+  }
 }

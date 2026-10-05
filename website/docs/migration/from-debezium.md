@@ -72,9 +72,13 @@ its own topic), the signal table (signals come from a Kafka topic) and the flush
 
 Manual, because this release has no equivalent:
 
-- `column.include.list` and `column.exclude.list`. Column filters are not available, so columns
-  Debezium left out would be published. Do not cut over a table whose excluded columns must not
-  reach Kafka.
+- `column.exclude.list`. Write the same columns in `cdc.columns.exclude` as regular expressions
+  over `PDB.SCHEMA.TABLE.COLUMN` (`SCHEMA.TABLE.COLUMN` without a PDB); the name forms differ, so
+  the translator does not rewrite the patterns. A key column cannot be excluded. Until the property
+  is set, every column is published, so set it before cutting over a table whose excluded columns
+  must not reach Kafka.
+- `column.include.list`. There is no include form: list the columns to leave out in
+  `cdc.columns.exclude` instead.
 - `log.mining.username.include.list`; only an exclude filter exists.
 - `binary.handling.mode` other than `bytes`; `time.precision.mode` `connect`, `microseconds` or
   `nanoseconds`; `interval.handling.mode=string`.

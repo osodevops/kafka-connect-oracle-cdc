@@ -248,37 +248,38 @@ final class TaskHarness implements AutoCloseable {
               buffer.restore(chunks);
             }
             return new CaptureEngine(
-                start,
-                fake,
-                new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
-                () -> safeEnd,
-                buffer,
-                registry,
-                DECODER,
-                sink,
-                new EngineSettings(
-                    java.time.Duration.ofSeconds(2),
-                    8,
-                    java.time.Duration.ofHours(1),
-                    java.time.Duration.ofMillis(10),
-                    5,
-                    cfg.core().decodeErrorAction(),
-                    EngineSettings.from(cfg.core()).transactionMaxAge(),
-                    EngineSettings.from(cfg.core()).maxAgeAction()),
-                new OraErrorClassifier(),
-                Set.of("APP"),
-                () -> {
-                  if (onRefresh != null) {
-                    onRefresh.run();
-                  }
-                  return Set.of("APP");
-                },
-                cause ->
-                    new CaptureEngine.Sources(
-                        fake,
-                        new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
-                        () -> safeEnd),
-                Instant::now);
+                    start,
+                    fake,
+                    new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
+                    () -> safeEnd,
+                    buffer,
+                    registry,
+                    DECODER,
+                    sink,
+                    new EngineSettings(
+                        java.time.Duration.ofSeconds(2),
+                        8,
+                        java.time.Duration.ofHours(1),
+                        java.time.Duration.ofMillis(10),
+                        5,
+                        cfg.core().decodeErrorAction(),
+                        EngineSettings.from(cfg.core()).transactionMaxAge(),
+                        EngineSettings.from(cfg.core()).maxAgeAction()),
+                    new OraErrorClassifier(),
+                    Set.of("APP"),
+                    () -> {
+                      if (onRefresh != null) {
+                        onRefresh.run();
+                      }
+                      return Set.of("APP");
+                    },
+                    cause ->
+                        new CaptureEngine.Sources(
+                            fake,
+                            new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
+                            () -> safeEnd),
+                    Instant::now)
+                .withColumnFilter(cfg.columnFilter()); // as JdbcEngineFactory wires it
           }
 
           public void close() {}

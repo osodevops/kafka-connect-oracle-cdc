@@ -149,9 +149,16 @@ def filter_list(ctx: Context, key: str, value: str) -> Outcome:
 
 
 COLUMN_FILTER = (
-    "Column filters are not available in this release, so every column of a captured table is"
-    " published, including the columns this property kept out. Do not cut over a table whose"
-    " excluded columns must not reach Kafka."
+    "Write the columns this property kept out in `cdc.columns.exclude`, as regular expressions"
+    " over `PDB.SCHEMA.TABLE.COLUMN` (or `SCHEMA.TABLE.COLUMN` without a PDB); the patterns are"
+    " not rewritten for you because the name forms differ. Key columns cannot be excluded. Until"
+    " it is set, every column of a captured table is published."
+)
+
+COLUMN_INCLUDE = (
+    "There is no column include list: name the columns to leave out in `cdc.columns.exclude`,"
+    " as regular expressions over `PDB.SCHEMA.TABLE.COLUMN` (or `SCHEMA.TABLE.COLUMN` without a"
+    " PDB). Until it is set, every column of a captured table is published."
 )
 
 
@@ -510,8 +517,8 @@ RULES = RuleSet(
         "schema.whitelist": filter_list,
         "schema.exclude.list": filter_list,
         "schema.blacklist": filter_list,
-        "column.include.list": t.manual(COLUMN_FILTER),
-        "column.whitelist": t.manual(COLUMN_FILTER),
+        "column.include.list": t.manual(COLUMN_INCLUDE),
+        "column.whitelist": t.manual(COLUMN_INCLUDE),
         "column.exclude.list": t.manual(COLUMN_FILTER),
         "column.blacklist": t.manual(COLUMN_FILTER),
         "column.propagate.source.type": t.manual(

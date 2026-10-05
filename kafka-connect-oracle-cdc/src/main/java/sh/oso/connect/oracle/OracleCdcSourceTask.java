@@ -167,7 +167,10 @@ public class OracleCdcSourceTask extends SourceTask {
               new sh.oso.connect.oracle.journal.JournalRecords(
                   config.journalTopic(), config.topicPrefix(), envelope.partition()),
               new sh.oso.connect.oracle.dlq.DecodeDlqWriter(
-                  config.dlqTopic(), config.topicPrefix(), envelope.partition()),
+                  config.dlqTopic(),
+                  config.topicPrefix(),
+                  envelope.partition(),
+                  config.columnFilter()),
               config.heartbeatIntervalMs(),
               System::currentTimeMillis);
       sink.schemaTopic(
@@ -215,6 +218,7 @@ public class OracleCdcSourceTask extends SourceTask {
           "version",
           Version.VERSION);
       CaptureEngine engine = session.engine(position, sink, bufferSetup);
+      checkExcludedColumns();
       RecordQueueSink opsSink = sink;
       session.startDictionaryBuilds(
           new sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler.Events() {
@@ -532,7 +536,8 @@ public class OracleCdcSourceTask extends SourceTask {
         new sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator(
             ordered,
             progress,
-            t -> session.schemas().cached(t),
+            // SRC-SEL-2: the select list and the records leave the excluded columns out
+            t -> session.schemas().cached(t).map(config.columnFilter()::project),
             session::openSnapshotSource,
             new sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator.Settings(
                 config.core().getInt(CoreConfig.SNAPSHOT_THREADS),
@@ -550,6 +555,23 @@ public class OracleCdcSourceTask extends SourceTask {
         "Snapshot of {} tables{}",
         snapshot.tables().size(),
         progress.untouched() ? "" : ", resumed from the stored offset");
+  }
+
+  /**
+   * SRC-SEL-2: refuses to start when {@code cdc.columns.exclude} matches a key column of a captured
+   * table, rather than at the table's first change. Tables added later, and keys a DDL changes, are
+   * checked by the engine when it meets them.
+   */
+  private void checkExcludedColumns() throws java.sql.SQLException {
+    sh.oso.connect.oracle.core.schema.ColumnFilter excluded = config.columnFilter();
+    if (excluded.isEmpty()) {
+      return;
+    }
+    for (sh.oso.connect.oracle.core.model.TableId t : session.capturedTables()) {
+      excluded.project(session.schemas().current(t)); // CDC-3001 naming the key column
+    }
+    LOG.info(
+        "Column filter {} checked against {} tables", excluded, session.capturedTables().size());
   }
 
   /** Overridable for tests. */

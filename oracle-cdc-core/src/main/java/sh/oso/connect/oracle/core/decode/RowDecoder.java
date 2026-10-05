@@ -21,6 +21,7 @@ import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 
@@ -29,12 +30,21 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  * unknown column or an undecodable literal is a {@link DecodeException}; STATUS 2 or 3 rows are
  * refused before parsing. The before image of an UPDATE or DELETE is partial when the WHERE clause
  * does not cover every column, which is what primary-key-only supplemental logging produces.
+ *
+ * <p>Columns a {@link ColumnFilter} excludes (SRC-SEL-2) are dropped as soon as the parser has
+ * named them, before their literals are converted: their values never reach a {@link RowChange},
+ * and a parse failure on a table they may belong to is reported without quoting the redo.
  */
 public final class RowDecoder {
 
   private RowDecoder() {}
 
   public static RowChange decode(MiningEvent.Dml dml, TableSchema schema) {
+    return decode(dml, schema, ColumnFilter.none());
+  }
+
+  /** As {@link #decode(MiningEvent.Dml, TableSchema)}, leaving out the excluded columns. */
+  public static RowChange decode(MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
     if (dml.status() == 2 || dml.status() == 3) {
       throw new DecodeException(
           "LogMiner could not reconstruct "
@@ -48,15 +58,20 @@ public final class RowDecoder {
           "The dictionary no longer matches the redo (DDL since the change) or the type is"
               + " unsupported; see the runbook for decode errors.");
     }
-    ParsedDml p = SqlRedoParser.parse(dml.sqlRedo());
+    ParsedDml p;
+    try {
+      p = SqlRedoParser.parse(dml.sqlRedo());
+    } catch (DecodeException e) {
+      throw withheld(e, dml, schema, excluded);
+    }
     if (p.op() != dml.op()) {
       throw new DecodeException(
           "SQL_REDO is a " + p.op() + " but OPERATION_CODE says " + dml.op() + " at " + dml.id(),
           "Report the row; the connector stops rather than guess.");
     }
     Map<String, ColumnSpec> columns = schema.columnsByName();
-    Map<String, Object> set = values(p.set(), columns, schema);
-    Map<String, Object> where = values(p.where(), columns, schema);
+    Map<String, Object> set = values(p.set(), columns, schema, excluded);
+    Map<String, Object> where = values(p.where(), columns, schema, excluded);
     Map<String, Object> before;
     Map<String, Object> after;
     boolean partial;
@@ -70,12 +85,12 @@ public final class RowDecoder {
         before = where;
         after = new LinkedHashMap<>(where);
         after.putAll(set);
-        partial = where.size() < nonLobColumns(schema);
+        partial = where.size() < nonLobColumns(schema, excluded);
         break;
       default:
         before = where;
         after = null;
-        partial = where.size() < nonLobColumns(schema);
+        partial = where.size() < nonLobColumns(schema, excluded);
         break;
     }
     String rowId = p.rowId() != null ? p.rowId() : dml.rowId();
@@ -99,6 +114,18 @@ public final class RowDecoder {
    * buffer whose length differs from the call's amount is a {@link DecodeException}.
    */
   public static LobFragment decodeLob(MiningEvent.Dml dml, TableSchema schema) {
+    return decodeLob(dml, schema, ColumnFilter.none());
+  }
+
+  /**
+   * As {@link #decodeLob(MiningEvent.Dml, TableSchema)} with excluded columns left out of the row
+   * it names. A row writing an excluded LOB column keeps its edits (the statement's shape) but
+   * carries no data: {@link sh.oso.connect.oracle.core.engine.LobAssembler} treats the column as
+   * unavailable and the change it belongs to still reaches the buffer, so an undo of the statement
+   * finds it.
+   */
+  public static LobFragment decodeLob(
+      MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
     if (dml.sqlRedo() == null) {
       throw new DecodeException(
           dml.op()
@@ -112,7 +139,12 @@ public final class RowDecoder {
               + ")",
           "Report the row with the Oracle version (reference/lob-redo-shapes.md).");
     }
-    LobRedo r = SqlRedoParser.parseLob(dml.sqlRedo());
+    LobRedo r;
+    try {
+      r = SqlRedoParser.parseLob(dml.sqlRedo());
+    } catch (DecodeException e) {
+      throw withheld(e, dml, schema, excluded);
+    }
     if (!r.owner().equals(schema.table().schema()) || !r.table().equals(schema.table().table())) {
       throw new DecodeException(
           "LOB row at "
@@ -139,9 +171,13 @@ public final class RowDecoder {
               + " errors.");
     }
     boolean binary = col.type() == sh.oso.connect.oracle.core.schema.OracleType.BLOB;
+    boolean dropped = excluded.excludes(schema.table(), col.name());
     java.util.List<LobFragment.Edit> edits = new java.util.ArrayList<>();
     for (LobRedo.Op op : r.ops()) {
-      if (op instanceof LobRedo.Write w) {
+      if (op instanceof LobRedo.Write w && dropped) {
+        // SRC-SEL-2: the position of the write is kept, its data is never converted
+        edits.add(new LobFragment.Write(w.offset(), binary ? new byte[0] : ""));
+      } else if (op instanceof LobRedo.Write w) {
         Object data = OracleTypeCodec.decode(col, w.data());
         if (data == null) {
           throw new DecodeException(
@@ -171,7 +207,7 @@ public final class RowDecoder {
         schema.table(),
         col.name(),
         binary,
-        values(r.where(), columns, schema),
+        values(r.where(), columns, schema, excluded),
         edits,
         dml.rowId(),
         dml.id(),
@@ -181,17 +217,46 @@ public final class RowDecoder {
 
   /** LOB columns never appear in a WHERE clause, so they do not make an image partial. */
   static int nonLobColumns(TableSchema schema) {
+    return nonLobColumns(schema, ColumnFilter.none());
+  }
+
+  /** The non-LOB columns a record can carry: an excluded column never makes an image partial. */
+  public static int nonLobColumns(TableSchema schema, ColumnFilter excluded) {
     int n = 0;
     for (ColumnSpec c : schema.columns()) {
-      if (!c.type().isLob()) {
+      if (!c.type().isLob() && !excluded.excludes(schema.table(), c.name())) {
         n++;
       }
     }
     return n;
   }
 
+  /**
+   * A parse failure of a table whose columns {@code cdc.columns.exclude} may match: the parser's
+   * message quotes the statement around the failure, which may hold an excluded value, so the
+   * message names only the row and the cause is not attached.
+   */
+  private static DecodeException withheld(
+      DecodeException e, MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
+    if (!excluded.mayExclude(schema.table())) {
+      return e;
+    }
+    return new DecodeException(
+        dml.op()
+            + " row of "
+            + schema.table().fqn()
+            + " at "
+            + dml.id()
+            + " could not be parsed; the parser's detail is withheld because cdc.columns.exclude"
+            + " may match columns of this table",
+        e.operatorAction());
+  }
+
   private static Map<String, Object> values(
-      Iterable<ColumnValue> cvs, Map<String, ColumnSpec> columns, TableSchema schema) {
+      Iterable<ColumnValue> cvs,
+      Map<String, ColumnSpec> columns,
+      TableSchema schema,
+      ColumnFilter excluded) {
     Map<String, Object> out = new LinkedHashMap<>();
     for (ColumnValue cv : cvs) {
       ColumnSpec col = columns.get(cv.column());
@@ -204,6 +269,9 @@ public final class RowDecoder {
                 + " does not have in the current schema",
             "A DDL changed the table after this redo was written; the connector needs the redo"
                 + " dictionary (PRD-03) or a coordinated DDL.");
+      }
+      if (excluded.excludes(schema.table(), col.name())) {
+        continue; // SRC-SEL-2: dropped before the literal is converted
       }
       out.put(col.name(), OracleTypeCodec.decode(col, cv.value()));
     }

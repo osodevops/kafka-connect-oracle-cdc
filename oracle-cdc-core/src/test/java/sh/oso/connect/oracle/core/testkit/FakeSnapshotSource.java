@@ -48,6 +48,9 @@ public class FakeSnapshotSource implements SnapshotSource {
   /** "TABLE [lo,hi)@scn" per chunk read, in completion order. */
   public final List<String> reads = Collections.synchronizedList(new ArrayList<>());
 
+  /** The column names of the layout each read selected, in read order. */
+  public final List<List<String>> selected = Collections.synchronizedList(new ArrayList<>());
+
   /** chunkRows asked for at each plan, so tests see SNAP-4 halving. */
   public final List<Integer> planned = Collections.synchronizedList(new ArrayList<>());
 
@@ -111,6 +114,7 @@ public class FakeSnapshotSource implements SnapshotSource {
     if (fault != null) {
       throw fault;
     }
+    selected.add(schema.columns().stream().map(c -> c.name()).toList());
     NavigableMap<BigDecimal, Map<String, Object>> rows = table(schema.table());
     NavigableMap<BigDecimal, Map<String, Object>> slice = rows;
     if (range.lower() != null) {

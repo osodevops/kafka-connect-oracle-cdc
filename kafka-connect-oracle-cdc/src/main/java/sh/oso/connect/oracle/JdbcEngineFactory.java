@@ -257,6 +257,8 @@ public final class JdbcEngineFactory implements EngineFactory {
               Instant::now);
       // SCH-5: DDL on tables outside the include pattern is ignored without classification
       engine.withCapturedTables(t -> objects.tables().contains(t));
+      // SRC-SEL-2: excluded columns are dropped while decoding
+      engine.withColumnFilter(config.columnFilter());
       // CORE-MINE-6: 0 means the number of cores minus one, at most 8
       int threads = core.getInt(CoreConfig.MINING_DECODE_THREADS);
       engine.withDecodeThreads(

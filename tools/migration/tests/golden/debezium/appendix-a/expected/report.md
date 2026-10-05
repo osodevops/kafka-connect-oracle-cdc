@@ -12,7 +12,7 @@
 
 ## Follow-ups
 
-1. Column filters are not available in this release, so every column of a captured table is published, including the columns this property kept out. Do not cut over a table whose excluded columns must not reach Kafka. (`column.exclude.list`)
+1. Write the columns this property kept out in `cdc.columns.exclude`, as regular expressions over `PDB.SCHEMA.TABLE.COLUMN` (or `SCHEMA.TABLE.COLUMN` without a PDB); the patterns are not rewritten for you because the name forms differ. Key columns cannot be excluded. Until it is set, every column of a captured table is published. (`column.exclude.list`)
 2. Set `cdc.database.password` to a config provider reference, for example `${file:/etc/kafka-connect/secrets.properties:cdc.database.password}`. The source held a literal secret, which is never copied. (`database.password`)
 3. `event.processing.failure.handling.mode=warn` skipped rows that could not be decoded. The connector never skips silently: such rows go to the DLQ topic (`cdc.dlq.topic`) with an ops event. Make sure someone watches the DLQ. (`event.processing.failure.handling.mode`)
 4. There is no user include filter in this release; only `cdc.users.exclude`. List the users to leave out instead. (`log.mining.username.include.list`)
@@ -38,7 +38,7 @@
 |---|---|---|---|---|
 | `archive.destination.name` | `LOG_ARCHIVE_DEST_1` | mapped | `cdc.archive.destination` = `LOG_ARCHIVE_DEST_1` |  |
 | `binary.handling.mode` | `bytes` | dropped |   | Binary columns are published as bytes, the only representation in this release. |
-| `column.exclude.list` | `INVENTORY\.CUSTOMERS\.SSN` | manual |   | Column filters are not available in this release, so every column of a captured table is published, including the columns this property kept out. Do not cut over a table whose excluded columns must not reach Kafka. |
+| `column.exclude.list` | `INVENTORY\.CUSTOMERS\.SSN` | manual |   | Write the columns this property kept out in `cdc.columns.exclude`, as regular expressions over `PDB.SCHEMA.TABLE.COLUMN` (or `SCHEMA.TABLE.COLUMN` without a PDB); the patterns are not rewritten for you because the name forms differ. Key columns cannot be excluded. Until it is set, every column of a captured table is published. |
 | `connector.class` | `io.debezium.connector.oracle.OracleConnector` | mapped-with-change | `connector.class` = `sh.oso.connect.oracle.OracleCdcSourceConnector` | Replaced by the OSO CDC Connector class. |
 | `database.connection.adapter` | `logminer` | dropped |   | The connector reads redo only through LogMiner and buffers open transactions itself, spilling to disk and journaling long ones. |
 | `database.dbname` | `ORCLCDB` | mapped | `cdc.database.service` = `ORCLCDB` | Debezium connects with this name as the service name; in a CDB it names the root. |

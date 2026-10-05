@@ -30,7 +30,8 @@ Each table is cut into chunks of about `cdc.snapshot.chunk.rows` rows (default 1
 
 Up to `cdc.snapshot.threads` chunks of a table are read in parallel, on connections of their own,
 all with `SELECT ... AS OF SCN` at one SCN taken just before them. One read lasts only as long as
-one chunk, so the snapshot needs little undo. A filter for one table goes in
+one chunk, so the snapshot needs little undo. Columns named by `cdc.columns.exclude` are left out
+of the select list, so their values are never read. A filter for one table goes in
 `cdc.snapshot.select.override.PDB.OWNER.TABLE` as a SQL condition, and
 `cdc.snapshot.tables.order` lists tables to read first.
 

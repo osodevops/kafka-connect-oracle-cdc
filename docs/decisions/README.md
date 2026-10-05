@@ -23,6 +23,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0015 | LOBs are assembled per statement, and undo targets the newest change | Accepted |
 | 0016 | The lag case is replayed per step, and rows keep the version they were decoded with | Accepted |
 | 0017 | Snapshot batches share one SCN and publish in key order | Accepted |
+| 0018 | Column filters drop values before conversion and keep the full layout | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 

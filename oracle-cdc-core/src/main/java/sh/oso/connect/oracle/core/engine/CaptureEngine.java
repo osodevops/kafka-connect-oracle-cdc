@@ -42,6 +42,7 @@ import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.position.ResumeCalculator;
 import sh.oso.connect.oracle.core.position.SkipRule;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 
@@ -91,6 +92,7 @@ public final class CaptureEngine {
   private final EngineMetrics metrics = new EngineMetrics();
   private final LobAssembler lobs;
   private LobReselector reselector;
+  private ColumnFilter excluded = ColumnFilter.none();
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -150,6 +152,17 @@ public final class CaptureEngine {
   public CaptureEngine withCapturedTables(
       java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured) {
     this.captured = captured;
+    return this;
+  }
+
+  /**
+   * SRC-SEL-2: columns kept out of every change. They are dropped while decoding, before their
+   * values are converted, so the buffer, the spill files and the journal never hold them; a table
+   * whose key would lose a column stops the task (CDC-3001).
+   */
+  public CaptureEngine withColumnFilter(ColumnFilter excluded) {
+    this.excluded = java.util.Objects.requireNonNull(excluded, "excluded");
+    lobs.excluding(excluded);
     return this;
   }
 
@@ -404,9 +417,10 @@ public final class CaptureEngine {
 
   /** The version a row decodes with: today's, or for a replayed row the one valid at its SCN. */
   private TableSchema schemaFor(MiningEvent.Dml d) throws SQLException {
-    return replayed.contains(d.table())
-        ? schemas.at(d.table(), d.scn())
-        : schemas.current(d.table());
+    TableSchema schema =
+        replayed.contains(d.table()) ? schemas.at(d.table(), d.scn()) : schemas.current(d.table());
+    excluded.project(schema); // SRC-SEL-2: the version's key must keep every column
+    return schema;
   }
 
   /** The buffer belongs to this thread; JMX readers see the snapshot taken here. */
@@ -484,8 +498,8 @@ public final class CaptureEngine {
     for (MiningEvent e : outcome.events()) {
       if (e instanceof MiningEvent.Dml d && !d.undo()) {
         // the dictionary reads; a replayed row's version is chosen in redo order, after any DDL
-        // of the step before it has been applied
-        schemas.current(d.table());
+        // of the step before it has been applied. SRC-SEL-2: a key column cannot be excluded
+        excluded.project(schemas.current(d.table()));
       }
     }
   }
@@ -500,7 +514,7 @@ public final class CaptureEngine {
           // 23ai: no SQL_REDO, and every LOB_WRITE row selects its own locator (ADR-0015)
           continue;
         } else if (d.undo() && !d.op().isLobOp()) {
-          lobs.flush(d.tx()).ifPresent(held -> buffer.add(d.tx(), held));
+          lobs.flush(d.tx()).ifPresent(held -> add(d.tx(), held));
           buffer.undo(d.tx(), d.id(), d.rowId(), d.table(), d.op());
         } else if (d.op().isLobOp()) {
           decodeLobAndBuffer(d);
@@ -521,7 +535,7 @@ public final class CaptureEngine {
                   + " so the transaction is re-mined whole, or resnapshot the affected tables;"
                   + " then raise cdc.transaction.orphan.check.interval.ms.");
         }
-        lobs.flush(c.tx()).ifPresent(held -> buffer.add(c.tx(), held));
+        lobs.flush(c.tx()).ifPresent(held -> add(c.tx(), held));
         Optional<LobAssembler.Oversize> over = lobs.takeOversize(c.tx());
         if (over.isPresent() && settings.lobOversizeFail()) {
           throw new sh.oso.connect.oracle.core.errors.LobTooLargeException(
@@ -619,8 +633,8 @@ public final class CaptureEngine {
   private Object decodeOne(MiningEvent.Dml d, TableSchema schema) {
     try {
       return d.op().isLobOp()
-          ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema)
-          : decoder.decode(d, schema);
+          ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema, excluded)
+          : decoder.decode(d, schema, excluded);
     } catch (RuntimeException ex) {
       return ex; // raised in order when the row is applied
     }
@@ -640,7 +654,7 @@ public final class CaptureEngine {
     RowChange change;
     try {
       Object pre = predecoded(d);
-      change = pre != null ? (RowChange) pre : decoder.decode(d, schema);
+      change = pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded);
     } catch (DecodeException ex) {
       if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
         throw ex;
@@ -650,9 +664,17 @@ public final class CaptureEngine {
       return;
     }
     for (RowChange ready : lobs.accept(d.tx(), change, schema)) {
-      buffer.add(d.tx(), ready);
+      add(d.tx(), ready);
     }
     metrics.lobInsertsMerged.set(lobs.merged());
+  }
+
+  /**
+   * Every change enters the buffer through here. SRC-SEL-2: the decoder has already left the
+   * excluded columns out; the projection is the guard for a substitute decoder.
+   */
+  private void add(sh.oso.connect.oracle.core.model.TxKey tx, RowChange change) {
+    buffer.add(tx, excluded.project(change));
   }
 
   /** CORE-DEC-6: a LOB_WRITE, LOB_TRIM or LOB_ERASE row joins the change of its statement. */
@@ -674,7 +696,7 @@ public final class CaptureEngine {
       f =
           pre != null
               ? (sh.oso.connect.oracle.core.decode.LobFragment) pre
-              : sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema);
+              : sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema, excluded);
     } catch (DecodeException ex) {
       if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
         throw ex;
@@ -684,7 +706,7 @@ public final class CaptureEngine {
       return;
     }
     for (RowChange ready : lobs.acceptLob(d.tx(), f, schema)) {
-      buffer.add(d.tx(), ready);
+      add(d.tx(), ready);
     }
     metrics.lobRowsApplied.set(lobs.fragments());
   }
@@ -712,6 +734,8 @@ public final class CaptureEngine {
       case SUPPLEMENTAL_LOG:
         Optional<TableSchema> next = schemas.applyDdl(table, d.scn());
         if (next.isPresent()) {
+          excluded.project(
+              next.get()); // SRC-SEL-2: a DDL that moves the key onto an excluded column
           sink.schemaChanged(next.get(), d);
         }
         break;
@@ -756,6 +780,7 @@ public final class CaptureEngine {
           ReselectingEvents.wrap(
               tx,
               schemas,
+              excluded,
               reselector,
               classifier,
               settings.lobMaxBytes(),

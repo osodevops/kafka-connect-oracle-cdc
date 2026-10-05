@@ -41,6 +41,13 @@ Decoding turns each row's SQL_REDO into column values with the table's schema ve
 pure function of the row and the schema, so steps of 256 rows or more are decoded on
 `cdc.mining.decode.threads` threads, and the results are applied in redo order.
 
+Columns named by `cdc.columns.exclude` are dropped at this point, as soon as the parser has named
+them and before their values are converted. An excluded value therefore never reaches the
+transaction buffer, the spill files, the transaction journal, a record or a log line, and a value
+the decoder could not convert cannot stop the task when its column is excluded. The schema topic
+still holds the table's full layout (names and types, no values), so changing the filter needs no
+schema rebuild. See [excluded columns](../reference/record-formats.md#excluded-columns).
+
 ## Uncommitted redo and the transaction buffer
 
 LogMiner returns changes as they are written, before their transactions commit. The connector keeps

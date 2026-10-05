@@ -17,7 +17,7 @@
   },
   "follow_ups": [
     {
-      "text": "Column filters are not available in this release, so every column of a captured table is published, including the columns this property kept out. Do not cut over a table whose excluded columns must not reach Kafka.",
+      "text": "Write the columns this property kept out in `cdc.columns.exclude`, as regular expressions over `PDB.SCHEMA.TABLE.COLUMN` (or `SCHEMA.TABLE.COLUMN` without a PDB); the patterns are not rewritten for you because the name forms differ. Key columns cannot be excluded. Until it is set, every column of a captured table is published.",
       "properties": [
         "column.exclude.list"
       ]
@@ -114,7 +114,7 @@
       "value": "INVENTORY\\.CUSTOMERS\\.SSN",
       "classification": "manual",
       "targets": {},
-      "note": "Column filters are not available in this release, so every column of a captured table is published, including the columns this property kept out. Do not cut over a table whose excluded columns must not reach Kafka."
+      "note": "Write the columns this property kept out in `cdc.columns.exclude`, as regular expressions over `PDB.SCHEMA.TABLE.COLUMN` (or `SCHEMA.TABLE.COLUMN` without a PDB); the patterns are not rewritten for you because the name forms differ. Key columns cannot be excluded. Until it is set, every column of a captured table is published."
     },
     {
       "key": "connector.class",

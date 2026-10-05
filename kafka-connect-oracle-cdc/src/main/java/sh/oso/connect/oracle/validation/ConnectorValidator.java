@@ -47,6 +47,9 @@ public final class ConnectorValidator {
 
   private ConnectorValidator() {}
 
+  /** The finding for a key column {@code cdc.columns.exclude} matches (PRD-01 SRC-SEL-2). */
+  static final String EXCLUDED_KEY = "SRC-SEL-2";
+
   /** Adds doctor findings to {@code config}; connection failures land on the host key. */
   public static Config validate(Map<String, String> props, Config config) {
     OracleCdcSourceConnectorConfig cfg;
@@ -94,6 +97,8 @@ public final class ConnectorValidator {
         return OracleCdcSourceConnectorConfig.TABLES_INCLUDE;
       case "DOC-7":
         return OracleCdcSourceConnectorConfig.KEY_MISSING;
+      case EXCLUDED_KEY:
+        return OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE;
       case "DOC-4":
         return CoreConfig.DATABASE_USER;
       case "DOC-12":
@@ -120,12 +125,73 @@ public final class ConnectorValidator {
               cfg.tablesInclude(),
               cfg.tablesExclude(),
               cfg.keyMissing().name());
-      return new Doctor(Rules.fastMode()).run(ctx);
+      Report doctor = new Doctor(Rules.fastMode()).run(ctx);
+      List<Finding> keys = excludedKeys(cfg, c);
+      if (keys.isEmpty()) {
+        return doctor;
+      }
+      List<Finding> all = new java.util.ArrayList<>(doctor.findings());
+      all.addAll(keys);
+      return new Report(all, doctor.rules());
     } catch (SQLException e) {
       throw new sh.oso.connect.oracle.core.errors.TransientDatabaseException(
           "The database connection failed: " + e.getMessage(),
           "Check host, port, service and credentials.",
           e);
     }
+  }
+
+  /**
+   * SRC-SEL-2: a blocking finding for every captured table whose record key (as the task would
+   * choose it) has a column {@code cdc.columns.exclude} matches. Tables without a usable key are
+   * DOC-7's.
+   */
+  static List<Finding> excludedKeys(OracleCdcSourceConnectorConfig cfg, Connection c)
+      throws SQLException {
+    sh.oso.connect.oracle.core.schema.ColumnFilter excluded = cfg.columnFilter();
+    if (excluded.isEmpty()) {
+      return List.of();
+    }
+    List<Finding> out = new java.util.ArrayList<>();
+    sh.oso.connect.oracle.core.mining.ObjectIdResolver resolver =
+        new sh.oso.connect.oracle.core.mining.ObjectIdResolver(
+            new sh.oso.connect.oracle.core.mining.JdbcObjectCatalog(c),
+            cfg.tablesInclude(),
+            cfg.tablesExclude(),
+            cfg.core().pdbs(),
+            cfg.tablesCaseSensitive());
+    sh.oso.connect.oracle.core.schema.JdbcDictionaryReader dictionary =
+        new sh.oso.connect.oracle.core.schema.JdbcDictionaryReader(c);
+    sh.oso.connect.oracle.core.schema.KeySelector keys =
+        new sh.oso.connect.oracle.core.schema.KeySelector(cfg.keyOverrides(), cfg.keyMissing());
+    List<sh.oso.connect.oracle.core.model.TableId> tables =
+        new java.util.ArrayList<>(resolver.resolve().tables());
+    tables.sort(java.util.Comparator.comparing(sh.oso.connect.oracle.core.model.TableId::fqn));
+    for (sh.oso.connect.oracle.core.model.TableId t : tables) {
+      java.util.Optional<sh.oso.connect.oracle.core.schema.TableSchema> read = dictionary.read(t);
+      if (read.isEmpty()) {
+        continue;
+      }
+      sh.oso.connect.oracle.core.schema.TableSchema schema;
+      try {
+        schema = keys.select(read.get(), dictionary.keyCandidates(t));
+      } catch (OracleCdcException e) {
+        continue; // no usable key: DOC-7 reports it
+      }
+      List<String> lost = excluded.excludedKeyColumns(schema);
+      if (!lost.isEmpty()) {
+        out.add(
+            Finding.blocking(
+                EXCLUDED_KEY,
+                "cdc.columns.exclude matches key "
+                    + (lost.size() == 1 ? "column " : "columns ")
+                    + String.join(", ", lost)
+                    + " of "
+                    + t.fqn()
+                    + "; a key column cannot be excluded.",
+                null));
+      }
+    }
+    return out;
   }
 }

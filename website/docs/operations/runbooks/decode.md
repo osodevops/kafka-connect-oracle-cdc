@@ -31,10 +31,16 @@ Table-level failures, raised when the connector first reads a captured table:
 - A key override in `cdc.key.columns` names a column the table does not have.
 - The table is not in the data dictionary of its PDB.
 - A snapshot met a column type the snapshot reader does not support.
+- `cdc.columns.exclude` matches a column of the record key (the primary key, the unique index the
+  connector chose or a column in `cdc.key.columns`): "cdc.columns.exclude matches column ... which
+  is part of the record key". The task checks this at start, and again when a DDL changes a
+  table's key.
 
 With `cdc.on.decode.error=dlq`, row-level failures do not stop the task: the row goes to the DLQ
 topic with its raw SQL_REDO and a `decode-error-dlq` or `unsupported-row` event goes to the ops
-topic. Table-level failures always stop the task.
+topic. For a table that `cdc.columns.exclude` may match, the DLQ record and the message withhold
+the statement text, because it may hold an excluded value. Table-level failures always stop the
+task.
 
 ## Why it stopped rather than continued
 
@@ -67,7 +73,12 @@ WHERE owner = :owner AND table_name = :table AND constraint_type IN ('P', 'U');
 ## Recover
 
 - **Unsupported column type or name length.** Exclude the table with `cdc.tables.exclude`, or change
-  the table so that LogMiner supports it. Then restart the task.
+  the table so that LogMiner supports it. When the message says the decoder does not support a
+  column's type and the column is not needed downstream (and is not a key column), excluding only
+  that column with `cdc.columns.exclude` is enough: excluded values are never converted. Rows
+  LogMiner itself marks `UNSUPPORTED` are not helped by a column filter. Then restart the task.
+- **Excluded key column.** Change `cdc.columns.exclude` so that it no longer matches the key
+  column, or key the table by other columns with `cdc.key.columns`. Then restart the task.
 - **No key.** Add a primary key or a NOT NULL unique index, name key columns in `cdc.key.columns`,
   or set `cdc.key.missing` to `rowid` (records keyed by ROWID; a moved row changes its key) or
   `none` (records without a key). Then restart the task.

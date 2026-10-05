@@ -29,6 +29,7 @@ import org.apache.kafka.common.config.ConfigDef.Width;
 import org.apache.kafka.common.config.ConfigException;
 import org.apache.kafka.common.config.types.Password;
 import sh.oso.connect.oracle.core.config.CoreConfig;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.KeySelector;
 
 /**
@@ -47,6 +48,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public static final String TABLES_INCLUDE = "cdc.tables.include";
   public static final String TABLES_EXCLUDE = "cdc.tables.exclude";
   public static final String TABLES_CASE_SENSITIVE = "cdc.tables.case.sensitive";
+  public static final String COLUMNS_EXCLUDE = "cdc.columns.exclude";
   public static final String USERS_EXCLUDE = "cdc.users.exclude";
 
   // topics and keys (SRC-TOP)
@@ -105,6 +107,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   }
 
   private final CoreConfig core;
+  private final ColumnFilter columnFilter;
 
   public OracleCdcSourceConnectorConfig(Map<String, String> props) {
     super(configDef(), props, false);
@@ -113,7 +116,28 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         .contains(getString(KEY_MISSING).toLowerCase(Locale.ROOT))) {
       throw new ConfigException(KEY_MISSING, getString(KEY_MISSING), "must be fail, rowid or none");
     }
-    keyOverrides();
+    this.columnFilter = ColumnFilter.of(getList(COLUMNS_EXCLUDE), tablesCaseSensitive());
+    for (Map.Entry<String, List<String>> e : keyOverrides().entrySet()) {
+      for (String column : e.getValue()) {
+        if (columnFilter.excludesName(e.getKey() + "." + column)) {
+          throw new ConfigException(
+              COLUMNS_EXCLUDE,
+              String.join(",", getList(COLUMNS_EXCLUDE)),
+              "matches key column "
+                  + e.getKey()
+                  + "."
+                  + column
+                  + " named in "
+                  + KEY_COLUMNS
+                  + "; a key column cannot be excluded");
+        }
+      }
+    }
+  }
+
+  /** SRC-SEL-2: the columns kept out of records, shared by the engine, envelope and snapshots. */
+  public ColumnFilter columnFilter() {
+    return columnFilter;
   }
 
   public CoreConfig core() {
@@ -316,6 +340,20 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
     return new HashMap<>(originalsStrings());
   }
 
+  /** Every entry of a pattern list must compile as a regular expression. */
+  static final ConfigDef.Validator PATTERNS =
+      (name, value) -> {
+        if (value instanceof List<?> list) {
+          for (Object p : list) {
+            try {
+              java.util.regex.Pattern.compile(String.valueOf(p).trim());
+            } catch (java.util.regex.PatternSyntaxException e) {
+              throw new ConfigException(name, p, "not a regular expression: " + e.getDescription());
+            }
+          }
+        }
+      };
+
   public static ConfigDef configDef() {
     ConfigDef def = CoreConfig.configDef();
     int o = 0;
@@ -372,11 +410,34 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.BOOLEAN,
         false,
         Importance.LOW,
-        "Match table patterns case-sensitively. Oracle stores unquoted names in upper case.",
+        "Match table and column patterns case-sensitively. Oracle stores unquoted names in upper"
+            + " case.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,
         "Case-sensitive patterns");
+    def.define(
+        COLUMNS_EXCLUDE,
+        Type.LIST,
+        "",
+        PATTERNS,
+        Importance.MEDIUM,
+        "Comma-separated regular expressions over PDB.SCHEMA.TABLE.COLUMN (CDB) or"
+            + " SCHEMA.TABLE.COLUMN (non-CDB) naming columns to leave out of every record, matched"
+            + " against the whole name and case-insensitively unless"
+            + " cdc.tables.case.sensitive=true. An excluded column is dropped while its row is"
+            + " decoded, before its value is converted, so it never reaches a record, a Connect"
+            + " schema, the transaction buffer, the spill files, the transaction journal or a log"
+            + " line; snapshots do not select it and reselect never fetches it. Rows of a table"
+            + " these patterns may match go to the DLQ without their SQL_REDO and SQL_UNDO, and a"
+            + " statement that fails to parse is reported without quoting it. A column of the"
+            + " record key (primary key, unique index or cdc.key.columns) cannot be excluded:"
+            + " validation reports it, and a task that finds one at start or after a DDL stops with"
+            + " CDC-3001. A column added later that matches is excluded from its first row.",
+        GROUP_TOPICS,
+        ++o,
+        Width.LONG,
+        "Columns to exclude");
     def.define(
         USERS_EXCLUDE,
         Type.LIST,
@@ -498,7 +559,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         "Dead letter topic for rows that could not be decoded or that LogMiner marked unsupported"
             + " (used only with cdc.on.decode.error=dlq) and for transactions discarded by"
             + " cdc.transaction.max.age.action=discard. Records carry the raw SQL_REDO, SCN, XID,"
-            + " table and exception.",
+            + " table and exception; for a table whose columns cdc.columns.exclude may match, the"
+            + " SQL_REDO and SQL_UNDO are withheld.",
         GROUP_TOPICS,
         ++o,
         Width.MEDIUM,

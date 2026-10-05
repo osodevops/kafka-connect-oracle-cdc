@@ -944,4 +944,42 @@ class OracleCdcSourceTaskTest {
           .hasMessageContaining("ahead of the database");
     }
   }
+
+  @Test
+  void excludedColumnsAreLeftOutOfChangeAndSnapshotRecordsAndNeverSelected() throws Exception {
+    // PRD-01 SRC-SEL-2
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE, "FREEPDB1\\.APP\\.ORDERS\\.SQL");
+      h.props.put(CoreConfig.SNAPSHOT_MODE, "initial");
+      h.snapshots.rows(TaskHarness.T, 1, 2).scn = 1000;
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> records = h.pollUntil(3, 5000);
+      assertThat(records).hasSize(3);
+      for (SourceRecord r : records) {
+        org.apache.kafka.connect.data.Struct after =
+            ((org.apache.kafka.connect.data.Struct) r.value()).getStruct("after");
+        assertThat(after.schema().fields())
+            .extracting(org.apache.kafka.connect.data.Field::name)
+            .containsExactly("ID");
+        assertThat(String.valueOf(after)).doesNotContain("row", "a1");
+      }
+      assertThat(h.snapshots.selected)
+          .isNotEmpty()
+          .allSatisfy(c -> assertThat(c).containsExactly("ID"));
+    }
+  }
+
+  @Test
+  void aTaskRefusesToStartWhenAKeyColumnIsExcluded() {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.COLUMNS_EXCLUDE, ".*\\.ID");
+      assertThatThrownBy(h::start)
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-3001")
+          .hasMessageContaining("column ID of FREEPDB1.APP.ORDERS");
+    }
+  }
 }

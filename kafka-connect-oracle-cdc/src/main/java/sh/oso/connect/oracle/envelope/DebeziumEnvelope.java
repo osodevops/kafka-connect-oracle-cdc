@@ -42,6 +42,9 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  * before, after, source, op, ts_ms, ts_us, ts_ns and transaction; key struct from the chosen key;
  * cdc.* headers; a tombstone after each delete; a primary key change as delete, tombstone and
  * create. Every record carries the offset a restart may use once that record is acknowledged.
+ * Records and their Connect schemas are built from the table's layout without the columns {@code
+ * cdc.columns.exclude} names (SRC-SEL-2), so an excluded column has no field even when a change
+ * restored from an older journal still carries it.
  */
 public final class DebeziumEnvelope {
 
@@ -57,6 +60,7 @@ public final class DebeziumEnvelope {
   private final String databaseName;
   private final sh.oso.connect.oracle.core.config.CoreConfig.LobMode lobMode;
   private final String placeholder;
+  private final sh.oso.connect.oracle.core.schema.ColumnFilter excluded;
 
   record Schemas(Schema key, Schema value, Schema envelope, List<ColumnSpec> keyColumns) {}
 
@@ -68,6 +72,7 @@ public final class DebeziumEnvelope {
     this.databaseName = databaseName;
     this.partition = Map.of("server", config.topicPrefix());
     this.lobMode = config.core().lobMode();
+    this.excluded = config.columnFilter();
     this.placeholder =
         config
             .core()
@@ -122,6 +127,7 @@ public final class DebeziumEnvelope {
       TableSchema schema,
       Position offset) {
     RowChange change = tx.events().get(index);
+    schema = excluded.project(schema);
     Schemas s = schemas(schema);
     String topic = router.topic(change.table());
     Map<String, Object> offsetMap = PositionCodec.write(offset);
@@ -237,6 +243,7 @@ public final class DebeziumEnvelope {
       long readAtMs,
       String marker,
       Position offset) {
+    schema = excluded.project(schema);
     Schemas s = schemas(schema);
     RowChange change =
         new RowChange(
