@@ -25,6 +25,7 @@
 | `cdc.output.format` | `debezium` | The Debezium-compatible envelope, so consumers keep working (MIG-2). |
 | `cdc.lob.mode` | `skip` | Debezium's default (`lob.enabled=false`), pinned (MIG-3). |
 | `cdc.key.missing` | `none` | Debezium published tables without a primary key with a null key; the connector would otherwise reject them at validation (MIG-3). |
+| `cdc.schema.name.adjustment.mode` | `avro` | Debezium 1.x adjusted schema names for Avro by default; pinned so the record names, and the schemas registered under the existing subjects, stay the same. |
 
 ## Source properties
 

@@ -56,6 +56,7 @@ or manual (with an instruction), then the follow-ups. The main translations:
 | `log.mining.transaction.retention.ms` | `cdc.transaction.max.age.ms` with `cdc.transaction.max.age.action=discard`; discarded transactions are written to the ops topic and the DLQ |
 | `log.mining.archive.log.only.mode`, `archive.destination.name` | `cdc.capture.mode`, `cdc.archive.destination` |
 | `event.processing.failure.handling.mode` | `cdc.on.decode.error`: `fail`, or `dlq` for `warn` and `skip`, because the connector never skips a row silently |
+| `schema.name.adjustment.mode`, `field.name.adjustment.mode`, `sanitize.field.names` | `cdc.schema.name.adjustment.mode` and `cdc.field.name.adjustment.mode` with the same value (`none`, `avro` or `avro_unicode`); `sanitize.field.names=true` becomes `cdc.field.name.adjustment.mode=avro` |
 | `driver.*` | Trust store and wallet settings to their `cdc.database.*` properties, other driver options to `cdc.database.connection.properties` |
 | Kafka Connect properties (converters, transforms, predicates, `errors.*`, client overrides) | Copied unchanged |
 
@@ -64,6 +65,14 @@ Settings the translator pins to Debezium's behaviour: `cdc.output.format=debeziu
 `cdc.lob.mode=skip`, `cdc.unavailable.placeholder=__debezium_unavailable_value` when LOBs are
 captured, and `cdc.key.missing=none`, because Debezium published tables without a primary key
 with a null key.
+
+A Debezium 1.x configuration (one with `database.server.name` and no `topic.prefix`, or with
+`database.history.*` settings) also gets `cdc.schema.name.adjustment.mode=avro` unless it sets the
+mode itself, because Debezium 1.x adjusted schema names for Avro by default; with an Avro
+`key.converter` or `value.converter` it gets `cdc.field.name.adjustment.mode=avro` as well, because
+1.x sanitised field names by default then. The record names, and the schemas registered under the
+existing subjects, stay the same. Debezium 2.0 and later default to `none`, as this connector does.
+See [record formats](../reference/record-formats.md#avro-and-other-strict-naming-rules).
 
 Dropped, with the reason in the report: the LogMiner tuning settings (`log.mining.strategy`, batch
 and sleep sizes, buffer settings, the query filter mode), `heartbeat.action.query` (heartbeats

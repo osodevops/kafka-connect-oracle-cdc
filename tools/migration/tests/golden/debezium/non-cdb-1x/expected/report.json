@@ -53,6 +53,11 @@
       "key": "cdc.key.missing",
       "value": "none",
       "reason": "Debezium published tables without a primary key with a null key; the connector would otherwise reject them at validation (MIG-3)."
+    },
+    {
+      "key": "cdc.schema.name.adjustment.mode",
+      "value": "avro",
+      "reason": "Debezium 1.x adjusted schema names for Avro by default; pinned so the record names, and the schemas registered under the existing subjects, stay the same."
     }
   ],
   "properties": [
@@ -247,6 +252,7 @@
     "cdc.key.missing": "none",
     "cdc.lob.mode": "skip",
     "cdc.output.format": "debezium",
+    "cdc.schema.name.adjustment.mode": "avro",
     "cdc.snapshot.mode": "none",
     "cdc.tables.exclude": "FINANCE\\.AUDIT_.*",
     "cdc.tables.include": "FINANCE\\..+,HR\\..+",

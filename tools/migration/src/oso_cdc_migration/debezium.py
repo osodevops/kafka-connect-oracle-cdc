@@ -404,6 +404,37 @@ def flag_off_or_manual(instruction: str, off_values: tuple[str, ...] = ("false",
     return rule
 
 
+SCHEMA_ADJUSTMENT = "cdc.schema.name.adjustment.mode"
+FIELD_ADJUSTMENT = "cdc.field.name.adjustment.mode"
+ADJUSTMENT_MODES = ("none", "avro", "avro_unicode")
+
+
+def adjustment_mode(target: str):
+    def rule(ctx: Context, key: str, value: str) -> Outcome:
+        mode = value.strip().lower()
+        if mode not in ADJUSTMENT_MODES:
+            raise Manual(
+                f"`{mode}` is not a known adjustment mode; set `{target}` to `none`, `avro` or"
+                " `avro_unicode`."
+            )
+        ctx.set(target, mode, key)
+        return Classification.MAPPED, ""
+
+    return rule
+
+
+def sanitize_field_names(ctx: Context, key: str, value: str) -> Outcome:
+    flag = value.strip().lower()
+    if flag not in ("true", "false"):
+        raise Manual(f"`{key}` is neither `true` nor `false`; set `{FIELD_ADJUSTMENT}` by hand.")
+    mode = "avro" if flag == "true" else "none"
+    ctx.set(FIELD_ADJUSTMENT, mode, key)
+    return (
+        Classification.MAPPED_WITH_CHANGE,
+        f"Debezium 1.x switch; `{mode}` adjusts field names the same way.",
+    )
+
+
 _TRUSTSTORE = {
     "driver.javax.net.ssl.trustStore": "cdc.database.tls.truststore.location",
     "driver.javax.net.ssl.trustStorePassword": "cdc.database.tls.truststore.password",
@@ -641,11 +672,9 @@ RULES = RuleSet(
             "Custom converters are not supported; type mapping follows `cdc.decimal.mode` and"
             " `cdc.temporal.mode`."
         ),
-        "sanitize.field.names": flag_off_or_manual("Field name sanitising is not supported."),
-        "field.name.adjustment.mode": flag_off_or_manual("Field name adjustment is not supported."),
-        "schema.name.adjustment.mode": flag_off_or_manual(
-            "Schema name adjustment is not supported."
-        ),
+        "sanitize.field.names": sanitize_field_names,
+        "field.name.adjustment.mode": adjustment_mode(FIELD_ADJUSTMENT),
+        "schema.name.adjustment.mode": adjustment_mode(SCHEMA_ADJUSTMENT),
         "legacy.decimal.handling.strategy": t.dropped("Debezium internal setting; not used."),
     },
     prefixes={
@@ -798,6 +827,39 @@ def finalise_pins(ctx: Context) -> None:
         )
 
 
+def _debezium_1x(ctx: Context) -> bool:
+    """Debezium 2.0 renamed `database.server.name` to `topic.prefix` and the `database.history`
+    settings to `schema.history.internal`; a 1.x configuration needs both old names."""
+    return (ctx.has("database.server.name") and not ctx.has("topic.prefix")) or any(
+        k.startswith("database.history") for k in ctx.source
+    )
+
+
+def _avro_converter(ctx: Context) -> bool:
+    return any(
+        (ctx.get(k) or "").endswith("AvroConverter") for k in ("key.converter", "value.converter")
+    )
+
+
+def finalise_names(ctx: Context) -> None:
+    """Debezium 1.x adjusted names for Avro by default; 2.0 made `none` the default."""
+    if not _debezium_1x(ctx):
+        return
+    ctx.setting(
+        SCHEMA_ADJUSTMENT,
+        "avro",
+        "Debezium 1.x adjusted schema names for Avro by default; pinned so the record names, and"
+        " the schemas registered under the existing subjects, stay the same.",
+    )
+    if _avro_converter(ctx):
+        ctx.setting(
+            FIELD_ADJUSTMENT,
+            "avro",
+            "Debezium 1.x sanitised field names by default when the connector set an Avro"
+            " converter (`sanitize.field.names`); pinned so the field names stay the same.",
+        )
+
+
 def next_steps(source_name: str | None, target_name: str, output: str | None) -> list[str]:
     old = source_name or "<debezium-connector>"
     out = output or "<translated-config>"
@@ -829,6 +891,7 @@ SPEC = TranslatorSpec(
         finalise_tables,
         finalise_driver,
         finalise_pins,
+        finalise_names,
         t.finalise_start,
         t.finalise_exactly_once,
         t.finalise_required,
