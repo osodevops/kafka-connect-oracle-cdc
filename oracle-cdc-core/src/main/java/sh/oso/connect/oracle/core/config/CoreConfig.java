@@ -537,7 +537,7 @@ public class CoreConfig extends AbstractConfig {
         MINING_INLIST_MAX,
         Type.INT,
         1000,
-        Range.between(1, 100000),
+        Range.between(1, 1000), // Oracle's IN-list limit (ORA-01795)
         Importance.LOW,
         "Most captured object ids in one IN list of the mining query; more ids are split across"
             + " several IN lists. Oracle allows at most 1000 entries in one list, and the task"

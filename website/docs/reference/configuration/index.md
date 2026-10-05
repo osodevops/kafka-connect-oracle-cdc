@@ -13,12 +13,18 @@ and never appear in logs.
 
 Groups:
 
-- Database: connection, credentials, PDB list, wallet and TLS
-- Capture: online or archive-only mining, archive destination
-- Mining: step sizing, timeouts, fetch size, session age
-- Transaction buffer, transaction journal and transactions: memory budget, spill, journal thresholds, long and orphaned transactions
-- LOBs: how CLOB, NCLOB and BLOB values are published, the size limit and the placeholder for values the redo does not carry
-- Errors and retries: decode error policy, retry budget, extra transient codes
-- Topics: prefix and template, table and user selection, key policy, tombstones
-- Record format: output format, decimal and temporal modes
-- Task: poll batch, linger and shutdown timeout
+<!-- BEGIN GENERATED: configuration groups (ConfigDocsGeneratorTest; do not edit by hand) -->
+- [Database](database.md)
+- [Capture](capture.md)
+- [Mining](mining.md)
+- [Transaction buffer](transaction-buffer.md)
+- [Transaction journal](transaction-journal.md)
+- [Transactions](transactions.md)
+- [LOBs](lobs.md)
+- [Errors and retries](errors-and-retries.md)
+- [Snapshots](snapshots.md)
+- [Topics](topics.md)
+- [Record format](record-format.md)
+- [Task](task.md)
+- [Exactly-once](exactly-once.md)
+<!-- END GENERATED: configuration groups -->

@@ -358,6 +358,12 @@ ops and heartbeat records on a miss; a miss is a product bug until proven otherw
 - The pinned subnet, the reused Oracle container and the lab stacks (`oracle-cdc-lab-*` compose,
   minikube `cdc-lab`) are all running; `docker network prune` cleared leftovers once before.
 
+- ORA-12516 ("no protocol handler ready") or a stalled first snapshot in the connector tier: the
+  test database refused new connections because the Docker host was loaded (the lab stack, a second
+  Oracle, minikube and other projects' containers share it). A snapshot reader then retries its
+  connection for the whole retry budget while streaming waits for its batch. Rerun the suite; seen
+  twice on `LagCaseConnectorIT`, which now writes its 100 statements on one connection.
+
 ---
 
 ## 5. Remaining increments, in order, with concrete designs

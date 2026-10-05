@@ -56,6 +56,29 @@ class ConfigDocsGeneratorTest {
         stale.add(e.getKey());
       }
     }
+    // the index lists every group page between markers, so a new group cannot be missed
+    Path index = DOCS.resolve("index.md");
+    String current = Files.readString(index, StandardCharsets.UTF_8);
+    String begin = "<!-- BEGIN GENERATED: configuration groups";
+    String end = "<!-- END GENERATED: configuration groups -->";
+    int b = current.indexOf("\n", current.indexOf(begin)) + 1;
+    int x = current.indexOf(end);
+    StringBuilder groups = new StringBuilder();
+    for (Map.Entry<String, String> e : pages.entrySet()) {
+      String title = e.getValue().lines().skip(1).findFirst().orElse("title: \"\"");
+      groups
+          .append("- [")
+          .append(title.substring(title.indexOf('"') + 1, title.lastIndexOf('"')))
+          .append("](")
+          .append(e.getKey())
+          .append(")\n");
+    }
+    String wanted = current.substring(0, b) + groups + current.substring(x);
+    if (update) {
+      Files.writeString(index, wanted, StandardCharsets.UTF_8);
+    } else if (!current.equals(wanted)) {
+      stale.add("index.md");
+    }
     assertThat(stale)
         .as(
             "configuration reference pages out of date; run mvn -pl e2e-tests test"

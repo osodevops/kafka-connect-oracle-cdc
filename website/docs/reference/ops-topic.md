@@ -44,6 +44,8 @@ connector can write.
 | `ddl-applied` | A DDL gave a captured table a new schema version, or dropped or renamed it away. | `pdb`, `owner`, `object`, `scn`, `version` (the new version number, or removed), `columns` (absent when removed) |
 | `dictionary-replay` | A step was mined again with a data dictionary from the redo, because rows of these tables were written before a later DDL on them. | `from_scn`, `to_scn`, `tables` |
 | `dictionary-build` | A dictionary build into the redo ran, failed, or was switched off because the connector user cannot execute DBMS_LOGMNR_D. | `status` (built, failed or disabled), `millis` (when built), `message` (when failed or disabled) |
+| `table-added` | A refresh of the object ids (after a CREATE TABLE, a rename or a refresh-tables signal) added a table matching the include patterns; it is captured from the next step. | `table`, `snapshot` (true when the table is snapshotted because it may already hold rows) |
+| `table-removed` | A refresh of the object ids removed a table from the captured set (dropped, or renamed away). | `table` |
 | `ids-refreshed` | The captured object ids were resolved again, after a CREATE TABLE, DROP TABLE or partition DDL, or a refresh-tables signal. | `owners` |
 | `reconnected` | The database sessions were reopened after a transient error. | `cause` |
 | `unsupported-row` | LogMiner marked a row of a captured table unsupported and `cdc.on.decode.error` is dlq. | `table`, `xid`, `scn`, `status`, `info` |
@@ -52,10 +54,10 @@ connector can write.
 | `transaction-orphan-released` | Orphan detection released a transaction that the database no longer knows, as a rollback. | `xid`, `con_id`, `user`, `client_id`, `first_scn`, `last_scn`, `events`, `absent_at_scn`, `reason` |
 | `transaction-split` | In exactly-once mode, an Oracle transaction above `cdc.eos.split.max.records` or `cdc.eos.split.max.bytes` was delivered in several Kafka transactions. | `xid`, `commit_scn`, `events`, `kafka_transactions` |
 | `snapshot-chunk-done` | A snapshot chunk was published. | `table`, `scn`, `rows` |
-| `snapshot-complete` | A table's snapshot is complete, or the whole snapshot is complete or was stopped by a signal. | `table` (the table, or an asterisk for the whole snapshot), `stopped` (true when a snapshot-stop signal ended the snapshot) |
+| `snapshot-complete` | A table's snapshot is complete, or the whole snapshot is complete or was stopped by a signal. | `table` (the table, or an asterisk for the whole snapshot), `stopped` (true when a snapshot-stop signal ended the snapshot), `skipped` (why the table was not read: it no longer exists, or a column type has no record mapping under `cdc.on.decode.error=dlq`) |
 | `signal-ack` | A signal addressed to this connector was handled. | `id`, `type`, `outcome` (ok, rejected, unknown, invalid or failed), `message` (when there is one), `mined_to_scn` (log-state only), `open_transactions` (log-state only), `buffered_events` (log-state only), `oldest_open_scn` (log-state only), `largest` (log-state only), `snapshot_running` (log-state only) |
 
-The following types are reserved for features that are not built yet. No code path writes them, so they do not appear on the topic: `position-committed`, `log-switch-detected`, `thread-state-changed`, `table-added`, `table-removed`, `transaction-journaled`, `offsets-set`.
+The following types are reserved for features that are not built yet. No code path writes them, so they do not appear on the topic: `position-committed`, `log-switch-detected`, `thread-state-changed`, `transaction-journaled`, `offsets-set`.
 
 <!-- END GENERATED: ops event types -->
 

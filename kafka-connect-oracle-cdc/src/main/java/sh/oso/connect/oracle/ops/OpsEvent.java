@@ -86,8 +86,17 @@ public record OpsEvent(Type type, long tsMs, Long resumeScn, Map<String, String>
         "status (built, failed or disabled)",
         "millis (when built)",
         "message (when failed or disabled)"),
-    TABLE_ADDED("table-added"),
-    TABLE_REMOVED("table-removed"),
+    TABLE_ADDED(
+        "table-added",
+        "A refresh of the object ids (after a CREATE TABLE, a rename or a refresh-tables signal)"
+            + " added a table matching the include patterns; it is captured from the next step.",
+        "table",
+        "snapshot (true when the table is snapshotted because it may already hold rows)"),
+    TABLE_REMOVED(
+        "table-removed",
+        "A refresh of the object ids removed a table from the captured set (dropped, or renamed"
+            + " away).",
+        "table"),
     IDS_REFRESHED(
         "ids-refreshed",
         "The captured object ids were resolved again, after a CREATE TABLE, DROP TABLE or"
@@ -151,7 +160,9 @@ public record OpsEvent(Type type, long tsMs, Long resumeScn, Map<String, String>
         "A table's snapshot is complete, or the whole snapshot is complete or was stopped by a"
             + " signal.",
         "table (the table, or an asterisk for the whole snapshot)",
-        "stopped (true when a snapshot-stop signal ended the snapshot)"),
+        "stopped (true when a snapshot-stop signal ended the snapshot)",
+        "skipped (why the table was not read: it no longer exists, or a column type has no"
+            + " record mapping under cdc.on.decode.error=dlq)"),
     SIGNAL_ACK(
         "signal-ack",
         "A signal addressed to this connector was handled.",

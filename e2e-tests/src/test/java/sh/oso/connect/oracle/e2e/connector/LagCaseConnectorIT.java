@@ -105,13 +105,17 @@ class LagCaseConnectorIT {
       cluster.lifecycle(NAME, "stop");
       cluster.awaitTaskState(NAME, "STOPPED", Duration.ofMinutes(1));
 
+      // one connection for the lot: a connection per statement churns server processes
+      List<String> statements = new ArrayList<>();
       for (int i = 1; i <= 50; i++) {
-        sql("INSERT INTO lagc VALUES (" + i + ", 'n" + i + "', " + i + ")");
+        statements.add("INSERT INTO lagc VALUES (" + i + ", 'n" + i + "', " + i + ")");
       }
-      sql("ALTER TABLE lagc DROP COLUMN name", "ALTER TABLE lagc ADD (extra VARCHAR2(10))");
+      statements.add("ALTER TABLE lagc DROP COLUMN name");
+      statements.add("ALTER TABLE lagc ADD (extra VARCHAR2(10))");
       for (int i = 51; i <= 100; i++) {
-        sql("INSERT INTO lagc VALUES (" + i + ", " + i + ", 'e" + i + "')");
+        statements.add("INSERT INTO lagc VALUES (" + i + ", " + i + ", 'e" + i + "')");
       }
+      sql(statements.toArray(String[]::new));
 
       cluster.lifecycle(NAME, "resume");
       cluster.awaitRunning(NAME, Duration.ofMinutes(2));
