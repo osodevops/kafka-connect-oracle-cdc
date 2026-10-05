@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Seeded, deterministic Oracle workload: inserts, updates (including key changes), deletes, LOB
@@ -38,6 +39,10 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Every committed transaction carries one {@link Ledger} row written inside the transaction; the
  * correctness oracle compares the ledger with what the connector delivered.
+ *
+ * <p>Fault suites hold the workload with {@link #pause()} (every session parks before its next
+ * transaction, so the database goes quiet) and end an open-ended run with {@link #requestStop()};
+ * both keep one ledger and one key space for the whole run.
  */
 public final class WorkloadGenerator {
 
@@ -45,6 +50,10 @@ public final class WorkloadGenerator {
   private final String url;
   private final String user;
   private final String password;
+  private volatile boolean stopRequested;
+  private volatile boolean paused;
+  private final AtomicInteger running = new AtomicInteger();
+  private final AtomicInteger parked = new AtomicInteger();
 
   public WorkloadGenerator(WorkloadSpec spec, String url, String user, String password) {
     spec.validate();
@@ -121,6 +130,35 @@ public final class WorkloadGenerator {
     return result;
   }
 
+  /** Every session finishes after its current transaction; {@link #run} then returns normally. */
+  public void requestStop() {
+    stopRequested = true;
+  }
+
+  /** Every session parks before its next transaction until {@link #resume}. */
+  public void pause() {
+    paused = true;
+  }
+
+  public void resume() {
+    paused = false;
+  }
+
+  /**
+   * Waits until every running session is parked by {@link #pause}, so no transaction is open.
+   * Returns false when {@code timeoutMs} passes first.
+   */
+  public boolean awaitPaused(long timeoutMs) throws InterruptedException {
+    long deadline = System.currentTimeMillis() + timeoutMs;
+    while (System.currentTimeMillis() < deadline) {
+      if (parked.get() >= running.get()) {
+        return true;
+      }
+      Thread.sleep(20);
+    }
+    return parked.get() >= running.get();
+  }
+
   private Connection open() throws SQLException {
     Properties p = new Properties();
     p.setProperty("user", user);
@@ -164,10 +202,15 @@ public final class WorkloadGenerator {
     }
 
     void run() throws SQLException {
+      running.incrementAndGet();
       try (Connection c = open()) {
-        while (spec.transactionsPerSession > 0
-            ? seq < spec.transactionsPerSession
-            : System.nanoTime() < deadline) {
+        while (!stopRequested
+            && (spec.transactionsPerSession > 0
+                ? seq < spec.transactionsPerSession
+                : System.nanoTime() < deadline)) {
+          if (!holdWhilePaused()) {
+            break;
+          }
           seq++;
           transaction(c);
           if (id == 0) {
@@ -175,7 +218,28 @@ public final class WorkloadGenerator {
             maybeDdl(c);
           }
         }
+      } finally {
+        running.decrementAndGet();
       }
+    }
+
+    /** Parks while paused; false when a stop was requested or the thread was interrupted. */
+    private boolean holdWhilePaused() {
+      if (!paused) {
+        return !stopRequested;
+      }
+      parked.incrementAndGet();
+      try {
+        while (paused && !stopRequested) {
+          Thread.sleep(20);
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      } finally {
+        parked.decrementAndGet();
+      }
+      return !stopRequested;
     }
 
     private void transaction(Connection c) throws SQLException {

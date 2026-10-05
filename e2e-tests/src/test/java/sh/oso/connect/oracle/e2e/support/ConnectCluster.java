@@ -59,6 +59,14 @@ public final class ConnectCluster implements AutoCloseable {
   private final HttpClient http = HttpClient.newHttpClient();
 
   public ConnectCluster() {
+    this(Map.of());
+  }
+
+  /**
+   * A cluster whose worker properties are the defaults below with {@code workerOverrides} applied,
+   * for example {@code exactly.once.source.support=disabled} for an at-least-once worker.
+   */
+  public ConnectCluster(Map<String, String> workerOverrides) {
     kafka =
         new KafkaContainer(KAFKA_IMAGE)
             .withNetwork(OracleTestDatabase.NETWORK)
@@ -75,7 +83,8 @@ public final class ConnectCluster implements AutoCloseable {
                 cmd ->
                     cmd.withEntrypoint(
                         "/opt/kafka/bin/connect-distributed.sh", "/connect.properties"))
-            .withCopyToContainer(Transferable.of(workerProperties()), "/connect.properties")
+            .withCopyToContainer(
+                Transferable.of(workerProperties(workerOverrides)), "/connect.properties")
             .withCopyFileToContainer(MountableFile.forHostPath(pluginDir()), "/plugins/oracle-cdc")
             .waitingFor(
                 Wait.forHttp("/connectors").forPort(8083).withStartupTimeout(Duration.ofMinutes(4)))
@@ -102,7 +111,21 @@ public final class ConnectCluster implements AutoCloseable {
     return dir;
   }
 
-  static String workerProperties() {
+  static String workerProperties(Map<String, String> overrides) {
+    java.util.LinkedHashMap<String, String> props = new java.util.LinkedHashMap<>();
+    for (String line : defaultWorkerProperties().split("\n")) {
+      int eq = line.indexOf('=');
+      if (eq > 0) {
+        props.put(line.substring(0, eq), line.substring(eq + 1));
+      }
+    }
+    props.putAll(overrides);
+    StringBuilder sb = new StringBuilder();
+    props.forEach((k, v) -> sb.append(k).append('=').append(v).append('\n'));
+    return sb.toString();
+  }
+
+  private static String defaultWorkerProperties() {
     return String.join(
         "\n",
         "bootstrap.servers=kafka:19092",
@@ -124,6 +147,113 @@ public final class ConnectCluster implements AutoCloseable {
         "plugin.path=/plugins",
         "listeners=HTTP://0.0.0.0:8083",
         "");
+  }
+
+  /**
+   * Mounts a tmpfs of the given size (for example {@code 8m}) in the worker container, writable by
+   * the worker user; call before {@link #start()}. A full spill volume is then a real ENOSPC.
+   */
+  public ConnectCluster withWorkerTmpFs(String path, String size) {
+    connect.withTmpFs(Map.of(path, "rw,size=" + size + ",mode=1777"));
+    return this;
+  }
+
+  /**
+   * Binds the broker's host listener to a fixed free port instead of an ephemeral one; call before
+   * {@link #start()}. {@link #restartBroker} keeps the container, and with an ephemeral port Docker
+   * may publish a different one after the restart, while the advertised listener still names the
+   * first: host-side consumers would lose the broker.
+   */
+  public ConnectCluster withPinnedKafkaHostPort() {
+    int port;
+    try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
+      port = probe.getLocalPort();
+    } catch (IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+    final int hostPort = port;
+    kafka.withCreateContainerCmdModifier(
+        cmd -> {
+          // Testcontainers binds every exposed port to an ephemeral host port: replace the
+          // broker's binding rather than add a second one
+          com.github.dockerjava.api.model.ExposedPort broker =
+              com.github.dockerjava.api.model.ExposedPort.tcp(9092);
+          com.github.dockerjava.api.model.Ports ports = new com.github.dockerjava.api.model.Ports();
+          com.github.dockerjava.api.model.Ports existing = cmd.getHostConfig().getPortBindings();
+          if (existing != null) {
+            existing
+                .getBindings()
+                .forEach(
+                    (exposed, bindings) -> {
+                      if (!broker.equals(exposed) && bindings != null) {
+                        for (com.github.dockerjava.api.model.Ports.Binding b : bindings) {
+                          ports.bind(exposed, b);
+                        }
+                      }
+                    });
+          }
+          ports.bind(broker, com.github.dockerjava.api.model.Ports.Binding.bindPort(hostPort));
+          cmd.getHostConfig().withPortBindings(ports);
+        });
+    return this;
+  }
+
+  /**
+   * Restarts the broker container in place (its log directory survives), with SIGKILL when {@code
+   * crash} is true and a graceful stop otherwise, then waits until a host-side admin client sees
+   * the broker again. Needs {@link #withPinnedKafkaHostPort()} for host-side clients.
+   */
+  public void restartBroker(boolean crash, Duration timeout) throws Exception {
+    var docker = kafka.getDockerClient();
+    String id = kafka.getContainerId();
+    if (crash) {
+      docker.killContainerCmd(id).withSignal("KILL").exec();
+    } else {
+      docker.stopContainerCmd(id).withTimeout(30).exec();
+    }
+    docker.startContainerCmd(id).exec();
+    awaitBroker(timeout);
+    LOG.info("Kafka broker restarted ({})", crash ? "SIGKILL" : "graceful stop");
+  }
+
+  /** Waits until a host-side admin client can describe the cluster. */
+  public void awaitBroker(Duration timeout) throws Exception {
+    long deadline = System.currentTimeMillis() + timeout.toMillis();
+    Exception last = null;
+    while (System.currentTimeMillis() < deadline) {
+      Properties p = new Properties();
+      p.put("bootstrap.servers", kafka.getBootstrapServers());
+      p.put("request.timeout.ms", "5000");
+      p.put("default.api.timeout.ms", "5000");
+      try (org.apache.kafka.clients.admin.Admin admin =
+          org.apache.kafka.clients.admin.Admin.create(p)) {
+        admin.describeCluster().nodes().get(10, java.util.concurrent.TimeUnit.SECONDS);
+        admin.listTopics().names().get(10, java.util.concurrent.TimeUnit.SECONDS);
+        return;
+      } catch (Exception e) {
+        last = e;
+        Thread.sleep(1000);
+      }
+    }
+    throw new IllegalStateException("broker not reachable within " + timeout, last);
+  }
+
+  /**
+   * PUT /connectors/{name}/config: Connect restarts the connector and tasks with the new config.
+   */
+  public void updateConfig(String name, Map<String, String> config)
+      throws IOException, InterruptedException {
+    HttpResponse<String> r =
+        http.send(
+            HttpRequest.newBuilder(URI.create(restUrl() + "/connectors/" + name + "/config"))
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(config)))
+                .build(),
+            HttpResponse.BodyHandlers.ofString());
+    if (r.statusCode() / 100 != 2) {
+      throw new IllegalStateException(
+          "update config " + name + ": HTTP " + r.statusCode() + " " + r.body());
+    }
   }
 
   public String restUrl() {
