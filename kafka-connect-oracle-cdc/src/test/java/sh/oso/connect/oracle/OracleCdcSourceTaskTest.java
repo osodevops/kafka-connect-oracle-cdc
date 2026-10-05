@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceRecord;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.model.TableId;
@@ -165,10 +166,14 @@ class OracleCdcSourceTaskTest {
     }
   }
 
+  /**
+   * Regression for <a href="https://github.com/debezium/dbz/issues/2544">dbz#2544</a> (an offset
+   * ahead of what was delivered): the offset of a record must never let a restart skip a
+   * transaction that was still open when that record's transaction committed.
+   */
   @Test
+  @Tag("dbz-2544")
   void offsetsNeverPointPastAnInterleavedOpenTransaction() throws Exception {
-    // dbz#2544: the offset of a record must never let a restart skip a transaction that was still
-    // open when that record's transaction committed
     try (TaskHarness h = new TaskHarness()) {
       TxKey early = h.fake.tx(1, 1, 1);
       TxKey quick = h.fake.tx(1, 1, 2);
@@ -980,6 +985,38 @@ class OracleCdcSourceTaskTest {
           .isInstanceOf(ConnectException.class)
           .hasMessageContaining("CDC-3001")
           .hasMessageContaining("column ID of FREEPDB1.APP.ORDERS");
+    }
+  }
+
+  /**
+   * Regression for <a href="https://github.com/debezium/dbz/issues/2544">dbz#2544</a>: one change
+   * can become several records (a delete and its tombstone; a key change as delete, tombstone and
+   * create). The framework may commit the offset of the first while the others are unacknowledged,
+   * so only the last record of a change may say that the change is done.
+   */
+  @Test
+  @Tag("dbz-2544")
+  void onlyTheLastRecordOfAChangeCountsItAsDelivered() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake
+          .start(a, "APP")
+          .insert(a, TaskHarness.T, "a1")
+          .delete(a, TaskHarness.T, "d1")
+          .commit(a);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      List<SourceRecord> records = h.pollUntil(3, 5000);
+      assertThat(TaskHarness.sqls(records)).containsExactly("c:a1", "d:d1", "<tombstone>");
+      assertThat(PositionCodec.read(records.get(1).sourceOffset()).eventIndex())
+          .as("the delete record alone does not complete its change")
+          .isEqualTo(1);
+      assertThat(PositionCodec.read(records.get(2).sourceOffset()).eventIndex()).isEqualTo(2);
+      h.acknowledge(records.subList(0, 2)); // crash before the tombstone was acknowledged
+      h.restart();
+      assertThat(TaskHarness.sqls(h.pollUntil(2, 5000)))
+          .as("the change is delivered again, tombstone included")
+          .containsExactly("d:d1", "<tombstone>");
     }
   }
 }

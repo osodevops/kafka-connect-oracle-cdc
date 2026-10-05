@@ -161,6 +161,13 @@ public final class LogMinerQuery {
         sb.append("))");
       }
       sb.append(')');
+      // an excluded user's changes to a captured table are dropped with its START and COMMIT
+      // (dbz#24): left in, they would open a transaction that never commits and pin the offset
+      if (!f.excludedUsers().isEmpty()) {
+        sb.append(" AND (USERNAME IS NULL OR USERNAME NOT IN (")
+            .append(quoted(f.excludedUsers()))
+            .append("))");
+      }
     }
     sb.append(')');
     // 2. DDL by any non-Oracle owner: a CREATE TABLE that newly matches the include patterns must

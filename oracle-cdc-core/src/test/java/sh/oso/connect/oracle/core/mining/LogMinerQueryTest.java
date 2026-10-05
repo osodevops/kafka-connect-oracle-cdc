@@ -40,8 +40,14 @@ class LogMinerQueryTest {
     assertThat(sql.chars().filter(ch -> ch == '?').count()).isEqualTo(2);
   }
 
+  /**
+   * Regression for <a href="https://github.com/debezium/dbz/issues/24">dbz#24</a>: an excluded
+   * user's START, COMMIT and ROLLBACK rows, and its changes to captured tables, are all dropped in
+   * the query, so its transactions never open in the buffer.
+   */
   @Test
-  void excludedUsersAreDroppedFromTransactionControlRows() {
+  @org.junit.jupiter.api.Tag("dbz-24")
+  void excludedUsersAreDroppedFromTransactionControlAndRowChanges() {
     String sql =
         LogMinerQuery.sql(
             new MiningFilter(
@@ -49,7 +55,12 @@ class LogMinerQueryTest {
     assertThat(sql)
         .contains(
             "(OPERATION_CODE IN (6, 7, 36) AND (USERNAME IS NULL OR USERNAME NOT IN ('GGADMIN',"
-                + " 'O''HARA')))");
+                + " 'O''HARA')))")
+        .contains(
+            "(OPERATION_CODE IN (1, 2, 3, 9, 10, 11, 29, 255) AND ((SRC_CON_ID = 3 AND (DATA_OBJ#"
+                + " IN (1)))) AND (USERNAME IS NULL OR USERNAME NOT IN ('GGADMIN', 'O''HARA')))");
+    assertThat(LogMinerQuery.sql(MiningFilter.of(Map.of(3, Set.of(1L)), Set.of("APP"))))
+        .doesNotContain("USERNAME NOT IN");
   }
 
   @Test

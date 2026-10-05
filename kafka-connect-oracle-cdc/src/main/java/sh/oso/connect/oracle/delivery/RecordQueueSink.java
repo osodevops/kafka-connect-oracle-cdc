@@ -567,8 +567,32 @@ public final class RecordQueueSink
         sinceRecords = 0;
         sinceBytes = 0;
       }
+      // dbz#2544: the framework may commit the offset of any acknowledged record, so only the last
+      // record of a change (a delete and its tombstone, a key change as three records) may count
+      // the change as delivered; the others say the transaction is delivered up to the change
+      // before it
+      Map<String, Object> partly =
+          records.size() > 1
+              ? sh.oso.connect.oracle.core.position.PositionCodec.write(
+                  base.withCommit(tx.commitId(), tx.thread(), tx.key(), i)
+                      .withResume(earlier(resumeCandidate, tx.firstCaptured())))
+              : null;
       for (int r = 0; r < records.size(); r++) {
         SourceRecord rec = records.get(r);
+        if (r + 1 < records.size()) {
+          rec =
+              new SourceRecord(
+                  rec.sourcePartition(),
+                  partly,
+                  rec.topic(),
+                  rec.kafkaPartition(),
+                  rec.keySchema(),
+                  rec.key(),
+                  rec.valueSchema(),
+                  rec.value(),
+                  rec.timestamp(),
+                  rec.headers());
+        }
         if (split) {
           rec.headers().addBoolean("cdc.split", true);
         }
