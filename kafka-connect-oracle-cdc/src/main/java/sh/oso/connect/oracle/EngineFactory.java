@@ -41,6 +41,9 @@ public interface EngineFactory {
 
     SchemaRegistry schemas();
 
-    CaptureEngine engine(Position start, EventSink sink) throws Exception;
+    /** The engine for a position; {@code buffer} carries the journal setup and restored entries. */
+    CaptureEngine engine(
+        Position start, EventSink sink, sh.oso.connect.oracle.journal.BufferSetup buffer)
+        throws Exception;
   }
 }

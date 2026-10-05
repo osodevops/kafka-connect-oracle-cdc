@@ -103,4 +103,31 @@ public class OracleCdcSourceConnectorConfigTest {
     assertThatThrownBy(() -> new OracleCdcSourceConnectorConfig(noPrefix))
         .isInstanceOf(ConfigException.class);
   }
+
+  @Test
+  void internalTopicsAndBrokerAccess() {
+    OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(minimal());
+    assertThat(c.opsTopic()).isEqualTo("cdc.cdc.ops");
+    assertThat(c.signalsTopic()).isEqualTo("cdc.cdc.signals");
+    assertThat(c.schemaTopic()).isEqualTo("cdc.cdc.schema");
+    assertThat(c.transactionsTopicEnabled()).isFalse();
+    assertThat(c.transactionsTopic()).isEqualTo("cdc.cdc.transactions");
+    assertThat(c.kafkaBootstrapServers()).isNull();
+    assertThat(c.kafkaClientProperties()).isEmpty();
+    assertThat(c.internalTopicReplication()).isEqualTo((short) -1);
+    Map<String, String> p = minimal();
+    p.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, " ");
+    assertThat(new OracleCdcSourceConnectorConfig(p).kafkaBootstrapServers()).isNull();
+    p.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+    p.put("cdc.kafka.security.protocol", "SASL_SSL");
+    p.put("cdc.kafka.sasl.mechanism", "SCRAM-SHA-512");
+    p.put(OracleCdcSourceConnectorConfig.INTERNAL_TOPIC_REPLICATION, "3");
+    OracleCdcSourceConnectorConfig k = new OracleCdcSourceConnectorConfig(p);
+    assertThat(k.kafkaBootstrapServers()).isEqualTo("kafka:9092");
+    assertThat(k.kafkaClientProperties())
+        .containsEntry("security.protocol", "SASL_SSL")
+        .containsEntry("sasl.mechanism", "SCRAM-SHA-512")
+        .containsEntry("bootstrap.servers", "kafka:9092");
+    assertThat(k.internalTopicReplication()).isEqualTo((short) 3);
+  }
 }

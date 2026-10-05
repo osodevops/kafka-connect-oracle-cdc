@@ -64,8 +64,13 @@ public final class EngineLifecycle implements AutoCloseable {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     } catch (SQLException | RuntimeException e) {
-      failure.set(e);
-      onFailure.accept(e);
+      // the callback runs before the failure becomes visible, so anything it queues (the ops stop
+      // event) is drained by the task before poll() rethrows
+      try {
+        onFailure.accept(e);
+      } finally {
+        failure.set(e);
+      }
     } finally {
       running = false;
       stopped.countDown();

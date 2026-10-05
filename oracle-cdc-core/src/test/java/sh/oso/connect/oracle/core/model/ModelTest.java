@@ -44,15 +44,24 @@ class ModelTest {
   }
 
   @Test
-  void redoRecordIdOrdersByScnThenRbaThenSsn() {
+  void redoRecordIdOrdersByRedoByteAddressThenSsnAndFallsBackToScn() {
+    // ADR-0014: the redo byte address is the order the log is written in; an SCN can be lower on a
+    // record written later when a private redo strand is bound late
     RedoRecordId a = new RedoRecordId(100, " 0x000003.00000a1c.0010 ", 0);
     RedoRecordId b = new RedoRecordId(100, " 0x000003.00000a1c.0010 ", 1);
     RedoRecordId c = new RedoRecordId(100, " 0x000003.00000a1d.0010 ", 0);
-    RedoRecordId d = new RedoRecordId(101, " 0x000003.00000001.0000 ", 0);
+    RedoRecordId late = new RedoRecordId(90, " 0x000003.00000a1e.0000 ", 0);
+    RedoRecordId nextLog = new RedoRecordId(101, " 0x000004.00000001.0000 ", 0);
     assertThat(a).isLessThan(b);
     assertThat(b).isLessThan(c);
-    assertThat(c).isLessThan(d);
+    assertThat(c).isLessThan(late);
+    assertThat(late).isLessThan(nextLog);
     assertThat(a.toString()).isEqualTo("100/0x000003.00000a1c.0010/0");
+    assertThat(a.hasRba()).isTrue();
+    RedoRecordId scnOnly = new RedoRecordId(95, null, 0);
+    assertThat(scnOnly.hasRba()).isFalse();
+    assertThat(scnOnly).isLessThan(a).isGreaterThan(late);
+    assertThat(scnOnly.toString()).isEqualTo("95/-/0");
   }
 
   @Test

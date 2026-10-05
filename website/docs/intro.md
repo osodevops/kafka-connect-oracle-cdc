@@ -25,7 +25,8 @@ the current code, is being built, or is planned. Nothing on this site is a bench
 | Deterministic workload generator and ledger (`bench workload`) | Available in the repository |
 | Docker Compose and Strimzi labs | Available in the repository |
 | Capture engine, Debezium-compatible envelope, at-least-once delivery for one or more PDBs (no LOB values, no DDL replay yet) | Available in the repository (Phase 1a) |
-| Transaction journal, spill to disk, orphan detection | Planned (Phase 1b) |
+| Spill to disk for large transactions, transaction journal, ops topic, internal topic creation | Implemented |
+| Orphan detection, LOB columns, long-transaction policy | Planned (Phase 1b) |
 | Exactly-once delivery, snapshots, DDL replay, multi-PDB | Planned (Phase 1c) |
 | RAC, Confluent record format, RDS, Autonomous Database | Planned (Phase 2 and 3) |
 

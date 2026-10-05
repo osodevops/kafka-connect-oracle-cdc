@@ -159,7 +159,9 @@ public final class JdbcEngineFactory implements EngineFactory {
     }
 
     @Override
-    public CaptureEngine engine(Position start, EventSink sink) throws Exception {
+    public CaptureEngine engine(
+        Position start, EventSink sink, sh.oso.connect.oracle.journal.BufferSetup setup)
+        throws Exception {
       int destId = archiveDestination();
       LogInventory inventory = new LogInventory(catalog, core.captureMode(), destId);
       ObjectIdResolver resolver =
@@ -187,41 +189,52 @@ public final class JdbcEngineFactory implements EngineFactory {
               throw classifier.toException(e, "reading the safe end SCN");
             }
           };
-      return new CaptureEngine(
-          start,
-          source,
-          inventory,
-          safeEnd,
-          new HeapTransactionBuffer(),
-          schemas,
-          ChangeDecoder.rowDecoder(),
-          sink,
-          EngineSettings.from(core),
-          classifier,
-          objects.owners(),
-          () -> {
-            objects = resolver.resolve();
-            source.update(objects, objects.filter(excludedUsers, inlistMax));
-            LOG.info(
-                "Object ids refreshed after DDL: {} tables ({} ids) for owners {}",
-                objects.tables().size(),
-                objects.objectCount(),
-                objects.owners());
-            return objects.owners();
-          },
-          cause -> {
-            // CORE-CONN-6: drop both sessions, reopen them with the factory's backoff and
-            // continue; the engine re-mines the failed step from the same cursor
-            LOG.warn("Reconnecting to the database after: {}", cause.getMessage());
-            closeQuietly(source);
-            closeQuietly(meta);
-            meta = connections.open(ConnectionRole.METADATA);
-            mining = connections.open(ConnectionRole.MINING);
-            source = newSource(inventory);
-            LOG.info("Reconnected; mining resumes from the last applied step");
-            return new CaptureEngine.Sources(source, inventory, safeEnd);
-          },
-          Instant::now);
+      CaptureEngine engine =
+          new CaptureEngine(
+              start,
+              source,
+              inventory,
+              safeEnd,
+              buffer(setup),
+              schemas,
+              ChangeDecoder.rowDecoder(),
+              sink,
+              EngineSettings.from(core),
+              classifier,
+              objects.owners(),
+              () -> {
+                objects = resolver.resolve();
+                source.update(objects, objects.filter(excludedUsers, inlistMax));
+                LOG.info(
+                    "Object ids refreshed after DDL: {} tables ({} ids) for owners {}",
+                    objects.tables().size(),
+                    objects.objectCount(),
+                    objects.owners());
+                return objects.owners();
+              },
+              cause -> {
+                // CORE-CONN-6: drop both sessions, reopen them with the factory's backoff and
+                // continue; the engine re-mines the failed step from the same cursor
+                LOG.warn("Reconnecting to the database after: {}", cause.getMessage());
+                closeQuietly(source);
+                closeQuietly(meta);
+                meta = connections.open(ConnectionRole.METADATA);
+                mining = connections.open(ConnectionRole.MINING);
+                source = newSource(inventory);
+                LOG.info("Reconnected; mining resumes from the last applied step");
+                return new CaptureEngine.Sources(source, inventory, safeEnd);
+              },
+              Instant::now);
+      // CORE-TX-7: orphan checks against GV$TRANSACTION on the metadata connection
+      engine.withOrphanDetector(
+          new sh.oso.connect.oracle.core.orphan.OrphanDetector(
+              new sh.oso.connect.oracle.core.orphan.JdbcTransactionProbe(() -> meta),
+              Duration.ofMillis(core.getLong(CoreConfig.TRANSACTION_ORPHAN_CHECK_INTERVAL_MS)),
+              "fail".equalsIgnoreCase(core.getString(CoreConfig.TRANSACTION_ORPHAN_ACTION))
+                  ? sh.oso.connect.oracle.core.orphan.OrphanDetector.Action.FAIL
+                  : sh.oso.connect.oracle.core.orphan.OrphanDetector.Action.RELEASE,
+              start.released()));
+      return engine;
     }
 
     /** The configured destination by name, else the lowest valid local one (DOC-12). */
@@ -247,6 +260,44 @@ public final class JdbcEngineFactory implements EngineFactory {
                   new sh.oso.connect.oracle.core.errors.TopologyException(
                       "No valid local archive destination",
                       "Configure log_archive_dest_n with a LOCATION (doctor rule DOC-12)."));
+    }
+
+    /**
+     * CORE-TX-3: heap up to the budget, then the largest transactions spill under the spill dir.
+     */
+    private sh.oso.connect.oracle.core.buffer.TransactionBuffer buffer(
+        sh.oso.connect.oracle.journal.BufferSetup setup) throws java.io.IOException {
+      String configured = core.getString(CoreConfig.BUFFER_SPILL_DIR);
+      String name = config.originalsStrings().getOrDefault("name", config.topicPrefix());
+      java.nio.file.Path dir =
+          configured == null || configured.isBlank()
+              ? java.nio.file.Path.of(
+                  System.getProperty("java.io.tmpdir"), "oracle-cdc-spill", name)
+              : java.nio.file.Path.of(configured);
+      sh.oso.connect.oracle.core.buffer.SpillStore store =
+          new sh.oso.connect.oracle.core.buffer.SpillStore(
+              dir, core.getLong(CoreConfig.BUFFER_SPILL_MAX_BYTES));
+      closeables.add(store);
+      LOG.info(
+          "Transaction buffer: {} bytes on heap, spill under {}",
+          core.getLong(CoreConfig.BUFFER_MEMORY_MAX_BYTES),
+          dir);
+      HeapTransactionBuffer buffer =
+          new HeapTransactionBuffer(
+              core.getLong(CoreConfig.BUFFER_MEMORY_MAX_BYTES),
+              store,
+              setup.policy(),
+              setup.journal(),
+              setup.generation(),
+              java.time.Instant::now);
+      for (var chunks : setup.restored().values()) {
+        buffer.restore(chunks); // CORE-TX-5: journal state reloads before mining resumes
+      }
+      if (!setup.restored().isEmpty()) {
+        LOG.info(
+            "Restored {} journaled transactions from the journal topic", setup.restored().size());
+      }
+      return buffer;
     }
 
     @Override

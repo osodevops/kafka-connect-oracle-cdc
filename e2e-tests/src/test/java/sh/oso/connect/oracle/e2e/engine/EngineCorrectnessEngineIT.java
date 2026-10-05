@@ -80,19 +80,23 @@ class EngineCorrectnessEngineIT {
   static final class Collector implements EventSink {
     final List<CommittedTransaction> committed = new ArrayList<>();
     final List<Integer> skipped = new ArrayList<>();
-    final List<Long> resumes = new ArrayList<>();
+    final List<sh.oso.connect.oracle.core.model.RedoRecordId> resumes = new ArrayList<>();
     long minedTo;
     long resume;
 
-    public void committed(CommittedTransaction tx, int skip, long resumeCandidate) {
+    public void committed(
+        CommittedTransaction tx,
+        int skip,
+        sh.oso.connect.oracle.core.model.RedoRecordId resumeCandidate) {
       resumes.add(resumeCandidate);
       committed.add(tx);
       skipped.add(skip);
     }
 
-    public void stepApplied(long minedToScn, long resumeCandidate) {
+    public void stepApplied(
+        long minedToScn, sh.oso.connect.oracle.core.model.RedoRecordId resumeCandidate) {
       minedTo = minedToScn;
-      resume = resumeCandidate;
+      resume = resumeCandidate.scn();
     }
   }
 
@@ -146,18 +150,19 @@ class EngineCorrectnessEngineIT {
       CommittedTransaction acked = first.committed.get(k - 1);
       // the resume SCN the engine attached to the acknowledged commit is exactly what a restart
       // may mine from: lower than every transaction still open when that commit was emitted
-      long resume = first.resumes.get(k - 1);
+      sh.oso.connect.oracle.core.model.RedoRecordId resume = first.resumes.get(k - 1);
       Position restart =
-          Position.initial(resume, identity(meta))
-              .withCommit(acked.commitScn(), acked.thread(), acked.key(), acked.size());
+          Position.initial(resume.scn(), identity(meta))
+              .withResume(resume)
+              .withCommit(acked.commitId(), acked.thread(), acked.key(), acked.size());
       Collector second = new Collector();
       runEngine(schema, spec, restart, endScn, second, meta);
       Collector union = new Collector();
       for (int i = 0; i < k; i++) {
-        union.committed(first.committed.get(i), first.skipped.get(i), 0);
+        union.committed(first.committed.get(i), first.skipped.get(i), resume);
       }
       for (int i = 0; i < second.committed.size(); i++) {
-        union.committed(second.committed.get(i), second.skipped.get(i), 0);
+        union.committed(second.committed.get(i), second.skipped.get(i), resume);
       }
       Set<String> keys = new LinkedHashSet<>();
       for (CommittedTransaction t : union.committed) {

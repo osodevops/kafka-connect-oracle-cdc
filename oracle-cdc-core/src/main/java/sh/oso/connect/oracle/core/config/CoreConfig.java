@@ -83,6 +83,7 @@ public class CoreConfig extends AbstractConfig {
   public static final String TXJOURNAL_TOPIC = "cdc.txjournal.topic";
   public static final String TXJOURNAL_THRESHOLD_MS = "cdc.txjournal.threshold.ms";
   public static final String TXJOURNAL_THRESHOLD_EVENTS = "cdc.txjournal.threshold.events";
+  public static final String TXJOURNAL_CHUNK_MAX_BYTES = "cdc.txjournal.chunk.max.bytes";
 
   public static final String TRANSACTION_MAX_AGE_MS = "cdc.transaction.max.age.ms";
   public static final String TRANSACTION_MAX_AGE_ACTION = "cdc.transaction.max.age.action";
@@ -574,13 +575,26 @@ public class CoreConfig extends AbstractConfig {
         TXJOURNAL_THRESHOLD_EVENTS,
         Type.LONG,
         100000L,
-        Range.atLeast(1000L),
+        Range.atLeast(1L),
         Importance.LOW,
         "A transaction with more buffered events than this is journaled.",
         GROUP_JOURNAL,
         ++o,
         Width.SHORT,
         "Journal size threshold (events)");
+    def.define(
+        TXJOURNAL_CHUNK_MAX_BYTES,
+        Type.INT,
+        524288,
+        Range.between(16384, 8388608),
+        Importance.LOW,
+        "Target size of one journal record; a step's changes for a journaled transaction are split"
+            + " into chunks of about this many bytes. Keep it under the broker's message size"
+            + " limit.",
+        GROUP_JOURNAL,
+        ++o,
+        Width.SHORT,
+        "Journal chunk size (bytes)");
     // Transactions
     def.define(
         TRANSACTION_MAX_AGE_MS,

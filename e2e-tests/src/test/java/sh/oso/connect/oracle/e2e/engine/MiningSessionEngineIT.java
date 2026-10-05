@@ -126,7 +126,8 @@ class MiningSessionEngineIT {
         // two adjacent steps: the second START replaces the range without END (CORE-MINE-7)
         long mid = (startScn + endScn) / 2;
         for (long[] step : new long[][] {{startScn, mid}, {mid, endScn}}) {
-          try (EventCursor c = source.open(step[0], step[1])) {
+          try (EventCursor c =
+              source.open(sh.oso.connect.oracle.core.mining.step.StepCursor.at(step[0]), step[1])) {
             while (c.next()) {
               events.add(c.event());
             }

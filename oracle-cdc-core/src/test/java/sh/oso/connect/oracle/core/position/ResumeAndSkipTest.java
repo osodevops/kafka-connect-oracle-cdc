@@ -29,6 +29,11 @@ import sh.oso.connect.oracle.core.model.Xid;
 
 class ResumeAndSkipTest {
 
+  /** A redo byte address that orders like (scn, sqn) within a thread. */
+  static String rba(int thread, long scn, long sqn) {
+    return String.format(" 0x%06x.%08x.%04x ", thread, scn, sqn);
+  }
+
   static CommittedTransaction tx(long commitScn, int thread, long sqn, int events) {
     TxKey k = new TxKey(3, new Xid(1, 1, sqn));
     List<RowChange> changes =
@@ -42,15 +47,16 @@ class ResumeAndSkipTest {
                         java.util.Map.of("I", i),
                         false,
                         "R" + i,
-                        new RedoRecordId(commitScn - 10 + i, "0x0", 0),
+                        new RedoRecordId(
+                            commitScn - 10 + i, rba(thread, commitScn - 10 + i, sqn), i),
                         k,
                         Instant.EPOCH))
             .toList();
     return new CommittedTransaction(
         k,
-        new RedoRecordId(commitScn - 10, "0x0", 0),
+        new RedoRecordId(commitScn - 10, rba(thread, commitScn - 10, sqn), 0),
         null,
-        new RedoRecordId(commitScn, "0x0", 0),
+        new RedoRecordId(commitScn, rba(thread, commitScn, sqn), 0),
         Instant.EPOCH,
         thread,
         "APP",
@@ -89,5 +95,26 @@ class ResumeAndSkipTest {
         .isEqualTo(4);
     assertThat(CommitOrder.COMPARATOR.compare(tx(100, 1, 1, 1), tx(100, 1, 2, 1))).isNegative();
     assertThat(CommitOrder.COMPARATOR.compare(tx(100, 2, 1, 1), tx(100, 1, 2, 1))).isPositive();
+    // ADR-0014: with redo byte addresses on both sides the order is the redo order, so a commit
+    // written later with a lower SCN (a late-bound private strand) is never skipped
+    Position rba = fresh.withCommit(acked.commitId(), 1, acked.key(), 2);
+    assertThat(rba.lastCommitRsId()).isEqualTo(acked.commitId().rsId());
+    assertThat(SkipRule.eventsToSkip(rba, acked)).isEqualTo(2);
+    assertThat(SkipRule.eventsToSkip(rba, tx(90, 1, 9, 3))).as("earlier redo").isEqualTo(3);
+    CommittedTransaction lateLowScn =
+        new CommittedTransaction(
+            new sh.oso.connect.oracle.core.model.TxKey(
+                3, new sh.oso.connect.oracle.core.model.Xid(1, 1, 77)),
+            new RedoRecordId(80, rba(1, 100, 9), 0),
+            null,
+            new RedoRecordId(95, rba(1, 100, 9), 0),
+            Instant.EPOCH,
+            1,
+            "APP",
+            null,
+            tx(95, 1, 77, 2).events());
+    assertThat(SkipRule.eventsToSkip(rba, lateLowScn))
+        .as("lower commit SCN but written after the acknowledged commit: replayed")
+        .isZero();
   }
 }

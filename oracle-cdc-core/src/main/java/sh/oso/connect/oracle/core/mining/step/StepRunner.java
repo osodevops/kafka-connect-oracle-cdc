@@ -26,6 +26,7 @@ import sh.oso.connect.oracle.core.errors.OracleCdcException;
 import sh.oso.connect.oracle.core.mining.event.EventCursor;
 import sh.oso.connect.oracle.core.mining.event.EventSource;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
+import sh.oso.connect.oracle.core.model.RedoRecordId;
 
 /**
  * Runs one planned step as a staged unit (ADR-0005): events are collected, never applied, until the
@@ -45,12 +46,16 @@ public final class StepRunner {
   public StepOutcome run(EventSource source, StepCursor from, long endScn) {
     List<MiningEvent> staged = new ArrayList<>();
     int rows = 0;
-    try (EventCursor c = source.open(from.scn(), endScn)) {
+    RedoRecordId last = from.lastApplied();
+    try (EventCursor c = source.open(from, endScn)) {
       while (c.next()) {
         rows++;
         MiningEvent e = c.event();
         if (from.alreadyApplied(e.id())) {
           continue;
+        }
+        if (last == null || e.id().compareTo(last) > 0) {
+          last = e.id(); // the cursor advances by redo byte address, not by SCN (ADR-0014)
         }
         if (e instanceof MiningEvent.MissingScn m) {
           throw new OracleCdcCorruptionException(
@@ -63,10 +68,11 @@ public final class StepRunner {
         staged.add(e);
         if (e instanceof MiningEvent.Ddl d && cut.requiresCut(d)) {
           return new StepOutcome(
-              StepOutcome.Kind.CUT, staged, new StepCursor(d.scn(), d.id()), rows, null);
+              StepOutcome.Kind.CUT, staged, new StepCursor(d.scn(), d.id(), false), rows, null);
         }
       }
-      return new StepOutcome(StepOutcome.Kind.COMPLETE, staged, StepCursor.at(endScn), rows, null);
+      return new StepOutcome(
+          StepOutcome.Kind.COMPLETE, staged, new StepCursor(endScn, last, false), rows, null);
     } catch (OracleCdcException e) {
       throw e;
     } catch (SQLException e) {

@@ -64,8 +64,21 @@ public final class FakeLogMiner implements EventSource {
     return nextScn;
   }
 
+  private Long lateScn;
+
   private RedoRecordId id() {
-    return new RedoRecordId(nextScn++, String.format("0x%06x.%08x.%04x", 1, rba++, 0), 0);
+    long scn = lateScn != null ? lateScn : nextScn++;
+    lateScn = null;
+    return new RedoRecordId(scn, String.format(" 0x%06x.%08x.%04x ", 1, rba++, 0), 0);
+  }
+
+  /**
+   * The next event carries {@code scn}, an SCN already passed, but the next redo byte address: a
+   * private redo strand bound late (ADR-0014). The SCN counter is not advanced.
+   */
+  public FakeLogMiner late(long scn) {
+    this.lateScn = scn;
+    return this;
   }
 
   public FakeLogMiner add(MiningEvent e) {
@@ -207,8 +220,14 @@ public final class FakeLogMiner implements EventSource {
     recycled++;
   }
 
-  @Override
+  /** The SCN-cursor form, for tests that reason in SCNs only. */
   public EventCursor open(long startScn, long endScn) throws SQLException {
+    return open(sh.oso.connect.oracle.core.mining.step.StepCursor.at(startScn), endScn);
+  }
+
+  @Override
+  public EventCursor open(sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+      throws SQLException {
     opened++;
     if (openFault != null) {
       SQLException e = openFault;
@@ -223,10 +242,15 @@ public final class FakeLogMiner implements EventSource {
       public boolean next() throws SQLException {
         while (++i < events.size()) {
           MiningEvent e = events.get(i);
-          if (e.scn() < startScn) {
+          // with a redo byte address the log is read in append order whatever the SCN; without
+          // one the fake behaves like an SCN window
+          if (from.hasRba() ? from.alreadyApplied(e.id()) : e.scn() < from.scn()) {
             continue;
           }
           if (e.scn() >= endScn) {
+            if (from.hasRba()) {
+              continue; // a later row below the bound may still follow
+            }
             break;
           }
           Throwable fault = faults.get(i);

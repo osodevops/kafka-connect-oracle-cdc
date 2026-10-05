@@ -15,8 +15,6 @@
  */
 package sh.oso.connect.oracle.core.model;
 
-import java.util.Objects;
-
 /**
  * Position of one redo record: SCN, RS_ID (redo byte address, fixed-width text) and SSN (sequence
  * within the record). Totally ordered in redo order; the unit of step cursors and of rollback
@@ -24,21 +22,32 @@ import java.util.Objects;
  */
 public record RedoRecordId(long scn, String rsId, long ssn) implements Comparable<RedoRecordId> {
 
-  public RedoRecordId {
-    Objects.requireNonNull(rsId, "rsId");
-  }
+  public RedoRecordId {}
 
+  /**
+   * Redo order within a thread: the redo byte address (RS_ID, then SSN) first, because the log is
+   * append-only in that order while SCNs can arrive out of order when a private redo strand is
+   * bound late (ADR-0014). Ids without an RS_ID fall back to SCN order.
+   */
   @Override
   public int compareTo(RedoRecordId o) {
-    int c = Long.compare(scn, o.scn);
-    if (c == 0) {
-      c = rsId.trim().compareTo(o.rsId.trim());
+    if (rsId != null && o.rsId != null) {
+      int c = rsId.trim().compareTo(o.rsId.trim());
+      if (c == 0) {
+        c = Long.compare(ssn, o.ssn);
+      }
+      return c == 0 ? Long.compare(scn, o.scn) : c;
     }
-    return c == 0 ? Long.compare(ssn, o.ssn) : c;
+    return Long.compare(scn, o.scn);
+  }
+
+  /** True when this record carries a redo byte address. */
+  public boolean hasRba() {
+    return rsId != null && !rsId.isBlank();
   }
 
   @Override
   public String toString() {
-    return scn + "/" + rsId.trim() + "/" + ssn;
+    return scn + "/" + (rsId == null ? "-" : rsId.trim()) + "/" + ssn;
   }
 }

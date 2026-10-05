@@ -91,6 +91,8 @@ public final class CaptureEngine {
   private final EngineMetrics metrics = new EngineMetrics();
   private final LobInsertCoalescer coalescer = new LobInsertCoalescer();
   private final Supplier<Instant> clock;
+  private sh.oso.connect.oracle.core.orphan.OrphanDetector orphans =
+      sh.oso.connect.oracle.core.orphan.OrphanDetector.disabled();
   private StepCursor cursor;
   private int consecutiveRetries;
 
@@ -127,7 +129,13 @@ public final class CaptureEngine {
     this.idRefresher = idRefresher;
     this.reconnector = reconnector;
     this.clock = clock;
-    this.cursor = StepCursor.at(start.resumeScn());
+    this.cursor = StepCursor.resume(start.resumePoint());
+  }
+
+  /** CORE-TX-7: the orphan detector to run between steps; disabled by default. */
+  public CaptureEngine withOrphanDetector(sh.oso.connect.oracle.core.orphan.OrphanDetector d) {
+    this.orphans = d;
+    return this;
   }
 
   public enum Progress {
@@ -175,6 +183,7 @@ public final class CaptureEngine {
     this.inventory = fresh.inventory();
     this.safeEnd = fresh.safeEndScn();
     recycler.recycled();
+    sink.reconnected(cause.getMessage());
     return Progress.RECONNECTED;
   }
 
@@ -186,7 +195,9 @@ public final class CaptureEngine {
     metrics.safeEndScn.set(end);
     if (end <= cursor.scn()) {
       metrics.idlePolls.incrementAndGet();
-      sink.idle(cursor.scn(), ResumeCalculator.resumeScn(cursor.scn(), oldestOpen()));
+      buffer.flushJournal(clock.get()); // age-based journaling must not wait for new redo
+      checkOrphans();
+      sink.idle(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
       return Progress.IDLE;
     }
     if (recycler.due()) {
@@ -235,14 +246,26 @@ public final class CaptureEngine {
     metrics.minedToScn.set(cursor.scn());
     if (outcome.kind() == StepOutcome.Kind.CUT) {
       metrics.stepCuts.incrementAndGet();
-      java.util.Set<String> owners = idRefresher.refresh();
-      runner =
-          new StepRunner(classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(owners));
+      refreshIds();
     } else {
       scheduler.stepCompleted(elapsed);
     }
-    sink.stepApplied(cursor.scn(), ResumeCalculator.resumeScn(cursor.scn(), oldestOpen()));
+    buffer.flushJournal(clock.get()); // CORE-TX-4: chunks for due and journaled transactions
+    checkOrphans();
+    sink.stepApplied(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
     return Progress.STEP_APPLIED;
+  }
+
+  /** CORE-TX-7: release orphaned transactions the detector has confirmed, with an ops event. */
+  private void checkOrphans() throws SQLException {
+    java.util.List<sh.oso.connect.oracle.core.orphan.OrphanDetector.Release> releases =
+        orphans.check(clock.get(), cursor.scn(), buffer.open());
+    for (sh.oso.connect.oracle.core.orphan.OrphanDetector.Release r : releases) {
+      coalescer.discard(r.tx().key());
+      buffer.discard(r.tx().key());
+      metrics.orphansReleased.incrementAndGet();
+      sink.orphanReleased(r, orphans.released());
+    }
   }
 
   private void refreshIds() throws SQLException {
@@ -250,6 +273,7 @@ public final class CaptureEngine {
     runner =
         new StepRunner(classifier, new sh.oso.connect.oracle.core.mining.step.DdlStepCut(owners));
     pendingRefresh = false;
+    sink.idsRefreshed(owners);
   }
 
   /** Loads the schema of every table in the step so apply() touches no connection. */
@@ -274,10 +298,24 @@ public final class CaptureEngine {
           decodeAndBuffer(d);
         }
       } else if (e instanceof MiningEvent.Commit c) {
+        if (orphans.wasReleased(c.tx())) {
+          throw new sh.oso.connect.oracle.core.errors.OrphanReleaseViolationException(
+              "Transaction "
+                  + c.tx()
+                  + " committed at SCN "
+                  + c.scn()
+                  + " after the orphan detector had released it as rolled back; its earlier"
+                  + " changes were discarded.",
+              "Reset the offsets to a position before SCN "
+                  + c.scn()
+                  + " so the transaction is re-mined whole, or resnapshot the affected tables;"
+                  + " then raise cdc.transaction.orphan.check.interval.ms.");
+        }
         coalescer.flush(c.tx()).ifPresent(held -> buffer.add(c.tx(), held));
         Optional<CommittedTransaction> tx = buffer.commit(c);
         if (tx.isPresent()) {
           emit(tx.get());
+          buffer.release(tx.get().key()); // the sink has consumed the events; a spilled copy can go
         }
       } else if (e instanceof MiningEvent.Rollback r) {
         coalescer.discard(r.tx());
@@ -348,7 +386,9 @@ public final class CaptureEngine {
       return;
     }
     metrics.transactionsCommitted.incrementAndGet();
-    long resume = ResumeCalculator.resumeScn(tx.commitScn(), oldestOpen());
+    // the candidate at this commit: the commit row itself bounds the cursor side of the rule
+    sh.oso.connect.oracle.core.model.RedoRecordId resume =
+        ResumeCalculator.resume(new StepCursor(tx.commitScn(), tx.commitId(), false), oldestOpen());
     sink.committed(tx, skip, resume);
   }
 }

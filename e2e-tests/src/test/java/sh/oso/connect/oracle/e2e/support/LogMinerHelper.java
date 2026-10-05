@@ -118,6 +118,62 @@ public final class LogMinerHelper {
     }
   }
 
+  /**
+   * Like {@link #start} but also adds the online redo log members whose range overlaps, so redo
+   * that is not archived yet can be mined (the engine's online mode).
+   */
+  public static void startWithOnline(Connection root, long startScn, long endScn)
+      throws SQLException {
+    List<String> logs = new ArrayList<>();
+    try (PreparedStatement ps =
+        root.prepareStatement(
+            "SELECT name FROM v$archived_log WHERE dest_id = 1 AND name IS NOT NULL AND"
+                + " next_change# >= ? AND first_change# <= ? AND deleted = 'NO' ORDER BY"
+                + " sequence#")) {
+      ps.setLong(1, startScn);
+      ps.setLong(2, endScn);
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          logs.add(rs.getString(1));
+        }
+      }
+    }
+    try (PreparedStatement ps =
+        root.prepareStatement(
+            "SELECT f.member FROM v$log l JOIN v$logfile f ON f.group# = l.group# WHERE"
+                + " l.status IN ('CURRENT', 'ACTIVE') AND l.first_change# <= ? AND l.archived ="
+                + " 'NO' ORDER BY l.sequence#, f.member")) {
+      ps.setLong(1, endScn);
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          logs.add(rs.getString(1));
+        }
+      }
+    }
+    if (logs.isEmpty()) {
+      throw new IllegalStateException("no logs cover SCN " + startScn + " to " + endScn);
+    }
+    try (Statement st = root.createStatement()) {
+      boolean first = true;
+      for (String log : logs) {
+        st.execute(
+            "BEGIN DBMS_LOGMNR.ADD_LOGFILE(LOGFILENAME => '"
+                + log.replace("'", "''")
+                + "', OPTIONS => "
+                + (first ? "DBMS_LOGMNR.NEW" : "DBMS_LOGMNR.ADDFILE")
+                + "); END;");
+        first = false;
+      }
+      st.execute(
+          "BEGIN DBMS_LOGMNR.START_LOGMNR(STARTSCN => "
+              + startScn
+              + ", ENDSCN => "
+              + endScn
+              + ", OPTIONS => DBMS_LOGMNR.DICT_FROM_ONLINE_CATALOG + DBMS_LOGMNR.NO_ROWID_IN_STMT"
+              + " + DBMS_LOGMNR.NO_SQL_DELIMITER); END;");
+    }
+  }
+
   public static void end(Connection root) throws SQLException {
     try (Statement st = root.createStatement()) {
       st.execute("BEGIN DBMS_LOGMNR.END_LOGMNR; END;");

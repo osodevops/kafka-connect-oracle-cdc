@@ -21,14 +21,38 @@ import sh.oso.connect.oracle.core.model.RedoRecordId;
  * Where the next step starts: an SCN for START_LOGMNR plus, after a DDL step cut, the last record
  * already applied at that SCN so the re-mined rows at the same SCN are not applied twice.
  */
-public record StepCursor(long scn, RedoRecordId lastApplied) {
+public record StepCursor(long scn, RedoRecordId lastApplied, boolean inclusive) {
 
+  /** A cursor at an SCN with no redo byte address: rows are selected by SCN only (legacy). */
   public static StepCursor at(long scn) {
-    return new StepCursor(scn, null);
+    return new StepCursor(scn, null, false);
+  }
+
+  /**
+   * A cursor from a position: re-read from the resume record inclusive, so the first row of an open
+   * transaction is mined again; without a redo byte address it is an SCN cursor.
+   */
+  public static StepCursor resume(RedoRecordId point) {
+    return point == null || !point.hasRba()
+        ? at(point == null ? 0 : point.scn())
+        : new StepCursor(point.scn(), point, true);
+  }
+
+  /** The cursor after applying {@code id}: later rows have a greater redo byte address. */
+  public StepCursor after(long minedToScn, RedoRecordId id) {
+    return new StepCursor(minedToScn, id, false);
+  }
+
+  public boolean hasRba() {
+    return lastApplied != null && lastApplied.hasRba();
   }
 
   /** True when {@code id} was already applied under this cursor. */
   public boolean alreadyApplied(RedoRecordId id) {
-    return lastApplied != null && id.compareTo(lastApplied) <= 0;
+    if (lastApplied == null) {
+      return false;
+    }
+    int c = id.compareTo(lastApplied);
+    return inclusive ? c < 0 : c <= 0;
   }
 }

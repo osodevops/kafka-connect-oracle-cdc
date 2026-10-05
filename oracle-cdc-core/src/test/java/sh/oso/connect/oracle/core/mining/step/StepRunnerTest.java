@@ -52,7 +52,11 @@ class StepRunnerTest {
     StepOutcome o = runner().run(script(), StepCursor.at(1000), 1010);
     assertThat(o.kind()).isEqualTo(StepOutcome.Kind.COMPLETE);
     assertThat(o.events()).hasSize(5);
-    assertThat(o.next()).isEqualTo(StepCursor.at(1010));
+    assertThat(o.next().scn()).isEqualTo(1010);
+    assertThat(o.next().lastApplied())
+        .as("the cursor is the redo byte address of the last row (ADR-0014)")
+        .isEqualTo(o.events().get(o.events().size() - 1).id());
+    assertThat(o.next().inclusive()).isFalse();
     assertThat(o.rowsSeen()).isEqualTo(5);
     assertThat(o.applies()).isTrue();
   }
@@ -116,7 +120,9 @@ class StepRunnerTest {
     assertThat(rest.kind()).isEqualTo(StepOutcome.Kind.COMPLETE);
     assertThat(rest.events()).hasSize(2);
     assertThat(rest.events().get(0)).isInstanceOf(MiningEvent.Dml.class);
-    assertThat(rest.rowsSeen()).as("the DDL row is re-mined but skipped").isEqualTo(3);
+    assertThat(rest.rowsSeen())
+        .as("the DDL row is not re-read: the cursor is its redo byte address")
+        .isEqualTo(2);
   }
 
   @Test

@@ -108,10 +108,28 @@ public final class LogMinerQuery {
 
   private LogMinerQuery() {}
 
+  /** The SCN-cursor form, for callers without a redo byte address. */
   public static String sql(MiningFilter f) {
+    return sql(f, false, false);
+  }
+
+  /**
+   * With {@code rbaCursor} the lower bound is the redo byte address (RS_ID, then SSN) rather than
+   * the SCN, so redo that reached the log after the previous step but with an earlier SCN is still
+   * returned (ADR-0014); binds are then RS_ID, RS_ID, SSN, end SCN. Without it the binds are start
+   * SCN and end SCN.
+   */
+  public static String sql(MiningFilter f, boolean rbaCursor, boolean inclusive) {
     StringBuilder sb = new StringBuilder("SELECT ");
     sb.append(String.join(", ", COLUMNS));
-    sb.append(" FROM V$LOGMNR_CONTENTS WHERE SCN >= ? AND SCN < ? AND (");
+    if (rbaCursor) {
+      String op = inclusive ? ">=" : ">";
+      sb.append(" FROM V$LOGMNR_CONTENTS WHERE (RS_ID > ? OR (RS_ID = ? AND SSN ")
+          .append(op)
+          .append(" ?)) AND SCN < ? AND (");
+    } else {
+      sb.append(" FROM V$LOGMNR_CONTENTS WHERE SCN >= ? AND SCN < ? AND (");
+    }
     // 1. row changes on captured objects, per source container: the same DATA_OBJ# names
     //    different tables in CDB$ROOT and in each PDB
     sb.append("(OPERATION_CODE IN (").append(join(ROW_CODES)).append(") AND ");

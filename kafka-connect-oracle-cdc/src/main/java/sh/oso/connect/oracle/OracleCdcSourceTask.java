@@ -100,6 +100,10 @@ public class OracleCdcSourceTask extends SourceTask {
             position.lastCommitKey(),
             position.eventIndex());
       }
+      // ADR-0003: every chunk this start writes carries a new generation; chunks of a newer
+      // generation than a committed position are unacknowledged writes
+      long generation = position.journalGeneration() + 1;
+      position = position.withJournalGeneration(generation);
       startPosition = position;
       TopicRouter router =
           new TopicRouter(
@@ -113,17 +117,41 @@ public class OracleCdcSourceTask extends SourceTask {
               Math.max(1000, config.pollMaxRecords() * 4),
               new sh.oso.connect.oracle.heartbeat.HeartbeatEmitter(
                   config.heartbeatTopic(), config.topicPrefix(), envelope.partition()),
+              new sh.oso.connect.oracle.ops.OpsEventWriter(
+                  config.opsTopic(), config.topicPrefix(), envelope.partition()),
+              new sh.oso.connect.oracle.journal.JournalRecords(
+                  config.journalTopic(), config.topicPrefix(), envelope.partition()),
               config.heartbeatIntervalMs(),
               System::currentTimeMillis);
+      ensureInternalTopics();
+      sh.oso.connect.oracle.journal.BufferSetup bufferSetup = loadJournal(position, generation);
       // SRC-HB-1: the start position becomes durable with the first offset flush, before any
       // change record; a task killed before that would otherwise restart from a later SCN
       sink.heartbeatAtStart();
-      CaptureEngine engine = session.engine(position, sink);
+      sink.ops(
+          sh.oso.connect.oracle.ops.OpsEvent.Type.STARTUP,
+          "resume_scn",
+          Long.toString(position.resumeScn()),
+          "last_commit",
+          position.lastCommitKey() == null ? null : position.lastCommitKey().toString(),
+          "database",
+          session.databaseName(),
+          "version",
+          Version.VERSION);
+      CaptureEngine engine = session.engine(position, sink, bufferSetup);
       lifecycle =
           new EngineLifecycle(
               engine,
               Duration.ofMillis(Math.max(100, config.pollLingerMs() * 2)),
-              t -> LOG.error("Capture engine stopped: {}", t.getMessage(), t));
+              t -> {
+                LOG.error("Capture engine stopped: {}", t.getMessage(), t);
+                try {
+                  sink.stopped(t);
+                } catch (RuntimeException ignore) {
+                  // the queue may be full or closed; the log line above is the record of last
+                  // resort
+                }
+              });
       lifecycle.start("oracle-cdc-engine-" + config.topicPrefix());
     } catch (OracleCdcException e) {
       closeQuietly();
@@ -164,6 +192,100 @@ public class OracleCdcSourceTask extends SourceTask {
       }
     }
     closeQuietly();
+  }
+
+  /**
+   * CORE-TX-5: reload journaled transactions before mining resumes. Without broker access the
+   * journal cannot be read back, so it is not written either and long transactions pin the position
+   * as before.
+   */
+  private sh.oso.connect.oracle.journal.BufferSetup loadJournal(
+      Position position, long generation) {
+    sh.oso.connect.oracle.core.buffer.JournalPolicy policy = config.journalPolicy();
+    if (!policy.enabled()) {
+      return sh.oso.connect.oracle.journal.BufferSetup.none();
+    }
+    if (config.kafkaBootstrapServers() == null) {
+      LOG.warn(
+          "cdc.kafka.bootstrap.servers not set: the transaction journal is disabled and long"
+              + " transactions pin the resume position (CORE-TX-4)");
+      return sh.oso.connect.oracle.journal.BufferSetup.none();
+    }
+    java.util.Properties p = config.kafkaClientProperties();
+    p.put("bootstrap.servers", config.kafkaBootstrapServers());
+    sh.oso.connect.oracle.journal.JournalTopicLoader.Loaded loaded;
+    LOG.info(
+        "Reading the transaction journal {} for generation {}", config.journalTopic(), generation);
+    try (sh.oso.connect.oracle.journal.JournalReader reader = journalReader(p)) {
+      org.apache.kafka.connect.storage.Converter keys = converter(true);
+      org.apache.kafka.connect.storage.Converter values = converter(false);
+      loaded =
+          new sh.oso.connect.oracle.journal.JournalTopicLoader(keys, values, config.topicPrefix())
+              .load(reader.readAll(config.journalTopic()), position);
+    } catch (OracleCdcException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new ConnectException("Reading the transaction journal failed: " + e.getMessage(), e);
+    }
+    for (sh.oso.connect.oracle.journal.JournalRecords.ChunkKey k : loaded.stale()) {
+      sink.tombstone(k);
+    }
+    if (!loaded.restore().isEmpty() || !loaded.stale().isEmpty()) {
+      LOG.info(
+          "Journal: restoring {} transactions ({} chunks), tombstoning {} stale chunks",
+          loaded.restore().size(),
+          loaded.chunks(),
+          loaded.stale().size());
+    }
+    return new sh.oso.connect.oracle.journal.BufferSetup(
+        policy, sink, generation, loaded.restore());
+  }
+
+  private org.apache.kafka.connect.storage.Converter converter(boolean isKey) {
+    try {
+      org.apache.kafka.connect.storage.Converter c =
+          (org.apache.kafka.connect.storage.Converter)
+              Class.forName(config.journalConverter()).getDeclaredConstructor().newInstance();
+      c.configure(config.journalConverterProperties(), isKey);
+      return c;
+    } catch (ReflectiveOperationException e) {
+      throw new ConnectException(
+          "cdc.journal.converter " + config.journalConverter() + " cannot be instantiated", e);
+    }
+  }
+
+  /** Overridable for tests. */
+  sh.oso.connect.oracle.journal.JournalReader journalReader(java.util.Properties clientProps) {
+    return new sh.oso.connect.oracle.journal.KafkaJournalReader(clientProps);
+  }
+
+  /** SRC-TOP-6: create the internal topics when broker access is configured. */
+  private void ensureInternalTopics() {
+    if (config.kafkaBootstrapServers() == null) {
+      LOG.info(
+          "cdc.kafka.bootstrap.servers not set; internal topics rely on worker topic creation");
+      return;
+    }
+    java.util.Properties p = config.kafkaClientProperties();
+    p.put("bootstrap.servers", config.kafkaBootstrapServers());
+    try (sh.oso.connect.oracle.topics.TopicAdmin admin = topicAdmin(p)) {
+      java.util.List<String> created =
+          new sh.oso.connect.oracle.topics.InternalTopicManager(
+                  admin, config.internalTopicReplication())
+              .ensure(sh.oso.connect.oracle.topics.InternalTopics.of(config));
+      if (!created.isEmpty()) {
+        LOG.info("Created internal topics {}", created);
+      } else {
+        LOG.info("Internal topics present");
+      }
+    } catch (Exception e) {
+      throw new ConnectException("Creating the internal topics failed: " + e.getMessage(), e);
+    }
+  }
+
+  /** Overridable for tests. */
+  sh.oso.connect.oracle.topics.TopicAdmin topicAdmin(java.util.Properties clientProps) {
+    return new sh.oso.connect.oracle.topics.KafkaTopicAdmin(clientProps);
   }
 
   private void closeQuietly() {

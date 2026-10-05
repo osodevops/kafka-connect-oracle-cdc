@@ -49,12 +49,21 @@ public final class LogMinerEventSource implements EventSource {
   }
 
   @Override
-  public EventCursor open(long startScn, long endScn) throws SQLException {
-    LogSet logs = inventory.forRange(startScn, endScn);
+  public EventCursor open(sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+      throws SQLException {
+    LogSet logs = inventory.forRange(from.scn(), endScn);
     session.setLogs(logs.logs());
-    session.start(startScn, endScn, mode);
+    // ADR-0014: LogMiner's STARTSCN must not exclude redo bound late with an earlier SCN, so it is
+    // the start of the log holding the cursor rather than the cursor's own SCN
+    long startScn = from.scn();
+    for (sh.oso.connect.oracle.core.logs.RedoLog l : logs.logs()) {
+      if (l.firstScn() <= from.scn() && l.firstScn() < startScn) {
+        startScn = l.firstScn();
+      }
+    }
+    session.start(from.hasRba() ? startScn : from.scn(), endScn, mode);
     adapter.reset();
-    return adapter.adapt(session.query(filter, startScn, endScn));
+    return adapter.adapt(session.query(filter, from, endScn));
   }
 
   /** Swaps the pushed-down ids after a DDL step cut (ADR-0001). */

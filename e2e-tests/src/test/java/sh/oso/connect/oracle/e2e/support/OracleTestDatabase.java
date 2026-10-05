@@ -89,9 +89,11 @@ public final class OracleTestDatabase {
     return local;
   }
 
+  static final String SUBNET = System.getProperty("e2e.network.subnet", "10.214.0.0/24");
+
   /** One Docker network for the JVM so Kafka and Connect containers can reach "oracle:1521". */
   public static final org.testcontainers.containers.Network NETWORK =
-      org.testcontainers.containers.Network.builder()
+      removeStaleNetworkThenBuild()
           // a fixed subnet: Docker Desktop on a busy workstation exhausts its default address
           // pools ("all predefined address pools have been fully subnetted")
           .createNetworkCmdModifier(
@@ -100,9 +102,57 @@ public final class OracleTestDatabase {
                       new com.github.dockerjava.api.model.Network.Ipam()
                           .withConfig(
                               new com.github.dockerjava.api.model.Network.Ipam.Config()
-                                  .withSubnet(
-                                      System.getProperty("e2e.network.subnet", "10.214.0.0/24")))))
+                                  .withSubnet(SUBNET))))
           .build();
+
+  /**
+   * A network on the pinned subnet left behind by an earlier JVM (Ryuk removes it only after a
+   * delay, and not at all when reuse is on) makes the next creation fail with "Pool overlaps with
+   * other one on this address space". Remove it when no container is attached any more.
+   */
+  private static org.testcontainers.containers.Network.NetworkImpl.NetworkImplBuilder
+      removeStaleNetworkThenBuild() {
+    try {
+      com.github.dockerjava.api.DockerClient docker =
+          org.testcontainers.DockerClientFactory.instance().client();
+      long deadline = System.currentTimeMillis() + 60_000;
+      while (true) {
+        com.github.dockerjava.api.model.Network stale = null;
+        for (com.github.dockerjava.api.model.Network n : docker.listNetworksCmd().exec()) {
+          if (n.getIpam() != null
+              && n.getIpam().getConfig() != null
+              && n.getIpam().getConfig().stream().anyMatch(c -> SUBNET.equals(c.getSubnet()))) {
+            stale = n;
+          }
+        }
+        if (stale == null) {
+          break;
+        }
+        var details = docker.inspectNetworkCmd().withNetworkId(stale.getId()).exec();
+        if (details.getContainers() == null || details.getContainers().isEmpty()) {
+          docker.removeNetworkCmd(stale.getId()).exec();
+          System.err.println("e2e: removed stale network " + stale.getName() + " on " + SUBNET);
+          break;
+        }
+        if (System.currentTimeMillis() > deadline) {
+          System.err.println(
+              "e2e: network "
+                  + stale.getName()
+                  + " on "
+                  + SUBNET
+                  + " still has containers attached; creation will fail");
+          break;
+        }
+        // the previous JVM's containers are still being removed by Ryuk; give it a moment
+        Thread.sleep(1000);
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (RuntimeException e) {
+      System.err.println("e2e: could not check for stale networks: " + e);
+    }
+    return org.testcontainers.containers.Network.builder();
+  }
 
   public static final String NETWORK_ALIAS = "oracle";
 

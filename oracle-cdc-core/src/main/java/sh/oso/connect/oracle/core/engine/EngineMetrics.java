@@ -33,6 +33,7 @@ public final class EngineMetrics {
   public final AtomicLong sessionRecycles = new AtomicLong();
   public final AtomicLong lobInsertsMerged = new AtomicLong();
   public final AtomicLong reconnects = new AtomicLong();
+  public final AtomicLong orphansReleased = new AtomicLong();
   public final AtomicLong lastStepMillis = new AtomicLong();
   public final AtomicLong minedToScn = new AtomicLong();
   public final AtomicLong safeEndScn = new AtomicLong();

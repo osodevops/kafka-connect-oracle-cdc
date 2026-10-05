@@ -43,7 +43,7 @@ class CoreConfigTest {
       assertThat(k.displayName).as(k.name).isNotBlank();
       assertThat(k.documentation).as(k.name).isNotBlank();
     }
-    assertThat(CoreConfig.configDef().names()).hasSize(42);
+    assertThat(CoreConfig.configDef().names()).hasSize(43);
   }
 
   @Test

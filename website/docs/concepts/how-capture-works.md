@@ -11,6 +11,22 @@ are linked from it.
 
 The engine mines redo with LogMiner in steps sized by log count, applying each step atomically; a step that fails midway is discarded and re-mined. Captured tables are pushed down to LogMiner by object id, with the step cut at any DDL that creates a new segment. Every unexpected condition stops the task with a typed error.
 
+## Where a step starts and ends
+
+A mining step reads the rows LogMiner returns for the logs covering the range from the cursor to the
+current SCN. The cursor between steps is the redo byte address of the last row applied, not an SCN.
+That matters because Oracle keeps the redo of an open transaction in a private strand until the
+transaction commits, the strand fills or a log switch binds it, and the records keep the SCNs of the
+original changes when they finally reach the log. A step bounded by SCN alone could pass over those
+records and never see them. Because the redo log is append-only in redo byte address order, selecting
+rows after the cursor's address catches every record that reached the log since the previous step,
+whatever its SCN. The connector never writes to the source database to force a flush, so no flush
+table is needed.
+
+The committed offset carries the same shape: the resume SCN for choosing logs, the redo byte address
+to resume from, and the redo address of the last acknowledged commit so a restart repeats nothing and
+skips nothing.
+
 ## Database errors
 
 A transient database error (a dropped connection, a killed session, an instance restart) makes

@@ -30,7 +30,12 @@ public interface LogMinerSource extends AutoCloseable {
 
   void start(long startScn, long endScn, DictionaryMode mode) throws SQLException;
 
-  RowCursor query(MiningFilter filter, long startScn, long endScn) throws SQLException;
+  /**
+   * Rows after the cursor (redo byte address when it has one, else SCN) and below {@code endScn}.
+   */
+  RowCursor query(
+      MiningFilter filter, sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+      throws SQLException;
 
   void end() throws SQLException;
 

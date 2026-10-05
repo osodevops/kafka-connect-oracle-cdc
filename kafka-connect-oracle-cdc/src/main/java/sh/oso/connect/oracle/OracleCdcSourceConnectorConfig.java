@@ -60,6 +60,18 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public static final String DECIMAL_MODE = "cdc.decimal.mode";
   public static final String TEMPORAL_MODE = "cdc.temporal.mode";
 
+  // internal topics and broker access (SRC-TOP-6)
+  public static final String OPS_TOPIC = "cdc.ops.topic";
+  public static final String SIGNALS_TOPIC = "cdc.signals.topic";
+  public static final String SCHEMA_TOPIC = "cdc.schema.topic";
+  public static final String TRANSACTIONS_TOPIC_ENABLED = "cdc.transactions.topic.enabled";
+  public static final String TRANSACTIONS_TOPIC = "cdc.transactions.topic";
+  public static final String KAFKA_BOOTSTRAP_SERVERS = "cdc.kafka.bootstrap.servers";
+  public static final String KAFKA_CLIENT_PREFIX = "cdc.kafka.";
+  public static final String INTERNAL_TOPIC_REPLICATION = "cdc.internal.topic.replication.factor";
+  public static final String JOURNAL_CONVERTER = "cdc.journal.converter";
+  public static final String JOURNAL_CONVERTER_PREFIX = "cdc.journal.converter.";
+
   // heartbeats (SRC-HB-1, CORE-POS-5)
   public static final String HEARTBEAT_INTERVAL_MS = "cdc.heartbeat.interval.ms";
   public static final String HEARTBEAT_TOPIC = "cdc.heartbeat.topic";
@@ -168,6 +180,77 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
   public TemporalMode temporalMode() {
     return TemporalMode.valueOf(getString(TEMPORAL_MODE).toUpperCase(Locale.ROOT));
+  }
+
+  private String expand(String key) {
+    return getString(key).replace("${prefix}", topicPrefix());
+  }
+
+  public String opsTopic() {
+    return expand(OPS_TOPIC);
+  }
+
+  public String signalsTopic() {
+    return expand(SIGNALS_TOPIC);
+  }
+
+  public String schemaTopic() {
+    return expand(SCHEMA_TOPIC);
+  }
+
+  public boolean transactionsTopicEnabled() {
+    return getBoolean(TRANSACTIONS_TOPIC_ENABLED);
+  }
+
+  public String transactionsTopic() {
+    return expand(TRANSACTIONS_TOPIC);
+  }
+
+  /** Bootstrap servers for the connector's own clients (admin, journal, schema), or null. */
+  public String kafkaBootstrapServers() {
+    String s = getString(KAFKA_BOOTSTRAP_SERVERS);
+    return s == null || s.isBlank() ? null : s;
+  }
+
+  /** {@code cdc.kafka.*} properties as client properties, with the prefix removed. */
+  public java.util.Properties kafkaClientProperties() {
+    java.util.Properties p = new java.util.Properties();
+    for (Map.Entry<String, Object> e : originalsWithPrefix(KAFKA_CLIENT_PREFIX).entrySet()) {
+      p.put(e.getKey(), String.valueOf(e.getValue()));
+    }
+    return p;
+  }
+
+  public short internalTopicReplication() {
+    return getShort(INTERNAL_TOPIC_REPLICATION);
+  }
+
+  /** Converter class the journal loader uses to read the journal topic back. */
+  public String journalConverter() {
+    return getString(JOURNAL_CONVERTER);
+  }
+
+  /** {@code cdc.journal.converter.*} as converter configuration, prefix removed. */
+  public Map<String, Object> journalConverterProperties() {
+    return new HashMap<>(originalsWithPrefix(JOURNAL_CONVERTER_PREFIX));
+  }
+
+  /** CORE-TX-4 thresholds as a policy; -1 disables the corresponding threshold. */
+  public sh.oso.connect.oracle.core.buffer.JournalPolicy journalPolicy() {
+    long ageMs =
+        core().getLong(sh.oso.connect.oracle.core.config.CoreConfig.TXJOURNAL_THRESHOLD_MS);
+    long events =
+        core().getLong(sh.oso.connect.oracle.core.config.CoreConfig.TXJOURNAL_THRESHOLD_EVENTS);
+    return new sh.oso.connect.oracle.core.buffer.JournalPolicy(
+        ageMs <= 0 ? null : java.time.Duration.ofMillis(ageMs),
+        events <= 0 ? Long.MAX_VALUE : events,
+        core().getInt(sh.oso.connect.oracle.core.config.CoreConfig.TXJOURNAL_CHUNK_MAX_BYTES));
+  }
+
+  /** The journal topic name with the default next to the other internal topics. */
+  public String journalTopic() {
+    String t = core().getString(sh.oso.connect.oracle.core.config.CoreConfig.TXJOURNAL_TOPIC);
+    return t == null || t.isBlank() ? topicPrefix() + ".cdc.txjournal" : t;
   }
 
   public long heartbeatIntervalMs() {
@@ -342,6 +425,95 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++f,
         Width.SHORT,
         "Temporal mode");
+    def.define(
+        OPS_TOPIC,
+        Type.STRING,
+        "${prefix}.cdc.ops",
+        Importance.LOW,
+        "Topic for the connector's operational events (task start and stop, DDL seen, decode"
+            + " failures, reconnects, discarded or released transactions, signal acknowledgements);"
+            + " ${prefix} expands to the topic prefix.",
+        GROUP_TOPICS,
+        ++o,
+        Width.MEDIUM,
+        "Ops topic");
+    def.define(
+        SIGNALS_TOPIC,
+        Type.STRING,
+        "${prefix}.cdc.signals",
+        Importance.LOW,
+        "Topic the connector reads signals from (snapshot, refresh-tables, log-state).",
+        GROUP_TOPICS,
+        ++o,
+        Width.MEDIUM,
+        "Signals topic");
+    def.define(
+        SCHEMA_TOPIC,
+        Type.STRING,
+        "${prefix}.cdc.schema",
+        Importance.LOW,
+        "Compacted topic holding table schema versions.",
+        GROUP_TOPICS,
+        ++o,
+        Width.MEDIUM,
+        "Schema topic");
+    def.define(
+        TRANSACTIONS_TOPIC_ENABLED,
+        Type.BOOLEAN,
+        false,
+        Importance.LOW,
+        "Write BEGIN and END records per Oracle transaction to the transaction metadata topic.",
+        GROUP_TOPICS,
+        ++o,
+        Width.SHORT,
+        "Transaction metadata");
+    def.define(
+        TRANSACTIONS_TOPIC,
+        Type.STRING,
+        "${prefix}.cdc.transactions",
+        Importance.LOW,
+        "Transaction metadata topic.",
+        GROUP_TOPICS,
+        ++o,
+        Width.MEDIUM,
+        "Transactions topic");
+    def.define(
+        KAFKA_BOOTSTRAP_SERVERS,
+        Type.STRING,
+        null,
+        Importance.MEDIUM,
+        "Bootstrap servers for the connector's own Kafka clients: the admin client that creates the"
+            + " internal topics with the right cleanup policy, and the readers of the schema and"
+            + " journal topics. Other client settings go under cdc.kafka.*. When unset the"
+            + " connector relies on the worker's topic creation and on pre-created topics.",
+        GROUP_TOPICS,
+        ++o,
+        Width.LONG,
+        "Kafka bootstrap servers");
+    def.define(
+        INTERNAL_TOPIC_REPLICATION,
+        Type.SHORT,
+        (short) -1,
+        Importance.LOW,
+        "Replication factor for internal topics the connector creates; -1 uses the broker default.",
+        GROUP_TOPICS,
+        ++o,
+        Width.SHORT,
+        "Internal topic replication");
+    def.define(
+        JOURNAL_CONVERTER,
+        Type.STRING,
+        "sh.oso.connect.oracle.journal.TolerantJsonConverter",
+        Importance.LOW,
+        "Converter the task uses to read the transaction journal topic back at start. The default"
+            + " reads JSON written with or without the schema envelope, so it matches a worker"
+            + " using the JSON converter in either mode. Set it to the worker's converter class"
+            + " when the worker uses another converter (Avro, Protobuf); settings for it go under"
+            + " cdc.journal.converter.*.",
+        GROUP_TOPICS,
+        ++o,
+        Width.LONG,
+        "Journal converter");
     def.define(
         HEARTBEAT_INTERVAL_MS,
         Type.LONG,

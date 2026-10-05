@@ -26,6 +26,32 @@ public final class ResumeCalculator {
 
   private ResumeCalculator() {}
 
+  /**
+   * CORE-POS-2 with the ADR-0014 cursor: the resume point is the earlier of the cursor and the
+   * oldest record a restart must re-read (the first capture of an open non-journaled transaction,
+   * the last journaled record of a journaled one), compared in redo order. Its SCN is the lower of
+   * the two SCNs, so log selection and LogMiner's start bound never exclude it.
+   */
+  public static RedoRecordId resume(
+      sh.oso.connect.oracle.core.mining.step.StepCursor cursor,
+      Optional<RedoRecordId> oldestOpenNonJournaled) {
+    RedoRecordId at = cursor.lastApplied();
+    if (oldestOpenNonJournaled.isEmpty()) {
+      return at == null
+          ? new RedoRecordId(cursor.scn(), null, 0)
+          : new RedoRecordId(cursor.scn(), at.rsId(), at.ssn());
+    }
+    RedoRecordId open = oldestOpenNonJournaled.get();
+    long scn = Math.min(cursor.scn(), open.scn());
+    if (at == null || !at.hasRba() || !open.hasRba()) {
+      return new RedoRecordId(scn, open.hasRba() ? open.rsId() : null, open.ssn());
+    }
+    return open.compareTo(at) < 0
+        ? new RedoRecordId(scn, open.rsId(), open.ssn())
+        : new RedoRecordId(scn, at.rsId(), at.ssn());
+  }
+
+  /** The SCN form of the rule, for callers that only track SCNs. */
   public static long resumeScn(long safeMinedScn, Optional<RedoRecordId> oldestOpenNonJournaled) {
     long open = oldestOpenNonJournaled.map(RedoRecordId::scn).orElse(Long.MAX_VALUE);
     return Math.min(safeMinedScn, open);

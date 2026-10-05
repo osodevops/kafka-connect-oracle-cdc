@@ -174,7 +174,8 @@ class TypeRoundTripEngineIT {
               objects,
               objects.filter(Set.of(), 1000),
               DictionaryMode.ONLINE_CATALOG)) {
-        try (EventCursor c = source.open(startScn, endScn)) {
+        try (EventCursor c =
+            source.open(sh.oso.connect.oracle.core.mining.step.StepCursor.at(startScn), endScn)) {
           while (c.next()) {
             if (c.event() instanceof MiningEvent.Dml d && !d.undo()) {
               if (d.op() == Operation.UPDATE) {

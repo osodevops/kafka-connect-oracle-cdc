@@ -101,15 +101,25 @@ public final class JdbcLogMinerSession implements LogMinerSource {
   }
 
   @Override
-  public RowCursor query(MiningFilter filter, long startScn, long endScn) throws SQLException {
-    PreparedStatement ps = c.prepareStatement(LogMinerQuery.sql(filter));
+  public RowCursor query(
+      MiningFilter filter, sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+      throws SQLException {
+    PreparedStatement ps =
+        c.prepareStatement(LogMinerQuery.sql(filter, from.hasRba(), from.inclusive()));
     try {
       ps.setFetchSize(fetchSize);
       if (queryTimeoutSeconds > 0) {
         ps.setQueryTimeout(queryTimeoutSeconds);
       }
-      ps.setLong(1, startScn);
-      ps.setLong(2, endScn);
+      if (from.hasRba()) {
+        ps.setString(1, from.lastApplied().rsId());
+        ps.setString(2, from.lastApplied().rsId());
+        ps.setLong(3, from.lastApplied().ssn());
+        ps.setLong(4, endScn);
+      } else {
+        ps.setLong(1, from.scn());
+        ps.setLong(2, endScn);
+      }
       ResultSet rs = ps.executeQuery();
       return new JdbcRowCursor(ps, rs);
     } catch (SQLException | RuntimeException e) {

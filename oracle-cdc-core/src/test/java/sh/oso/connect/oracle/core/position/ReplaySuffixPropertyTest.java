@@ -51,7 +51,7 @@ class ReplaySuffixPropertyTest {
     CommittedTransaction acked = s.commits().get(s.ackedTx());
     Position p =
         Position.initial(1, new DatabaseIdentity(1, 1))
-            .withCommit(acked.commitScn(), acked.thread(), acked.key(), s.ackedEvents());
+            .withCommit(acked.commitId(), acked.thread(), acked.key(), s.ackedEvents());
 
     List<RowChange> replayed = new ArrayList<>();
     for (CommittedTransaction t : s.commits()) {

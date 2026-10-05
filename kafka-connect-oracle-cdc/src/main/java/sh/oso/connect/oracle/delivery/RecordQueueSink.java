@@ -27,13 +27,17 @@ import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.source.SourceRecord;
 import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
 import sh.oso.connect.oracle.core.engine.EventSink;
+import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.TableId;
+import sh.oso.connect.oracle.core.model.TxKey;
 import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.envelope.DebeziumEnvelope;
 import sh.oso.connect.oracle.heartbeat.HeartbeatEmitter;
+import sh.oso.connect.oracle.ops.OpsEvent;
+import sh.oso.connect.oracle.ops.OpsEventWriter;
 
 /**
  * The engine's sink on the Connect side: committed transactions become records on a bounded queue
@@ -43,21 +47,27 @@ import sh.oso.connect.oracle.heartbeat.HeartbeatEmitter;
  * start and on quiet periods (SRC-HB-1); their position names the last emitted commit so a restart
  * from a heartbeat offset skips nothing and repeats nothing.
  */
-public final class RecordQueueSink implements EventSink {
+public final class RecordQueueSink
+    implements EventSink, sh.oso.connect.oracle.core.buffer.JournalSink {
 
   private final DebeziumEnvelope envelope;
   private final SchemaRegistry schemas;
-  private final Position base;
+  private Position base;
   private final BlockingQueue<SourceRecord> queue;
   private final HeartbeatEmitter heartbeats;
+  private final OpsEventWriter ops;
+  private final sh.oso.connect.oracle.journal.JournalRecords journal;
   private final long heartbeatIntervalMs;
   private final LongSupplier clock;
   private volatile long lastMinedTo;
-  private volatile long lastResumeCandidate;
+  private volatile RedoRecordId lastResumeCandidate;
   private long lastQueuedAt;
   private long lastHeartbeatAt;
   private Position lastEmittedCommit;
   private long heartbeatsSent;
+  private long opsEvents;
+  private long journalChunks;
+  private long journalTombstones;
 
   public RecordQueueSink(
       DebeziumEnvelope envelope,
@@ -65,6 +75,8 @@ public final class RecordQueueSink implements EventSink {
       Position base,
       int capacity,
       HeartbeatEmitter heartbeats,
+      OpsEventWriter ops,
+      sh.oso.connect.oracle.journal.JournalRecords journal,
       long heartbeatIntervalMs,
       LongSupplier clock) {
     this.envelope = envelope;
@@ -72,10 +84,12 @@ public final class RecordQueueSink implements EventSink {
     this.base = base;
     this.queue = new LinkedBlockingQueue<>(capacity);
     this.heartbeats = heartbeats;
+    this.ops = ops;
+    this.journal = journal;
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.clock = clock;
     this.lastEmittedCommit = base;
-    this.lastResumeCandidate = base.resumeScn();
+    this.lastResumeCandidate = base.resumePoint();
     this.lastMinedTo = base.resumeScn();
   }
 
@@ -84,8 +98,170 @@ public final class RecordQueueSink implements EventSink {
     heartbeat(base, null, "start");
   }
 
+  /**
+   * Publishes an ops event. Its offset is the quiet-heartbeat position: the last emitted commit
+   * with the engine's current resume candidate, which every record queued before it allows.
+   */
+  public synchronized void ops(OpsEvent.Type type, String... details) {
+    long now = clock.getAsLong();
+    Position at = lastEmittedCommit.withResume(lastResumeCandidate);
+    put(ops.record(OpsEvent.of(type, now, at.resumeScn(), details), at));
+    opsEvents++;
+  }
+
+  /** The position every record queued so far allows: the quiet-heartbeat rule. */
+  private Position safePosition() {
+    return lastEmittedCommit.withResume(lastResumeCandidate);
+  }
+
+  /**
+   * ADR-0003: a journal chunk rides the queue like any record. Its offset is the position before
+   * this chunk counted, so the resume SCN passes the chunk only through a later record, which
+   * Connect commits after this one was acknowledged.
+   */
   @Override
-  public synchronized void committed(CommittedTransaction tx, int skipped, long resumeCandidate) {
+  public synchronized void chunk(sh.oso.connect.oracle.core.buffer.JournalChunk c) {
+    put(journal.chunk(c, safePosition()));
+    journalChunks++;
+  }
+
+  @Override
+  public synchronized void tombstones(
+      TxKey key, List<sh.oso.connect.oracle.core.buffer.JournalChunk.Ref> chunks) {
+    for (sh.oso.connect.oracle.core.buffer.JournalChunk.Ref ref : chunks) {
+      put(
+          journal.tombstone(
+              new sh.oso.connect.oracle.journal.JournalRecords.ChunkKey(
+                  key, ref.chunk(), ref.generation()),
+              safePosition()));
+    }
+    journalTombstones += chunks.size();
+  }
+
+  /** Tombstones for stale chunks found at start (ADR-0003: unacknowledged or re-mined writes). */
+  public synchronized void tombstone(sh.oso.connect.oracle.journal.JournalRecords.ChunkKey k) {
+    put(journal.tombstone(k, safePosition()));
+    journalTombstones++;
+  }
+
+  /**
+   * CORE-TX-7: the released ledger travels in every later offset so a restart still refuses a late
+   * COMMIT for the released transaction; the ops topic carries the full details.
+   */
+  @Override
+  public synchronized void orphanReleased(
+      sh.oso.connect.oracle.core.orphan.OrphanDetector.Release r, List<String> released) {
+    base = base.withReleased(released);
+    lastEmittedCommit = lastEmittedCommit.withReleased(released);
+    ops(
+        OpsEvent.Type.TRANSACTION_ORPHAN_RELEASED,
+        "xid",
+        r.tx().key().xid().toString(),
+        "con_id",
+        Integer.toString(r.tx().key().srcConId()),
+        "user",
+        r.tx().username(),
+        "client_id",
+        r.tx().clientId(),
+        "first_scn",
+        Long.toString(r.tx().firstScn()),
+        "last_scn",
+        Long.toString(r.tx().lastScn()),
+        "events",
+        Integer.toString(r.tx().events()),
+        "absent_at_scn",
+        Long.toString(r.absentAtScn()),
+        "reason",
+        r.reason());
+  }
+
+  /** The stop event (SRC-OPS): exception class, error code, runbook link and operator action. */
+  public void stopped(Throwable t) {
+    String code = null;
+    String runbook = null;
+    String action = null;
+    if (t instanceof sh.oso.connect.oracle.core.errors.OracleCdcException oe) {
+      code = oe.code().code();
+      runbook = oe.runbookUrl();
+      action = oe.operatorAction();
+    }
+    ops(
+        OpsEvent.Type.STOP,
+        "exception",
+        t.getClass().getName(),
+        "message",
+        t.getMessage(),
+        "code",
+        code,
+        "runbook",
+        runbook,
+        "operator_action",
+        action);
+  }
+
+  @Override
+  public void ddl(sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl d) {
+    ops(
+        OpsEvent.Type.DDL_SEEN,
+        "pdb",
+        d.pdb(),
+        "owner",
+        d.owner(),
+        "object",
+        d.objectName(),
+        "scn",
+        Long.toString(d.scn()),
+        "sql",
+        d.sql() == null ? null : d.sql().length() > 2000 ? d.sql().substring(0, 2000) : d.sql());
+  }
+
+  @Override
+  public void decodeFailed(
+      sh.oso.connect.oracle.core.mining.event.MiningEvent.Dml dml,
+      sh.oso.connect.oracle.core.errors.DecodeException cause) {
+    ops(
+        OpsEvent.Type.DECODE_ERROR_DLQ,
+        "table",
+        dml.table().fqn(),
+        "xid",
+        dml.tx().xid().toString(),
+        "scn",
+        Long.toString(dml.scn()),
+        "operation",
+        dml.op().name(),
+        "error",
+        cause.getMessage());
+  }
+
+  @Override
+  public void unsupported(sh.oso.connect.oracle.core.mining.event.MiningEvent.Unsupported u) {
+    ops(
+        OpsEvent.Type.UNSUPPORTED_ROW,
+        "table",
+        u.table().fqn(),
+        "xid",
+        u.tx().xid().toString(),
+        "scn",
+        Long.toString(u.scn()),
+        "status",
+        Integer.toString(u.status()),
+        "info",
+        u.info());
+  }
+
+  @Override
+  public void idsRefreshed(java.util.Set<String> owners) {
+    ops(OpsEvent.Type.IDS_REFRESHED, "owners", String.join(",", new java.util.TreeSet<>(owners)));
+  }
+
+  @Override
+  public void reconnected(String cause) {
+    ops(OpsEvent.Type.RECONNECTED, "cause", cause);
+  }
+
+  @Override
+  public synchronized void committed(
+      CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate) {
     Map<TableId, Long> perTable = new HashMap<>();
     for (int i = 0; i < tx.size(); i++) {
       RowChange c = tx.events().get(i);
@@ -100,19 +276,32 @@ public final class RecordQueueSink implements EventSink {
         throw new ConnectException("Reading the schema of " + c.table().fqn(), e);
       }
       // until the last record of the transaction is acknowledged, a restart must re-mine the
-      // transaction itself, so its first capture bounds the resume SCN (CORE-POS-2, CORE-POS-3)
-      long resume =
-          i + 1 < tx.size() ? Math.min(resumeCandidate, tx.firstCaptured().scn()) : resumeCandidate;
+      // transaction itself, so its first capture bounds the resume point (CORE-POS-2, CORE-POS-3)
+      RedoRecordId resume =
+          i + 1 < tx.size() ? earlier(resumeCandidate, tx.firstCaptured()) : resumeCandidate;
       Position offset =
-          base.withCommit(tx.commitScn(), tx.thread(), tx.key(), i + 1).withResumeScn(resume);
+          base.withCommit(tx.commitId(), tx.thread(), tx.key(), i + 1).withResume(resume);
       for (SourceRecord r : envelope.records(tx, i, order, schema, offset)) {
         put(r);
       }
       lastQueuedAt = clock.getAsLong();
     }
     lastEmittedCommit =
-        base.withCommit(tx.commitScn(), tx.thread(), tx.key(), tx.size())
-            .withResumeScn(resumeCandidate);
+        base.withCommit(tx.commitId(), tx.thread(), tx.key(), tx.size())
+            .withResume(resumeCandidate);
+  }
+
+  /** The earlier of two resume points in redo order, with the lower SCN as its floor. */
+  static RedoRecordId earlier(RedoRecordId a, RedoRecordId b) {
+    long scn = Math.min(a.scn(), b.scn());
+    if (!a.hasRba() || !b.hasRba()) {
+      return a.scn() <= b.scn()
+          ? new RedoRecordId(scn, a.rsId(), a.ssn())
+          : new RedoRecordId(scn, b.rsId(), b.ssn());
+    }
+    return a.compareTo(b) <= 0
+        ? new RedoRecordId(scn, a.rsId(), a.ssn())
+        : new RedoRecordId(scn, b.rsId(), b.ssn());
   }
 
   private void put(SourceRecord r) {
@@ -125,12 +314,12 @@ public final class RecordQueueSink implements EventSink {
   }
 
   @Override
-  public void idle(long minedToScn, long resumeCandidate) {
+  public void idle(long minedToScn, RedoRecordId resumeCandidate) {
     stepApplied(minedToScn, resumeCandidate);
   }
 
   @Override
-  public synchronized void stepApplied(long minedToScn, long resumeCandidate) {
+  public synchronized void stepApplied(long minedToScn, RedoRecordId resumeCandidate) {
     lastMinedTo = minedToScn;
     lastResumeCandidate = resumeCandidate;
     if (heartbeatIntervalMs <= 0) {
@@ -141,7 +330,7 @@ public final class RecordQueueSink implements EventSink {
     if (quiet && now - lastHeartbeatAt >= heartbeatIntervalMs) {
       // every emitted record precedes this heartbeat in the queue, so Connect commits this offset
       // only after those records; resume never passes an open transaction (the candidate)
-      heartbeat(lastEmittedCommit.withResumeScn(resumeCandidate), minedToScn, "quiet");
+      heartbeat(lastEmittedCommit.withResume(resumeCandidate), minedToScn, "quiet");
     }
   }
 
@@ -173,10 +362,27 @@ public final class RecordQueueSink implements EventSink {
   }
 
   public long lastResumeCandidate() {
+    return lastResumeCandidate.scn();
+  }
+
+  /** The resume point every record queued so far allows, with its redo byte address. */
+  public RedoRecordId lastResumePoint() {
     return lastResumeCandidate;
   }
 
   public synchronized long heartbeatsSent() {
     return heartbeatsSent;
+  }
+
+  public synchronized long opsEvents() {
+    return opsEvents;
+  }
+
+  public synchronized long journalChunks() {
+    return journalChunks;
+  }
+
+  public synchronized long journalTombstones() {
+    return journalTombstones;
   }
 }

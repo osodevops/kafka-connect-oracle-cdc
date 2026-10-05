@@ -147,11 +147,15 @@ class ReconnectEngineIT {
       List<CommittedTransaction> committed = new ArrayList<>();
       EventSink sink =
           new EventSink() {
-            public void committed(CommittedTransaction tx, int skipped, long resume) {
+            public void committed(
+                CommittedTransaction tx,
+                int skip,
+                sh.oso.connect.oracle.core.model.RedoRecordId resume) {
               committed.add(tx);
             }
 
-            public void stepApplied(long minedTo, long resume) {}
+            public void stepApplied(
+                long minedTo, sh.oso.connect.oracle.core.model.RedoRecordId resume) {}
           };
       var info = catalog.database();
       java.util.function.Supplier<Long> safeEnd =

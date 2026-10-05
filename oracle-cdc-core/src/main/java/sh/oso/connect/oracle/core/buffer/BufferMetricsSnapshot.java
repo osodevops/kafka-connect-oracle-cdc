@@ -25,4 +25,7 @@ public record BufferMetricsSnapshot(
     long rolledBackTransactions,
     long undoneEvents,
     long unmatchedUndo,
-    long ignoredZeroXidStarts) {}
+    long ignoredZeroXidStarts,
+    int spilledTransactions,
+    long spilledBytes,
+    int journaledTransactions) {}

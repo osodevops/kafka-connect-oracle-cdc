@@ -19,7 +19,13 @@ import java.sql.SQLException;
 
 /** Opens the events of one SCN range; the real one mines Oracle, the fake replays a script. */
 public interface EventSource extends AutoCloseable {
-  EventCursor open(long startScn, long endScn) throws SQLException;
+  /**
+   * Opens the rows after {@code from} with SCN below {@code endScn}. The cursor's redo byte address
+   * selects the rows (ADR-0014): rows whose SCN is below the cursor's SCN but which reached the log
+   * later are included, because the log is append-only in that order.
+   */
+  EventCursor open(sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
+      throws SQLException;
 
   /**
    * Releases server-side resources so the next {@link #open} starts a fresh session (CORE-MINE-7).

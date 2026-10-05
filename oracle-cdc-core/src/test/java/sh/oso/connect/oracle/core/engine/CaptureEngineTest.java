@@ -68,14 +68,18 @@ class CaptureEngineTest {
     final List<MiningEvent.Ddl> ddls = new ArrayList<>();
     final List<MiningEvent.Dml> failed = new ArrayList<>();
 
-    public void committed(CommittedTransaction tx, int skip, long resumeCandidate) {
-      resumes.add(resumeCandidate);
+    final List<sh.oso.connect.oracle.core.model.RedoRecordId> resumePoints = new ArrayList<>();
+
+    public void committed(
+        CommittedTransaction tx, int skip, sh.oso.connect.oracle.core.model.RedoRecordId resume) {
+      resumes.add(resume.scn());
+      resumePoints.add(resume);
       committed.add(tx);
       skipped.add(skip);
     }
 
-    public void stepApplied(long minedTo, long resume) {
-      steps.add(new long[] {minedTo, resume});
+    public void stepApplied(long minedTo, sh.oso.connect.oracle.core.model.RedoRecordId resume) {
+      steps.add(new long[] {minedTo, resume.scn()});
     }
 
     public void ddl(MiningEvent.Ddl d) {
@@ -143,10 +147,18 @@ class CaptureEngineTest {
   /** One 100-SCN log per hundred, from 1000; current SCN is the safe end. */
   static final class Harness {
     final FakeCatalog catalog = new FakeCatalog().archivedRun(1, 1, 20, 1000, 100);
-    final FakeLogMiner fake = new FakeLogMiner().startAt(1000);
+    FakeLogMiner fake = new FakeLogMiner().startAt(1000);
     final Sink sink = new Sink();
-    final HeapTransactionBuffer buffer = new HeapTransactionBuffer();
     final FixedClock clock = new FixedClock(0);
+    // the buffer shares the harness clock so age-based rules (journal, orphans) are testable
+    final HeapTransactionBuffer buffer =
+        new HeapTransactionBuffer(
+            Long.MAX_VALUE,
+            null,
+            sh.oso.connect.oracle.core.buffer.JournalPolicy.NEVER,
+            sh.oso.connect.oracle.core.buffer.JournalSink.NONE,
+            0,
+            () -> Instant.ofEpochMilli(clock.getAsLong()));
     int refreshes;
     int reconnects;
     long safeEnd = 1000;
@@ -367,8 +379,51 @@ class CaptureEngineTest {
     assertThat(h.sink.sqls()).containsExactly("a1", "a2");
     assertThat(e.metrics().stepCuts.get()).isEqualTo(1);
     assertThat(e.metrics().rowsMined.get())
-        .as("the DDL row is re-mined once and skipped")
-        .isEqualTo(6);
+        .as("the DDL row is not re-read: the cursor is its redo byte address (ADR-0014)")
+        .isEqualTo(5);
+  }
+
+  @Test
+  void redoBoundLateWithAnEarlierScnIsStillMinedAndSurvivesARestart() throws Exception {
+    // ADR-0014: a private redo strand reaches the log after the step that covered its SCNs; the
+    // cursor is a redo byte address, so the late rows are read next step, and the position's
+    // resume point re-reads them after a restart
+    Harness h = new Harness();
+    TxKey a = h.fake.tx(1, 1, 1);
+    TxKey b = h.fake.tx(1, 1, 2);
+    h.fake.start(b, "APP").insert(b, T, "b1").commit(b); // scn 1000..1002
+    h.safeEnd = 1010;
+    CaptureEngine e = h.engine(h.initial(), DecodeErrorAction.FAIL);
+    h.runUntilIdle(e);
+    assertThat(h.sink.sqls()).containsExactly("b1");
+    assertThat(e.cursor().scn()).isEqualTo(1010);
+    // a's redo was generated at SCNs 1003..1005 but is written only now, after the step
+    h.fake.late(1003).start(a, "APP");
+    h.fake.late(1004).insert(a, T, "a1");
+    h.fake.late(1005).insert(a, T, "a2");
+    h.safeEnd = 1011;
+    h.runUntilIdle(e);
+    assertThat(h.buffer.openTransactions()).as("the late rows were mined").isEqualTo(1);
+    // the resume point now names a's first row by redo byte address, below the cursor's SCN
+    sh.oso.connect.oracle.core.model.RedoRecordId resume = h.sink.steps.isEmpty() ? null : null;
+    long[] lastStep = h.sink.steps.get(h.sink.steps.size() - 1);
+    assertThat(lastStep[1]).as("resume SCN is a's first captured SCN").isEqualTo(1004);
+    // restart from a position built like the connector does: resume point = a's first capture
+    sh.oso.connect.oracle.core.model.RedoRecordId firstOfA =
+        h.buffer.oldestFirstCaptured().orElseThrow();
+    Position after = h.initial().withResume(firstOfA);
+    assertThat(after.resumeRsId()).isEqualTo(firstOfA.rsId());
+    Harness h2 = new Harness();
+    h2.fake = h.fake; // the same redo
+    h2.safeEnd = 1011;
+    CaptureEngine e2 = h2.engine(after, DecodeErrorAction.FAIL);
+    h2.runUntilIdle(e2);
+    assertThat(h2.buffer.openTransactions()).isEqualTo(1);
+    h.fake.startAt(1011).commit(a); // the commit itself is written now, at scn 1011
+    h2.safeEnd = h.fake.nextScn();
+    h2.runUntilIdle(e2);
+    assertThat(h2.sink.sqls()).as("a is complete after the restart").containsExactly("a1", "a2");
+    assertThat(h2.sink.committed.get(0).events()).hasSize(2);
   }
 
   @Test

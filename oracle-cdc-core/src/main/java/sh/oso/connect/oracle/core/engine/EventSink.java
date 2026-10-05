@@ -18,6 +18,7 @@ package sh.oso.connect.oracle.core.engine;
 import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
 import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
+import sh.oso.connect.oracle.core.model.RedoRecordId;
 
 /**
  * What the engine hands to its owner, in commit order. The owner (the Connect task) turns committed
@@ -32,20 +33,20 @@ public interface EventSink {
    * and the first capture of every transaction still open at this moment (CORE-POS-2), so an
    * interleaved transaction that commits later is never skipped (dbz#2544).
    */
-  void committed(CommittedTransaction tx, int skipped, long resumeCandidate);
+  void committed(CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate);
 
   /**
    * A step was applied. {@code minedToScn} is where mining continues; {@code resumeCandidate} is
    * the resume SCN the position may advance to once every emitted record is acknowledged
    * (CORE-POS-2, CORE-POS-5).
    */
-  void stepApplied(long minedToScn, long resumeCandidate);
+  void stepApplied(long minedToScn, RedoRecordId resumeCandidate);
 
   /**
    * Nothing to mine: the cursor is at the safe end. Reported so the owner can heartbeat the
    * position on a quiet database (CORE-POS-5); {@code resumeCandidate} as for {@link #stepApplied}.
    */
-  default void idle(long minedToScn, long resumeCandidate) {}
+  default void idle(long minedToScn, RedoRecordId resumeCandidate) {}
 
   /** A DDL on a captured owner was mined; informational until PRD-03 lands. */
   default void ddl(MiningEvent.Ddl ddl) {}
@@ -57,4 +58,18 @@ public interface EventSink {
 
   /** An UNSUPPORTED row for a captured table under the DLQ policy. */
   default void unsupported(MiningEvent.Unsupported event) {}
+
+  /** The pushed-down object ids were re-resolved after a DDL step cut. */
+  default void idsRefreshed(java.util.Set<String> owners) {}
+
+  /** The database sessions were reopened after a transient error (CORE-CONN-6). */
+  default void reconnected(String cause) {}
+
+  /**
+   * An orphaned transaction was released (CORE-TX-7, ADR-0006); {@code released} is the whole
+   * ledger the position must carry from now on.
+   */
+  default void orphanReleased(
+      sh.oso.connect.oracle.core.orphan.OrphanDetector.Release release,
+      java.util.List<String> released) {}
 }

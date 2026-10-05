@@ -89,8 +89,26 @@ final class TaskHarness implements AutoCloseable {
   private OracleCdcSourceTask task;
   int sessionsOpened;
 
+  /** Stands in for the Kafka admin client when cdc.kafka.bootstrap.servers is set. */
+  final sh.oso.connect.oracle.topics.FakeTopicAdmin topicAdmin =
+      new sh.oso.connect.oracle.topics.FakeTopicAdmin();
+
+  /**
+   * The journal topic as Kafka would hold it: acknowledged journal records, converted with the
+   * worker's JsonConverter, served back to the task's loader on restart.
+   */
+  final List<org.apache.kafka.clients.consumer.ConsumerRecord<byte[], byte[]>> journalTopic =
+      new ArrayList<>();
+
+  private final org.apache.kafka.connect.json.JsonConverter journalKeys =
+      new org.apache.kafka.connect.json.JsonConverter();
+  private final org.apache.kafka.connect.json.JsonConverter journalValues =
+      new org.apache.kafka.connect.json.JsonConverter();
+
   TaskHarness() {
     props.put(OracleCdcSourceConnectorConfig.POLL_LINGER_MS, "20");
+    journalKeys.configure(Map.of("schemas.enable", "true"), true);
+    journalValues.configure(Map.of("schemas.enable", "true"), false);
   }
 
   SchemaRegistry registry() {
@@ -144,13 +162,25 @@ final class TaskHarness implements AutoCloseable {
             return registry;
           }
 
-          public CaptureEngine engine(Position start, EventSink sink) {
+          public CaptureEngine engine(
+              Position start, EventSink sink, sh.oso.connect.oracle.journal.BufferSetup setup) {
+            HeapTransactionBuffer buffer =
+                new HeapTransactionBuffer(
+                    Long.MAX_VALUE,
+                    null,
+                    setup.policy(),
+                    setup.journal(),
+                    setup.generation(),
+                    Instant::now);
+            for (var chunks : setup.restored().values()) {
+              buffer.restore(chunks);
+            }
             return new CaptureEngine(
                 start,
                 fake,
                 new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
                 () -> safeEnd,
-                new HeapTransactionBuffer(),
+                buffer,
                 registry,
                 DECODER,
                 sink,
@@ -177,7 +207,20 @@ final class TaskHarness implements AutoCloseable {
       };
 
   OracleCdcSourceTask start() {
-    task = new OracleCdcSourceTask(factory);
+    task =
+        new OracleCdcSourceTask(factory) {
+          @Override
+          sh.oso.connect.oracle.topics.TopicAdmin topicAdmin(java.util.Properties clientProps) {
+            topicAdmin.closed = false;
+            return topicAdmin;
+          }
+
+          @Override
+          sh.oso.connect.oracle.journal.JournalReader journalReader(
+              java.util.Properties clientProps) {
+            return topic -> new ArrayList<>(journalTopic);
+          }
+        };
     task.initialize(
         new SourceTaskContext() {
           public Map<String, String> configs() {
@@ -208,13 +251,15 @@ final class TaskHarness implements AutoCloseable {
   }
 
   /**
-   * Polls until {@code n} change records or the deadline; heartbeats are dropped from the result.
+   * Polls until {@code n} change records or the deadline; heartbeats and ops events are dropped
+   * from the result.
    */
   List<SourceRecord> pollUntil(int n, long timeoutMillis) throws InterruptedException {
     return pollUntil(n, timeoutMillis, false);
   }
 
-  List<SourceRecord> pollUntil(int n, long timeoutMillis, boolean keepHeartbeats)
+  /** With {@code keepInternal} the heartbeat and ops records count and are returned too. */
+  List<SourceRecord> pollUntil(int n, long timeoutMillis, boolean keepInternal)
       throws InterruptedException {
     List<SourceRecord> out = new ArrayList<>();
     long deadline = System.currentTimeMillis() + timeoutMillis;
@@ -222,7 +267,7 @@ final class TaskHarness implements AutoCloseable {
       List<SourceRecord> batch = task.poll();
       if (batch != null) {
         for (SourceRecord r : batch) {
-          if (keepHeartbeats || !isHeartbeat(r)) {
+          if (keepInternal || !isInternal(r)) {
             out.add(r);
           }
         }
@@ -236,8 +281,20 @@ final class TaskHarness implements AutoCloseable {
   void acknowledge(List<SourceRecord> records) {
     for (SourceRecord r : records) {
       task.commitRecord(r, null);
-      committedOffsets.put(
-          (Map<String, Object>) r.sourcePartition(), (Map<String, Object>) r.sourceOffset());
+      if (r.sourceOffset() != null) {
+        committedOffsets.put(
+            (Map<String, Object>) r.sourcePartition(), (Map<String, Object>) r.sourceOffset());
+      }
+      if (isJournal(r)) {
+        byte[] k = journalKeys.fromConnectData(r.topic(), r.keySchema(), r.key());
+        byte[] v =
+            r.value() == null
+                ? null
+                : journalValues.fromConnectData(r.topic(), r.valueSchema(), r.value());
+        journalTopic.add(
+            new org.apache.kafka.clients.consumer.ConsumerRecord<>(
+                r.topic(), 0, journalTopic.size(), k, v));
+      }
     }
   }
 
@@ -258,9 +315,39 @@ final class TaskHarness implements AutoCloseable {
     return r.topic().endsWith(".cdc.heartbeat");
   }
 
+  static boolean isOps(SourceRecord r) {
+    return r.topic().endsWith(".cdc.ops");
+  }
+
+  static boolean isJournal(SourceRecord r) {
+    return r.topic().endsWith(".cdc.txjournal");
+  }
+
+  static boolean isInternal(SourceRecord r) {
+    return isHeartbeat(r) || isOps(r) || isJournal(r);
+  }
+
+  static String opsType(SourceRecord r) {
+    return ((org.apache.kafka.connect.data.Struct) r.value()).getString("type");
+  }
+
+  static Map<String, String> opsDetails(SourceRecord r) {
+    Map<?, ?> raw = ((org.apache.kafka.connect.data.Struct) r.value()).getMap("details");
+    Map<String, String> out = new java.util.LinkedHashMap<>();
+    raw.forEach((k, v) -> out.put(String.valueOf(k), String.valueOf(v)));
+    return out;
+  }
+
   static String sql(SourceRecord r) {
     if (isHeartbeat(r)) {
       return "<heartbeat>";
+    }
+    if (isOps(r)) {
+      return "<ops:" + opsType(r) + ">";
+    }
+    if (isJournal(r)) {
+      org.apache.kafka.connect.data.Struct k = (org.apache.kafka.connect.data.Struct) r.key();
+      return (r.value() == null ? "<tombstone:" : "<chunk:") + k.getInt32("chunk") + ">";
     }
     org.apache.kafka.connect.data.Struct v = (org.apache.kafka.connect.data.Struct) r.value();
     if (v == null) {

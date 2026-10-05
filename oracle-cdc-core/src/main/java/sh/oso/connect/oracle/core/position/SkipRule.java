@@ -32,10 +32,10 @@ public final class SkipRule {
     }
     int c =
         CommitOrder.compare(
-            tx.commitScn(),
+            tx.commitId(),
             tx.thread(),
             tx.key(),
-            position.lastCommitScn(),
+            position.lastCommitId(),
             position.lastCommitThread(),
             position.lastCommitKey());
     if (c < 0) {

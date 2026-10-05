@@ -43,6 +43,10 @@ public final class PositionCodec {
   static final String RESETLOGS_SCN = "resetlogs_scn";
   static final String RELEASED_XIDS = "released_xids";
   static final String SNAPSHOT = "snapshot";
+  static final String RESUME_RS_ID = "resume_rs_id";
+  static final String RESUME_SSN = "resume_ssn";
+  static final String LAST_COMMIT_RS_ID = "last_commit_rs_id";
+  static final String LAST_COMMIT_SSN = "last_commit_ssn";
 
   private static final Set<String> KNOWN_V1 =
       Set.of(
@@ -57,7 +61,11 @@ public final class PositionCodec {
           DBID,
           RESETLOGS_SCN,
           RELEASED_XIDS,
-          SNAPSHOT);
+          SNAPSHOT,
+          RESUME_RS_ID,
+          RESUME_SSN,
+          LAST_COMMIT_RS_ID,
+          LAST_COMMIT_SSN);
 
   private PositionCodec() {}
 
@@ -75,6 +83,10 @@ public final class PositionCodec {
     m.put(RESETLOGS_SCN, p.identity().resetlogsScn());
     m.put(RELEASED_XIDS, p.released().isEmpty() ? null : String.join(",", p.released()));
     m.put(SNAPSHOT, p.snapshot() == null ? null : snapshotJson(p.snapshot()));
+    m.put(RESUME_RS_ID, p.resumeRsId());
+    m.put(RESUME_SSN, p.resumeRsId() == null ? null : p.resumeSsn());
+    m.put(LAST_COMMIT_RS_ID, p.lastCommitRsId());
+    m.put(LAST_COMMIT_SSN, p.lastCommitRsId() == null ? null : p.lastCommitSsn());
     for (Map.Entry<String, Object> e : p.extras().entrySet()) {
       m.putIfAbsent(e.getKey(), e.getValue());
     }
@@ -140,7 +152,16 @@ public final class PositionCodec {
         new DatabaseIdentity(longValue(m, DBID), longValue(m, RESETLOGS_SCN)),
         released,
         snapshot(snap),
-        extras);
+        extras,
+        text(m, RESUME_RS_ID),
+        text(m, RESUME_RS_ID) == null ? 0 : longValue(m, RESUME_SSN),
+        text(m, LAST_COMMIT_RS_ID),
+        text(m, LAST_COMMIT_RS_ID) == null ? 0 : longValue(m, LAST_COMMIT_SSN));
+  }
+
+  private static String text(Map<String, ?> m, String key) {
+    Object v = m.get(key);
+    return v == null || v.toString().isBlank() ? null : v.toString();
   }
 
   private static final com.fasterxml.jackson.databind.ObjectMapper JSON =

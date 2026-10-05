@@ -23,6 +23,7 @@ import java.sql.Connection;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -53,7 +54,9 @@ class RestartNoLossConnectorIT {
     String schema = SchemaFixtures.nameFor(getClass());
     SchemaFixtures.recreate(db, OracleTestDatabase.PDB1, schema);
     try (ConnectCluster cluster = new ConnectCluster().start();
+        Connection root = db.capture(OracleTestDatabase.CDB_SERVICE);
         Connection w = db.connect(OracleTestDatabase.PDB1, schema, schema)) {
+      long workloadStartScn = sh.oso.connect.oracle.e2e.support.LogMinerHelper.currentScn(root);
       WorkloadSpec spec = WorkloadSpec.defaults();
       spec.seed = 21;
       spec.sessions = 2;
@@ -146,6 +149,7 @@ class RestartNoLossConnectorIT {
       Set<String> missing = new HashSet<>(expected);
       missing.removeAll(seen);
       if (!missing.isEmpty()) {
+        diagnose(root, cluster, missing, workloadStartScn);
         StringBuilder when = new StringBuilder();
         try (var ps =
             w.prepareStatement(
@@ -196,6 +200,61 @@ class RestartNoLossConnectorIT {
               + duplicatedTransactions);
     } finally {
       SchemaFixtures.drop(db, OracleTestDatabase.PDB1, schema);
+    }
+  }
+
+  /**
+   * On a miss, print what LogMiner holds for the missing transactions and what the connector
+   * published about itself, so the failure can be explained from the log alone.
+   */
+  private static void diagnose(
+      Connection root, ConnectCluster cluster, Set<String> missing, long fromScn) {
+    try {
+      long end = sh.oso.connect.oracle.e2e.support.LogMinerHelper.currentScn(root);
+      sh.oso.connect.oracle.e2e.support.LogMinerHelper.start(root, fromScn, end);
+      for (String xid : missing.stream().limit(3).toList()) {
+        String[] p = xid.split("\\.");
+        String raw =
+            String.format(
+                "%04X%04X%08X", Long.parseLong(p[0]), Long.parseLong(p[1]), Long.parseLong(p[2]));
+        var rows =
+            sh.oso.connect.oracle.e2e.support.LogMinerHelper.rows(
+                root, "XID = HEXTORAW('" + raw + "') ORDER BY SCN, RS_ID, SSN");
+        System.out.println("diagnose " + xid + ": " + rows.size() + " LogMiner rows");
+        for (var r : rows) {
+          System.out.println(
+              "  scn="
+                  + r.get("SCN")
+                  + " op="
+                  + r.get("OPERATION")
+                  + " table="
+                  + r.get("TABLE_NAME")
+                  + " rs_id="
+                  + r.get("RS_ID")
+                  + " ssn="
+                  + r.get("SSN")
+                  + " rollback="
+                  + r.get("ROLLBACK")
+                  + " status="
+                  + r.get("STATUS"));
+        }
+      }
+      sh.oso.connect.oracle.e2e.support.LogMinerHelper.end(root);
+    } catch (Exception e) {
+      System.out.println("diagnose: LogMiner lookup failed: " + e);
+    }
+    try (KafkaConsumer<String, String> c = cluster.consumer("diag-ops", "rl.cdc.ops")) {
+      for (ConsumerRecord<String, String> r :
+          ConnectCluster.consume(c, 1, Duration.ofSeconds(20), Duration.ofSeconds(2))) {
+        System.out.println("diagnose ops: " + r.value());
+      }
+    }
+    try (KafkaConsumer<String, String> c = cluster.consumer("diag-hb", "rl.cdc.heartbeat")) {
+      List<ConsumerRecord<String, String>> hb =
+          ConnectCluster.consume(c, 1, Duration.ofSeconds(20), Duration.ofSeconds(2));
+      hb.stream()
+          .skip(Math.max(0, hb.size() - 6))
+          .forEach(r -> System.out.println("diagnose heartbeat: " + r.value()));
     }
   }
 }
