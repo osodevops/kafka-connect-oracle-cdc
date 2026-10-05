@@ -21,8 +21,8 @@ One of these, and the message says which:
 - **No archive destination to mine.** `cdc.archive.destination` names a destination that is not
   active, or, with the setting empty, no valid local archive destination exists.
 
-The message from this release may suggest `oracle-cdc-admin`. That command is not available yet;
-use the steps below.
+The steps below use Kafka Connect's REST API; [`oracle-cdc-admin offsets`](../admin.md) shows and
+sets the stored offset as well.
 
 ## Why it stopped rather than continued
 

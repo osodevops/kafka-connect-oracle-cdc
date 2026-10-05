@@ -16,6 +16,7 @@
 package sh.oso.connect.oracle.core.doctor;
 
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.regex.Pattern;
 import sh.oso.connect.oracle.core.topology.CatalogSource;
@@ -38,4 +39,24 @@ public interface DoctorCatalog extends CatalogSource {
 
   /** Whether the connected user is a common user (CDB only). */
   boolean commonUser() throws SQLException;
+
+  /**
+   * V$ARCHIVED_LOG rows at the destination switched out at or after {@code since}, including
+   * deleted entries, ordered by thread and sequence (DOC-9, DOC-10, sizing, redo-profile).
+   */
+  List<ArchiveStat> archiveHistory(Instant since, int destId) throws SQLException;
+
+  /** V$LOG groups with their sizes (DOC-9, sizing). */
+  List<OnlineLogGroup> onlineLogGroups() throws SQLException;
+
+  /** The V$PARAMETER value of an initialisation parameter, or null when it is not visible. */
+  String parameter(String name) throws SQLException;
+
+  /**
+   * Fixed tables with optimizer statistics (DOC-16), or -1 when DBA_TAB_STATISTICS is not readable.
+   */
+  int fixedTablesWithStatistics() throws SQLException;
+
+  /** Whether the connected user may execute the package {@code owner.name} (DOC-20). */
+  boolean canExecute(String owner, String name) throws SQLException;
 }

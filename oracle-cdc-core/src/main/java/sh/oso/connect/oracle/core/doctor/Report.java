@@ -15,14 +15,34 @@
  */
 package sh.oso.connect.oracle.core.doctor;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
-/** The outcome of a doctor run with the PRD-05 exit codes. */
-public record Report(List<Finding> findings) {
+/**
+ * The outcome of a doctor run with the PRD-05 exit codes. {@code rules} lists the rules that ran,
+ * in order, so the JUnit report has one test case per rule whether or not it found anything.
+ */
+public record Report(List<Finding> findings, List<String> rules) {
 
   public static final int EXIT_OK = 0;
   public static final int EXIT_BLOCKING = 1;
   public static final int EXIT_WARNINGS = 2;
+
+  public Report {
+    findings = List.copyOf(findings);
+    Set<String> ids = new LinkedHashSet<>(rules);
+    for (Finding f : findings) {
+      ids.add(f.rule());
+    }
+    rules = List.copyOf(ids);
+  }
+
+  /** A report whose rules are the ones that produced the findings. */
+  public Report(List<Finding> findings) {
+    this(findings, List.of());
+  }
 
   public boolean hasBlocking() {
     return findings.stream().anyMatch(f -> f.severity() == Severity.BLOCKING);
@@ -83,26 +103,63 @@ public record Report(List<Finding> findings) {
     return sb.append("]}").toString();
   }
 
+  /**
+   * JUnit XML for CI: one test case per rule. A rule with a blocking finding fails; warnings and
+   * information go to the case's output, so a pipeline shows them without failing on them.
+   */
   public String toJUnitXml() {
+    List<String> cases = rules.isEmpty() ? List.of("all rules") : rules;
+    long failures =
+        cases.stream()
+            .filter(
+                r ->
+                    findings.stream()
+                        .anyMatch(f -> f.rule().equals(r) && f.severity() == Severity.BLOCKING))
+            .count();
     StringBuilder sb =
-        new StringBuilder(
-                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                    + "<testsuite name=\"oracle-cdc-doctor\" tests=\"")
-            .append(Math.max(1, findings.size()))
+        new StringBuilder("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+            .append("<testsuite name=\"oracle-cdc-doctor\" tests=\"")
+            .append(cases.size())
             .append("\" failures=\"")
-            .append(findings.stream().filter(f -> f.severity() == Severity.BLOCKING).count())
-            .append("\">\n");
-    if (findings.isEmpty()) {
-      sb.append("  <testcase name=\"all rules\" classname=\"doctor\"/>\n");
-    }
-    for (Finding f : findings) {
-      sb.append("  <testcase name=\"").append(f.rule()).append("\" classname=\"doctor\">");
-      if (f.severity() == Severity.BLOCKING) {
-        sb.append("<failure message=\"").append(xml(f.message())).append("\"/>");
-      } else {
-        sb.append("<system-out>")
-            .append(xml(f.severity() + ": " + f.message()))
-            .append("</system-out>");
+            .append(failures)
+            .append("\" errors=\"0\" skipped=\"0\">\n");
+    for (String rule : cases) {
+      List<Finding> mine = new ArrayList<>();
+      for (Finding f : findings) {
+        if (f.rule().equals(rule)) {
+          mine.add(f);
+        }
+      }
+      sb.append("  <testcase name=\"")
+          .append(xml(rule))
+          .append("\" classname=\"oracle-cdc-doctor\"");
+      if (mine.isEmpty()) {
+        sb.append("/>\n");
+        continue;
+      }
+      sb.append('>');
+      List<Finding> blocking =
+          mine.stream().filter(f -> f.severity() == Severity.BLOCKING).toList();
+      if (!blocking.isEmpty()) {
+        sb.append("<failure message=\"")
+            .append(xml(blocking.get(0).message()))
+            .append("\" type=\"BLOCKING\">");
+        for (Finding f : blocking) {
+          sb.append(xml(f.message())).append('\n');
+          if (f.fixSql() != null) {
+            sb.append(xml(f.fixSql())).append('\n');
+          }
+        }
+        sb.append("</failure>");
+      }
+      StringBuilder outText = new StringBuilder();
+      for (Finding f : mine) {
+        if (f.severity() != Severity.BLOCKING) {
+          outText.append(f.severity()).append(": ").append(f.message()).append('\n');
+        }
+      }
+      if (outText.length() > 0) {
+        sb.append("<system-out>").append(xml(outText.toString())).append("</system-out>");
       }
       sb.append("</testcase>\n");
     }
@@ -110,13 +167,44 @@ public record Report(List<Finding> findings) {
   }
 
   private static String quote(String s) {
-    return '"' + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + '"';
+    StringBuilder sb = new StringBuilder("\"");
+    for (char c : s.toCharArray()) {
+      switch (c) {
+        case '\\' -> sb.append("\\\\");
+        case '"' -> sb.append("\\\"");
+        case '\n' -> sb.append("\\n");
+        case '\r' -> sb.append("\\r");
+        case '\t' -> sb.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            sb.append(String.format(java.util.Locale.ROOT, "\\u%04x", (int) c));
+          } else {
+            sb.append(c);
+          }
+        }
+      }
+    }
+    return sb.append('"').toString();
   }
 
-  private static String xml(String s) {
-    return s.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;");
+  /**
+   * XML 1.0 text: markup characters escaped, control characters other than tab and line dropped.
+   */
+  static String xml(String s) {
+    StringBuilder sb = new StringBuilder();
+    for (char c : s.toCharArray()) {
+      switch (c) {
+        case '&' -> sb.append("&amp;");
+        case '<' -> sb.append("&lt;");
+        case '>' -> sb.append("&gt;");
+        case '"' -> sb.append("&quot;");
+        default -> {
+          if (c >= 0x20 || c == '\n' || c == '\t' || c == '\r') {
+            sb.append(c);
+          }
+        }
+      }
+    }
+    return sb.toString();
   }
 }

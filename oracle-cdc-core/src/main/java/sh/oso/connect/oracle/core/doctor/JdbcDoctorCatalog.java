@@ -20,6 +20,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -304,5 +305,96 @@ public final class JdbcDoctorCatalog implements DoctorCatalog {
   @Override
   public List<RedoLog> archivedSince(Instant since, int destId) throws SQLException {
     return base.archivedSince(since, destId);
+  }
+
+  @Override
+  public List<RedoLog> dictionaryLogs(int destId) throws SQLException {
+    return base.dictionaryLogs(destId);
+  }
+
+  @Override
+  public List<ArchiveStat> archiveHistory(Instant since, int destId) throws SQLException {
+    List<ArchiveStat> out = new ArrayList<>();
+    try (PreparedStatement ps =
+        c.prepareStatement(
+            "SELECT thread#, sequence#, first_change#, next_change#, first_time, next_time,"
+                + " blocks * block_size, deleted, status FROM v$archived_log WHERE dest_id = ?"
+                + " AND standby_dest = 'NO' AND next_time >= ? ORDER BY thread#, sequence#")) {
+      ps.setInt(1, destId);
+      ps.setTimestamp(2, Timestamp.from(since));
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          Timestamp first = rs.getTimestamp(5);
+          Timestamp next = rs.getTimestamp(6);
+          String status = rs.getString(9);
+          out.add(
+              new ArchiveStat(
+                  rs.getInt(1),
+                  rs.getLong(2),
+                  rs.getLong(3),
+                  rs.getLong(4),
+                  first == null ? null : first.toInstant(),
+                  next == null ? null : next.toInstant(),
+                  rs.getLong(7),
+                  "YES".equals(rs.getString(8)) || "D".equals(status) || "X".equals(status)));
+        }
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public List<OnlineLogGroup> onlineLogGroups() throws SQLException {
+    List<OnlineLogGroup> out = new ArrayList<>();
+    try (Statement s = c.createStatement();
+        ResultSet rs =
+            s.executeQuery(
+                "SELECT thread#, group#, bytes, status FROM v$log ORDER BY thread#, group#")) {
+      while (rs.next()) {
+        out.add(new OnlineLogGroup(rs.getInt(1), rs.getInt(2), rs.getLong(3), rs.getString(4)));
+      }
+    }
+    return out;
+  }
+
+  @Override
+  public String parameter(String name) throws SQLException {
+    try (PreparedStatement ps =
+        c.prepareStatement("SELECT value FROM v$parameter WHERE name = ?")) {
+      ps.setString(1, name);
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next() ? rs.getString(1) : null;
+      }
+    }
+  }
+
+  @Override
+  public int fixedTablesWithStatistics() throws SQLException {
+    try {
+      return count(
+          "SELECT COUNT(*) FROM dba_tab_statistics WHERE object_type = 'FIXED TABLE' AND"
+              + " last_analyzed IS NOT NULL");
+    } catch (SQLException e) {
+      if (e.getErrorCode() == 942) {
+        return -1;
+      }
+      throw e;
+    }
+  }
+
+  @Override
+  public boolean canExecute(String owner, String name) throws SQLException {
+    // ALL_OBJECTS lists a package only when the session may execute it, directly, through an
+    // enabled role or through EXECUTE ANY PROCEDURE
+    try (PreparedStatement ps =
+        c.prepareStatement(
+            "SELECT COUNT(*) FROM all_objects WHERE owner = ? AND object_name = ? AND object_type"
+                + " = 'PACKAGE'")) {
+      ps.setString(1, owner);
+      ps.setString(2, name);
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next() && rs.getInt(1) > 0;
+      }
+    }
   }
 }

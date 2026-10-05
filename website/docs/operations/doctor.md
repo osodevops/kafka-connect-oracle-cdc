@@ -1,48 +1,147 @@
 ---
 title: oracle-cdc-doctor
-description: The preflight checker, its rules, output formats and exit codes.
+description: The preflight checker, its rules, the redo profiler, sizing and lag explanation, output formats and exit codes.
 ---
 
 # oracle-cdc-doctor
 
 `oracle-cdc-doctor` runs against the database named in a connector configuration and reports
-what would stop capture, with the SQL that fixes it. The connector's own `validate` runs the
-same fast rules, so a configuration that passes the doctor is accepted by Connect.
+what would stop capture, with the SQL that fixes it. It also profiles the redo the connector has
+to mine, sizes online logs and archive retention, and explains why a running connector lags. The
+connector's own `validate` runs the fast subset of the rules, so a configuration that passes the
+doctor is accepted by Connect. The operator commands for offsets, resnapshots, transactions and
+the journal are described in [oracle-cdc-admin](admin.md).
 
 ```bash
-java -jar oracle-cdc-doctor-cli.jar check --config connector.json [--format markdown|json|junit]
+java -jar oracle-cdc-doctor-cli.jar check --config connector.json [--format markdown|json|junit] [--rules all|fast]
+    [--max-downtime 24h] [--bootstrap-servers host:9092] [--command-config client.properties] [--connect-url http://connect:8083]
 java -jar oracle-cdc-doctor-cli.jar setup-sql [--profile production|lab] [--user c##cdc] [--non-cdb] [--pdbs A,B]
+java -jar oracle-cdc-doctor-cli.jar redo-profile --config connector.json [--window 2h] [--sample-logs 1] [--top 20]
+java -jar oracle-cdc-doctor-cli.jar sizing --config connector.json [--days 7] [--max-downtime 24h]
+java -jar oracle-cdc-doctor-cli.jar explain-lag (--jmx-url URL | --metrics-url URL) [--connect-url URL --name NAME | --config connector.json | --server PREFIX] [--interval 10s]
 ```
+
+`--config` takes either the bare configuration map or the REST envelope
+(`{"name": ..., "config": {...}}`). Durations are written as `2h`, `90m`, `7d` or in ISO-8601
+form such as `PT2H`.
 
 | Exit code | Meaning |
 |---|---|
-| 0 | No blocking findings |
-| 1 | Blocking findings, or the database could not be reached |
+| 0 | No blocking findings (or the command completed) |
+| 1 | Blocking findings, or the database could not be reached, or the command failed |
 | 2 | Warnings only |
 | 3 | Not implemented yet (RDS and Autonomous setup) |
 | 64 | Usage or configuration error |
 
-## Rules in the current build
+## check
 
-| Rule | Checks | Severity |
-|---|---|---|
-| DOC-1 | Database in ARCHIVELOG mode | blocking |
-| DOC-2 | Minimal supplemental logging at database level | blocking |
-| DOC-3 | Table-level supplemental logging on every captured table | blocking when absent, warning for primary-key-only |
-| DOC-4 | Grant profile, readable fixed views, common user and `CONTAINER_DATA=ALL` in a CDB | blocking |
-| DOC-5 | Identity columns and BOOLEAN, JSON, VECTOR, BFILE or nested-table columns | blocking |
-| DOC-6 | Table or column names over 30 characters | blocking |
-| DOC-7 | Primary key or NOT NULL unique index, honouring `cdc.key.missing`; ROW MOVEMENT with ROWID keys | blocking, warning or info |
-| DOC-12 | A valid local archive destination (or the configured one) | blocking |
-| DOC-14 | PRIMARY and READ WRITE for online capture mode | blocking |
-| DOC-15 | Oracle Database 19c or later | blocking |
+`check` runs every rule below by default. `--rules fast` runs only the rules the connector's
+`validate` runs, which need nothing but the database. Output is Markdown (a findings table and the
+SQL to run), JSON, or JUnit XML for CI: one test case per rule, failed when the rule has a blocking
+finding, with warnings and information in the test case output.
 
-Rules DOC-8 to 11, 13 and 16 to 20 (redo rate, retention, Kafka transaction timeout, broker
-reachability and more) and the `redo-profile`, `sizing` and `explain-lag` commands arrive with
-the full doctor in Phase 1d.
+The Kafka rules use the brokers in `cdc.kafka.bootstrap.servers` with the other `cdc.kafka.*`
+client settings, or `--bootstrap-servers` and a Kafka client properties file in
+`--command-config`. Without broker access they report that they did not check. With
+`exactly.once.support=required` in the configuration and `--connect-url`, DOC-18 asks a Connect
+worker to validate the configuration.
+
+| Rule | Checks | Severity | In fast mode |
+|---|---|---|---|
+| DOC-1 | Database in ARCHIVELOG mode | blocking | yes |
+| DOC-2 | Minimal supplemental logging at database level | blocking | yes |
+| DOC-3 | Table-level supplemental logging on every captured table | blocking when absent, warning for primary-key-only | yes |
+| DOC-4 | Grant profile, readable fixed views, common user and `CONTAINER_DATA=ALL` in a CDB | blocking | yes |
+| DOC-5 | Identity columns and BOOLEAN, JSON, VECTOR, BFILE or nested-table columns | blocking | yes |
+| DOC-6 | Table or column names over 30 characters | blocking | yes |
+| DOC-7 | Primary key or NOT NULL unique index, honouring `cdc.key.missing`; ROW MOVEMENT on a keyless table | blocking, warning or info | yes |
+| DOC-8 | CLOB, NCLOB, BLOB, XMLTYPE, LONG and LONG RAW columns and what `cdc.lob.mode` does with them | info, warning for XMLTYPE outside `skip` | no |
+| DOC-9 | More than six log switches in an hour on any thread over the last seven days, with the online log size that keeps the peak hour at about four | warning | no |
+| DOC-10 | Archived redo reaches back at least `cdc.txjournal.threshold.ms` plus the planned maximum downtime (`--max-downtime`, default 24 hours) | warning; info until a log has been deleted | no |
+| DOC-11 | `UNDO_RETENTION` of at least 120 seconds, the longest a snapshot chunk read is expected to take | warning | no |
+| DOC-12 | A valid local archive destination (or the configured one) | blocking | yes |
+| DOC-13 | RAC: redo threads and whether each is enabled; `cdc.database.fan.enabled` | info | no |
+| DOC-14 | PRIMARY and READ WRITE for online capture mode | blocking | yes |
+| DOC-15 | Oracle Database 19c or later | blocking | yes |
+| DOC-16 | Fixed-object statistics present | warning | no |
+| DOC-17 | Internal topics exist with the right cleanup policy, or the connector may create them | blocking, warning or info | no |
+| DOC-18 | With `exactly.once.support=required` or `transaction.boundary=connector`: `cdc.eos.batch.max.ms` below the producer's `transaction.timeout.ms`, that timeout within the brokers' `transaction.max.timeout.ms`, and the worker accepting exactly-once support | blocking | no |
+| DOC-19 | TCP keepalive idle time (`oracle.net.TCP_KEEPIDLE` in `cdc.database.connection.properties`) below the default idle timeouts of common load balancers | info | no |
+| DOC-20 | Whether the [lag case](../concepts/schema-and-ddl.md) can be recovered: `EXECUTE ON DBMS_LOGMNR_D`, the newest dictionary build flagged `DICTIONARY_BEGIN` and `DICTIONARY_END` in V$ARCHIVED_LOG, and every log from it on still present | info; warning when recovery is not possible | no |
+
+Notes on individual rules:
+
+- DOC-7: snapshots read a keyless heap table in ROWID ranges, so a row that moves while a
+  snapshot runs (ROW MOVEMENT) can be read twice or missed. With `cdc.key.missing=rowid` a moved
+  row also changes its key.
+- DOC-8: XMLTYPE values are neither assembled from redo nor reselected in this release, so in
+  `inline` and `reselect` mode the records carry `cdc.unavailable.placeholder` for them.
+- DOC-9 and DOC-10 read the archive destination the connector mines from.
+- DOC-10 measures how far back the oldest archived log still present reaches on every enabled
+  thread. Until the catalog lists a deleted log, retention has not been exercised and the rule
+  only reports what it needs.
+- DOC-13: this release is qualified for a single redo thread; RAC capture is planned for Phase 2,
+  and the connector does not subscribe to FAN events.
+- DOC-19: the connector's connections use TCP keepalive. Without `oracle.net.TCP_KEEPIDLE` the
+  operating system's idle time applies (two hours by default on Linux), which is longer than the
+  idle timeout of an AWS Network Load Balancer (350 seconds) or an Azure Load Balancer (four
+  minutes by default). Set it below the limit of any load balancer or firewall between the worker
+  and the database, or set `SQLNET.EXPIRE_TIME` on the database server.
+- DOC-20: replaying a lagging step needs a dictionary build in the redo before the rows and every
+  log from that build on ([dictionary unavailable](runbooks/dictionary-unavailable.md)). With the
+  privilege the connector writes a build at start when none exists and then on the
+  `cdc.dictionary.build.*` schedule.
 
 The `setup-sql --profile lab` output is the exact script that builds the test database image,
 and a test asserts they stay identical.
+
+## redo-profile
+
+`redo-profile` reports archive generation per hour and thread over `--window` from
+V$ARCHIVED_LOG, then mines the SCN range of the newest `--sample-logs` archived logs (every
+thread's logs for that range, checked for continuity as the engine checks them) with LogMiner and
+no table filter. It counts the rows by table and operation, flags tables that look like a
+truncate-and-reload job (a TRUNCATE and at least 1,000 inserts in the sample) or a delete-and-reload
+job (at least 1,000 deletes and inserts in similar numbers), and reports the share of rows naming a
+table that belong to tables the connector does not capture. The connector's mining query filters
+those rows out, but LogMiner still reads their redo, so a large share of uncaptured redo makes
+every mining step slower. When the top redo source is not captured, the report says so.
+
+The sample runs one LogMiner session on the doctor's connection with the online catalog; it reads
+archived logs only and writes nothing to the database.
+
+## sizing
+
+`sizing` reads `--days` of V$ARCHIVED_LOG history (default seven) and reports per redo thread the
+logs switched, average and peak switches per hour, the peak hour, archive generation per day, the
+current online log size and the size that would keep the peak hour at about four switches. For
+all threads together it reports the average and busiest day and the busiest hour, the retention a
+maximum downtime of `--max-downtime` needs (the downtime plus `cdc.txjournal.threshold.ms`,
+rounded up to whole hours) and the archive space that retention takes at the observed peak rate,
+and how far back archived redo reaches now.
+
+## explain-lag
+
+`explain-lag` reads a running task's metrics twice, `--interval` apart, from the worker that runs
+the task: over JMX (`--jmx-url`, which also gives the largest open transactions) or from the
+Prometheus endpoint of the JMX exporter (`--metrics-url`, with the rules in `ops/jmx-exporter`).
+The server name is the connector's `cdc.topic.prefix`, read from the configuration given with
+`--config`, or through the Connect REST API with `--connect-url` and `--name` (which also prints
+the connector's state), or given with `--server`.
+
+The task's metrics give the mining step time as one figure (query, fetch and decode together),
+the buffer, the record queue between the engine and Kafka Connect, and the delay from commit to
+queue. The command names the most likely cause in plain English, with the readings behind it:
+
+| Cause | Signature |
+|---|---|
+| Kafka side | The record queue is at least 80 per cent full in both readings, so mining waits for Kafka Connect to take records |
+| Mining | Steps timed out at `cdc.mining.query.timeout.ms`, or the last step took more than twice `cdc.mining.target.latency.ms` (and at least five seconds) |
+| Large transaction | One open transaction with at least 100,000 changes, a quarter of the buffer budget, or spilled changes; its records wait for its commit |
+| Dictionary replays | Steps mined a second time with a dictionary from the redo, because rows predate a DDL the connector has not mined yet (the lag case) |
+
+A breakdown of mining time into query, fetch and decode, and of delivery into emit and produce
+time, needs metrics the task does not publish yet.
 
 ## Container image
 

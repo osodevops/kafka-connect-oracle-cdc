@@ -32,7 +32,9 @@ public final class Doctor {
 
   public Report run(DoctorContext ctx) {
     List<Finding> findings = new ArrayList<>();
+    List<String> ids = new ArrayList<>();
     for (Rule r : rules) {
+      ids.add(r.id());
       try {
         findings.addAll(r.evaluate(ctx));
       } catch (SQLException | RuntimeException e) {
@@ -40,6 +42,6 @@ public final class Doctor {
             Finding.blocking(r.id(), "Rule " + r.id() + " could not run: " + e.getMessage(), null));
       }
     }
-    return new Report(findings);
+    return new Report(findings, ids);
   }
 }

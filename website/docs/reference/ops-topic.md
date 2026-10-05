@@ -27,7 +27,9 @@ version 1.
 
 Ops records ride the same queue as change records and carry a Kafka Connect source offset, so
 committing one never moves the connector's position past an unacknowledged change. Under
-exactly-once delivery they are part of the same Kafka transactions as the change records.
+exactly-once delivery they are part of the same Kafka transactions as the change records. The exception
+is `offsets-set`, which `oracle-cdc-admin` writes directly while the connector is stopped; its
+`resume_scn` is the new resume SCN.
 
 ## Event types
 

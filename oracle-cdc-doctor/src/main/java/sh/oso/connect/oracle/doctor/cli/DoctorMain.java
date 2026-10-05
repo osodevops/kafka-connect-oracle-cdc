@@ -15,23 +15,16 @@
  */
 package sh.oso.connect.oracle.doctor.cli;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import java.util.Properties;
 import java.util.concurrent.Callable;
 import org.apache.kafka.common.config.ConfigException;
 import picocli.CommandLine;
@@ -39,27 +32,30 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
+import sh.oso.connect.oracle.OracleCdcSourceConnector;
+import sh.oso.connect.oracle.OracleCdcSourceConnectorConfig;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.doctor.Doctor;
 import sh.oso.connect.oracle.core.doctor.DoctorContext;
 import sh.oso.connect.oracle.core.doctor.Finding;
-import sh.oso.connect.oracle.core.doctor.JdbcDoctorCatalog;
+import sh.oso.connect.oracle.core.doctor.InternalTopic;
 import sh.oso.connect.oracle.core.doctor.Report;
 import sh.oso.connect.oracle.core.doctor.Rules;
 import sh.oso.connect.oracle.core.doctor.SetupSql.Platform;
 import sh.oso.connect.oracle.core.doctor.SetupSql.Profile;
-import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
+import sh.oso.connect.oracle.core.doctor.WorkerFacts;
 import sh.oso.connect.oracle.core.errors.OracleCdcException;
-import sh.oso.connect.oracle.core.jdbc.ConnectionFactory;
-import sh.oso.connect.oracle.core.jdbc.ConnectionRole;
-import sh.oso.connect.oracle.core.jdbc.OracleConnectionSpec;
-import sh.oso.connect.oracle.core.jdbc.RetryPolicy;
+import sh.oso.connect.oracle.doctor.admin.ConfigFiles;
+import sh.oso.connect.oracle.doctor.admin.Database;
+import sh.oso.connect.oracle.doctor.admin.Environment;
+import sh.oso.connect.oracle.doctor.kafka.KafkaPort;
+import sh.oso.connect.oracle.topics.InternalTopics;
 
 /**
- * {@code oracle-cdc-doctor}: preflight checks, DBA setup script, redo profiler and admin commands
- * for the OSO CDC Connector for Oracle Database (PRD-05). Exit codes: 0 no blocking findings, 1
- * blocking findings (or the database could not be reached), 2 warnings only, 3 not implemented yet,
- * 64 usage error.
+ * {@code oracle-cdc-doctor}: preflight checks, DBA setup script, redo profiler, sizing, lag
+ * explanation and the admin commands for the OSO CDC Connector for Oracle Database (PRD-05). Exit
+ * codes: 0 no blocking findings, 1 blocking findings (or the database could not be reached, or an
+ * admin command refused), 2 warnings only, 3 not implemented yet, 64 usage error.
  */
 @Command(
     name = "oracle-cdc-doctor",
@@ -68,8 +64,15 @@ import sh.oso.connect.oracle.core.jdbc.RetryPolicy;
     versionProvider = DoctorMain.VersionProvider.class,
     description =
         "Preflight checker and operations CLI for the OSO CDC Connector for Oracle Database.",
-    subcommands = {DoctorMain.Check.class, DoctorMain.SetupSqlCommand.class})
-public final class DoctorMain implements Callable<Integer> {
+    subcommands = {
+      DoctorMain.Check.class,
+      DoctorMain.SetupSqlCommand.class,
+      DiagnosticCommands.RedoProfileCommand.class,
+      DiagnosticCommands.SizingCommand.class,
+      DiagnosticCommands.ExplainLag.class,
+      AdminCommands.Admin.class
+    })
+public final class DoctorMain implements Callable<Integer>, AdminCommands.Rooted {
 
   public static final int EXIT_OK = Report.EXIT_OK;
   public static final int EXIT_BLOCKING = Report.EXIT_BLOCKING;
@@ -85,22 +88,38 @@ public final class DoctorMain implements Callable<Integer> {
 
   @Spec CommandSpec spec;
 
+  private final Environment env;
+
+  DoctorMain(Environment env) {
+    this.env = env;
+  }
+
+  @Override
+  public Environment env() {
+    return env;
+  }
+
   public static void main(String[] args) {
     System.exit(run(args));
   }
 
   /** Runs the CLI against the standard streams and returns the exit code. */
   public static int run(String... args) {
-    return commandLine().execute(args);
+    return commandLine(Environment.standard()).execute(args);
   }
 
   /** Runs the CLI with the given streams; used by tests. */
   public static int run(PrintWriter out, PrintWriter err, String... args) {
-    return commandLine().setOut(out).setErr(err).execute(args);
+    return run(Environment.standard(), out, err, args);
   }
 
-  private static CommandLine commandLine() {
-    return new CommandLine(new DoctorMain())
+  /** Runs the CLI with the given environment and streams; used by tests. */
+  public static int run(Environment env, PrintWriter out, PrintWriter err, String... args) {
+    return commandLine(env).setOut(out).setErr(err).execute(args);
+  }
+
+  private static CommandLine commandLine(Environment env) {
+    return new CommandLine(new DoctorMain(env))
         .setUsageHelpWidth(100)
         .setCaseInsensitiveEnumValuesAllowed(true);
   }
@@ -113,18 +132,7 @@ public final class DoctorMain implements Callable<Integer> {
 
   /** Reads a connector config file: either a bare {@code {"k": "v"}} map or a REST envelope. */
   static Map<String, String> readConfig(Path file) throws IOException {
-    JsonNode root = new ObjectMapper().readTree(Files.readString(file));
-    if (root == null || !root.isObject()) {
-      throw new IOException(file + " does not hold a JSON object");
-    }
-    JsonNode cfg = root.has("config") && root.get("config").isObject() ? root.get("config") : root;
-    Map<String, String> out = new LinkedHashMap<>();
-    for (Iterator<Map.Entry<String, JsonNode>> it = cfg.fields(); it.hasNext(); ) {
-      Map.Entry<String, JsonNode> e = it.next();
-      out.put(
-          e.getKey(), e.getValue().isValueNode() ? e.getValue().asText() : e.getValue().toString());
-    }
-    return out;
+    return ConfigFiles.connector(file);
   }
 
   static List<String> csv(String value) {
@@ -138,6 +146,45 @@ public final class DoctorMain implements Callable<Integer> {
       }
     }
     return out;
+  }
+
+  /** {@code cdc.kafka.*} as client properties, with overrides from the command line. */
+  static Properties kafkaProperties(Map<String, String> props, String bootstrap, Path commandConfig)
+      throws IOException {
+    Properties p = new Properties();
+    for (Map.Entry<String, String> e : props.entrySet()) {
+      if (e.getKey().startsWith(OracleCdcSourceConnectorConfig.KAFKA_CLIENT_PREFIX)) {
+        p.put(
+            e.getKey().substring(OracleCdcSourceConnectorConfig.KAFKA_CLIENT_PREFIX.length()),
+            e.getValue());
+      }
+    }
+    if (bootstrap != null) {
+      p.put("bootstrap.servers", bootstrap);
+    }
+    if (commandConfig != null) {
+      p.putAll(ConfigFiles.properties(commandConfig));
+    }
+    return p.containsKey("bootstrap.servers") ? p : null;
+  }
+
+  /** The internal topics the connector would use, or none when the config cannot say. */
+  static List<InternalTopic> internalTopics(Map<String, String> props) {
+    try {
+      OracleCdcSourceConnectorConfig c = new OracleCdcSourceConnectorConfig(props);
+      List<InternalTopic> out = new ArrayList<>();
+      for (Map.Entry<String, InternalTopics.Spec> e : InternalTopics.of(c).entrySet()) {
+        out.add(
+            new InternalTopic(
+                e.getKey(),
+                e.getValue().name(),
+                e.getValue().compacted(),
+                e.getValue().retentionMs()));
+      }
+      return out;
+    } catch (RuntimeException e) {
+      return List.of();
+    }
   }
 
   @Command(
@@ -156,10 +203,45 @@ public final class DoctorMain implements Callable<Integer> {
     @Option(names = "--format", defaultValue = "markdown", description = "markdown, json or junit.")
     String format;
 
+    @Option(
+        names = "--rules",
+        defaultValue = "all",
+        description =
+            "all (default) or fast, the subset the connector's validate runs (no Kafka or"
+                + " Connect checks).")
+    String rules;
+
+    @Option(
+        names = "--max-downtime",
+        defaultValue = "24h",
+        converter = Durations.class,
+        description =
+            "Longest planned stop of the connector, for the archive retention rule DOC-10;"
+                + " default 24h.")
+    Duration maxDowntime;
+
+    @Option(
+        names = "--bootstrap-servers",
+        description = "Brokers for DOC-17 and DOC-18; default cdc.kafka.bootstrap.servers.")
+    String bootstrap;
+
+    @Option(
+        names = "--command-config",
+        description = "Kafka client properties file (security settings) for the broker checks.")
+    Path commandConfig;
+
+    @Option(
+        names = "--connect-url",
+        description =
+            "Kafka Connect REST URL; with exactly.once.support=required, DOC-18 asks a worker to"
+                + " validate the configuration.")
+    String connectUrl;
+
     @Override
-    public Integer call() throws IOException, InterruptedException {
+    public Integer call() throws IOException {
       PrintWriter out = spec.commandLine().getOut();
       PrintWriter err = spec.commandLine().getErr();
+      Environment env = ((AdminCommands.Rooted) spec.root().userObject()).env();
       Map<String, String> props;
       CoreConfig cfg;
       try {
@@ -169,33 +251,71 @@ public final class DoctorMain implements Callable<Integer> {
         err.println("oracle-cdc-doctor check: " + e.getMessage());
         return EXIT_USAGE;
       }
+      boolean all = !"fast".equalsIgnoreCase(rules);
       Report report;
-      ConnectionFactory factory =
-          new ConnectionFactory(
-              OracleConnectionSpec.from(cfg),
-              new RetryPolicy(Duration.ofSeconds(30)),
-              new OraErrorClassifier(Set.copyOf(cfg.extraRetryErrorCodes())));
-      try (Connection c = factory.open(ConnectionRole.METADATA)) {
+      KafkaPort kafka = null;
+      try (Database db = env.database(cfg)) {
         DoctorContext ctx =
             new DoctorContext(
-                cfg,
-                new JdbcDoctorCatalog(c),
-                csv(props.get(TABLES_INCLUDE)),
-                csv(props.get(TABLES_EXCLUDE)),
-                props.getOrDefault(KEY_MISSING, "fail"));
-        report = new Doctor(Rules.fastMode()).run(ctx);
+                    cfg,
+                    db.catalog(),
+                    csv(props.get(TABLES_INCLUDE)),
+                    csv(props.get(TABLES_EXCLUDE)),
+                    props.getOrDefault(KEY_MISSING, "fail"))
+                .withConnectorProperties(props)
+                .withMaxDowntime(maxDowntime)
+                .withClock(env.clock());
+        if (all) {
+          List<InternalTopic> topics = internalTopics(props);
+          Properties kp = kafkaProperties(props, bootstrap, commandConfig);
+          if (kp != null) {
+            kafka = env.kafka(kp);
+            ctx.withKafka(kafka.facts(), topics);
+          } else {
+            ctx.withInternalTopics(topics);
+          }
+          if (connectUrl != null
+              && "required".equalsIgnoreCase(props.getOrDefault("exactly.once.support", ""))) {
+            ctx.withWorker(worker(env, props, err));
+          }
+        }
+        report = new Doctor(all ? Rules.all() : Rules.fastMode()).run(ctx);
       } catch (OracleCdcException e) {
         report = new Report(List.of(Finding.blocking("CONNECT", e.getMessage(), null)));
-      } catch (SQLException e) {
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        report = new Report(List.of(Finding.blocking("CONNECT", "Interrupted", null)));
+      } catch (Exception e) {
         report =
             new Report(
                 List.of(
                     Finding.blocking(
                         "CONNECT", "The database connection failed: " + e.getMessage(), null)));
+      } finally {
+        if (kafka != null) {
+          kafka.close();
+        }
       }
       out.print(render(report, format));
       out.flush();
       return report.exitCode();
+    }
+
+    private WorkerFacts worker(Environment env, Map<String, String> props, PrintWriter err) {
+      try {
+        Map<String, List<String>> errors =
+            env.connect(connectUrl)
+                .validate(
+                    props.getOrDefault("connector.class", OracleCdcSourceConnector.class.getName()),
+                    props);
+        List<String> eos = errors.get("exactly.once.support");
+        return new WorkerFacts(eos == null || eos.isEmpty() ? null : String.join(" ", eos));
+      } catch (IOException e) {
+        err.println(
+            "oracle-cdc-doctor check: the worker could not validate the configuration: "
+                + e.getMessage());
+        return null;
+      }
     }
 
     static String render(Report report, String format) {

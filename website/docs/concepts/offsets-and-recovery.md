@@ -91,8 +91,8 @@ Keep `dbid` and `resetlogs_scn` as they were read: they tie the offset to its da
 `released_xids` too; it is what stops a late COMMIT of a released transaction from being published
 in part.
 
-`oracle-cdc-admin`, a command line tool that wraps these steps and refuses an SCN whose redo is
-already purged, is [not available yet](../operations/admin.md).
+[`oracle-cdc-admin offsets set`](../operations/admin.md) wraps these steps and refuses an SCN whose
+redo is already purged.
 
 ## Why the cursor is a redo byte address
 

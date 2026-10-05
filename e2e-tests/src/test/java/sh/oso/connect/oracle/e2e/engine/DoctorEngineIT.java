@@ -207,6 +207,8 @@ class DoctorEngineIT {
             "check",
             "--config",
             ok.toString(),
+            "--rules",
+            "fast",
             "--format",
             "json");
     assertThat(exit).isZero();

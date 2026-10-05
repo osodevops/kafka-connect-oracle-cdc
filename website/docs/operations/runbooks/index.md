@@ -40,6 +40,5 @@ the data, is in [offsets and recovery](../../concepts/offsets-and-recovery.md#re
 Where a runbook says to reload a table, it means a [`snapshot` signal](../signals.md), which
 republishes the table's current rows while streaming continues.
 
-`oracle-cdc-admin`, a command line tool for offsets and resnapshots, is
-[not available yet](../admin.md). Error messages from this release that mention it are answered by
-the steps in these runbooks.
+The runbooks use Kafka Connect's REST API for offsets. [`oracle-cdc-admin`](../admin.md) wraps
+those steps, refuses an SCN whose redo is purged, and starts a resnapshot of chosen tables.

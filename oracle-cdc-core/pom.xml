@@ -72,7 +72,7 @@
                 <!-- JDBC-bound classes are covered by the Oracle suites in e2e-tests, not by unit tests -->
                 <exclude>sh/oso/connect/oracle/core/topology/JdbcCatalogSource*</exclude>
                 <exclude>sh/oso/connect/oracle/core/logs/LogSetProbe*</exclude>
-                <exclude>sh/oso/connect/oracle/core/doctor/JdbcDoctorCatalog*</exclude>
+                <exclude>sh/oso/connect/oracle/core/doctor/Jdbc*</exclude>
                 <exclude>sh/oso/connect/oracle/core/mining/JdbcLogMinerSession*</exclude>
                 <exclude>sh/oso/connect/oracle/core/mining/JdbcObjectCatalog*</exclude>
                 <exclude>sh/oso/connect/oracle/core/schema/JdbcDictionaryReader*</exclude>

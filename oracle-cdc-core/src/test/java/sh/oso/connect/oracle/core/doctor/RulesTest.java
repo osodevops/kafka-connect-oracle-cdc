@@ -142,11 +142,31 @@ class RulesTest {
     Report r = new Doctor(Rules.fastMode()).run(ctx(cat, "rowid"));
     assertThat(r.findings()).extracting(Finding::severity).containsOnly(Severity.WARNING);
     assertThat(r.exitCode()).isEqualTo(Report.EXIT_WARNINGS);
+    // ADR-0004: a keyless table is snapshotted in ROWID ranges, so ROW MOVEMENT is a warning
+    // under every key policy that accepts keyless tables; without it the table is only noted
+    cat.tables.add(
+        new CapturedTable(
+            "FREEPDB1", "APP", "STILL", List.of(ID), true, false, false, false, false, false));
     Report none = new Doctor(Rules.fastMode()).run(ctx(cat, "none"));
     assertThat(none.findings())
         .filteredOn(f -> f.rule().equals("DOC-7"))
-        .extracting(Finding::severity)
-        .containsOnly(Severity.INFO);
+        .extracting(Finding::message, Finding::severity)
+        .containsExactlyInAnyOrder(
+            org.assertj.core.groups.Tuple.tuple(
+                "FREEPDB1.APP.MOVER has no key and ROW MOVEMENT enabled. Snapshots of a keyless"
+                    + " table read ROWID ranges, so a row that moves while a snapshot runs can be"
+                    + " read twice or missed.",
+                Severity.WARNING),
+            org.assertj.core.groups.Tuple.tuple(
+                "FREEPDB1.APP.STILL has no key; records are keyed by none.", Severity.INFO));
+    assertThat(r.findings())
+        .filteredOn(f -> f.rule().equals("DOC-7"))
+        .singleElement()
+        .satisfies(
+            f -> {
+              assertThat(f.message()).contains("keyed by ROWID").contains("ROWID ranges");
+              assertThat(f.fixSql()).contains("DISABLE ROW MOVEMENT");
+            });
   }
 
   @Test

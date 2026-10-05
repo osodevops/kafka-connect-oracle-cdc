@@ -18,7 +18,9 @@ package sh.oso.connect.oracle.core.doctor;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import sh.oso.connect.oracle.core.logs.RedoLog;
 import sh.oso.connect.oracle.core.testkit.FakeCatalog;
@@ -27,14 +29,22 @@ import sh.oso.connect.oracle.core.topology.DatabaseInfo;
 import sh.oso.connect.oracle.core.topology.PdbInfo;
 import sh.oso.connect.oracle.core.topology.ThreadInfo;
 
-/** A {@link FakeCatalog} plus the dictionary facts the doctor rules need. */
-final class FakeDoctorCatalog implements DoctorCatalog {
-  final FakeCatalog base = new FakeCatalog();
-  final List<CapturedTable> tables = new ArrayList<>();
-  final List<String> privileges = new ArrayList<>(Rules.REQUIRED_PRIVILEGES);
-  final List<String> inaccessible = new ArrayList<>();
-  boolean containerDataAll = true;
-  boolean common = true;
+/**
+ * A {@link FakeCatalog} plus the dictionary facts the doctor rules need. Public so the doctor CLI
+ * tests (core test-jar) can drive the same fixtures.
+ */
+public final class FakeDoctorCatalog implements DoctorCatalog {
+  public final FakeCatalog base = new FakeCatalog();
+  public final List<CapturedTable> tables = new ArrayList<>();
+  public final List<String> privileges = new ArrayList<>(Rules.REQUIRED_PRIVILEGES);
+  public final List<String> inaccessible = new ArrayList<>();
+  public final List<ArchiveStat> history = new ArrayList<>();
+  public final List<OnlineLogGroup> groups = new ArrayList<>();
+  public final Map<String, String> parameters = new HashMap<>(Map.of("undo_retention", "900"));
+  public boolean containerDataAll = true;
+  public boolean common = true;
+  public int fixedTablesWithStatistics = 1200;
+  public boolean dictionaryPackage = true;
 
   @Override
   public List<CapturedTable> capturedTables(
@@ -65,6 +75,33 @@ final class FakeDoctorCatalog implements DoctorCatalog {
   @Override
   public boolean commonUser() {
     return common;
+  }
+
+  @Override
+  public List<ArchiveStat> archiveHistory(Instant since, int destId) {
+    return history.stream()
+        .filter(a -> a.nextTime() != null && !a.nextTime().isBefore(since))
+        .toList();
+  }
+
+  @Override
+  public List<OnlineLogGroup> onlineLogGroups() {
+    return List.copyOf(groups);
+  }
+
+  @Override
+  public String parameter(String name) {
+    return parameters.get(name);
+  }
+
+  @Override
+  public int fixedTablesWithStatistics() {
+    return fixedTablesWithStatistics;
+  }
+
+  @Override
+  public boolean canExecute(String owner, String name) {
+    return dictionaryPackage && "SYS".equals(owner) && "DBMS_LOGMNR_D".equals(name);
   }
 
   @Override
@@ -105,5 +142,10 @@ final class FakeDoctorCatalog implements DoctorCatalog {
   @Override
   public List<RedoLog> archivedSince(Instant since, int destId) throws SQLException {
     return base.archivedSince(since, destId);
+  }
+
+  @Override
+  public List<RedoLog> dictionaryLogs(int destId) {
+    return base.dictionaryLogs(destId);
   }
 }

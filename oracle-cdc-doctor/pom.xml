@@ -29,6 +29,18 @@
       <scope>compile</scope>
     </dependency>
     <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+      <!-- the admin commands write the ops and signals topics and read the journal topic -->
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>connect-json</artifactId>
+      <!-- ops records are written, and journal records read, with the connector's JSON converter -->
+      <scope>compile</scope>
+    </dependency>
+    <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
     </dependency>
@@ -46,6 +58,13 @@
       <scope>runtime</scope>
     </dependency>
 
+    <dependency>
+      <groupId>sh.oso</groupId>
+      <artifactId>oracle-cdc-core</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>

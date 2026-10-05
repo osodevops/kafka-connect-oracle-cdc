@@ -24,8 +24,8 @@ which:
 The connector needs a log when it holds changes after the last acknowledged position, or the start
 of a transaction that is still open and not journaled.
 
-The message from this release may suggest `oracle-cdc-admin resnapshot`. That command is not
-available yet; use the steps below.
+The steps below use Kafka Connect's REST API. [`oracle-cdc-admin`](../admin.md) wraps them:
+`offsets set` refuses an SCN whose redo is purged, and `resnapshot` reads chosen tables again.
 
 ## Why it stopped rather than continued
 

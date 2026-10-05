@@ -31,10 +31,10 @@ a benchmark claim.
 | [LOB columns](reference/record-formats.md#lob-columns): skip, inline from redo, or reselect as of the commit SCN | Available |
 | Decode DLQ, [ops topic](reference/ops-topic.md), heartbeats, archive-only mining | Available |
 | [Metrics](reference/metrics.md), Prometheus exporter rules, [Grafana dashboard and alert rules](operations/dashboards-and-alerts.md) | Available |
-| [`oracle-cdc-doctor`](operations/doctor.md) preflight checks and setup script | Available |
+| [`oracle-cdc-doctor`](operations/doctor.md): preflight checks, setup script, redo profile, sizing, lag explanation | Available |
 | Several PDBs from one connector | See [multi-PDB capture](concepts/multi-pdb.md) |
-| `oracle-cdc-admin` command line tool | Not available yet |
-| Migration tools from Confluent and Debezium | See [migration](migration/from-debezium.md) |
+| [`oracle-cdc-admin`](operations/admin.md): offsets, resnapshot, open transactions, journal inspection | Available |
+| [Migration tools](migration/tools.md) from Confluent and Debezium: configuration translation, takeover SCN, cutover verification | Available |
 | Oracle RAC, Amazon RDS, Autonomous Database, standby capture | Not available yet |
 | Confluent-compatible record format, transaction metadata records, schema change topic | Not available yet |
 
