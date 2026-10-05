@@ -5,9 +5,6 @@ description: Why offsets never pin on a long transaction and how large transacti
 
 # Transaction buffer and journal
 
-**Status:** the buffer with spill to disk and the Kafka transaction journal are implemented. Spike
-findings in `oracle-cdc-core/src/main/resources/reference` back the rules described here.
-
 Changes are buffered per transaction, keyed by container and transaction id, until LogMiner reports
 the COMMIT. A ROLLBACK discards the entry. A savepoint rollback arrives as undo rows; each one
 removes the latest earlier change with the same ROWID, so partially rolled back transactions are
@@ -63,6 +60,27 @@ order with the data.
   tombstoned. A gap in chunk numbers stops the task with `CDC-4002`.
 - The journal needs `cdc.kafka.bootstrap.servers`. Without it the task logs a warning at start,
   journals nothing, and long transactions pin the resume position as before.
+
+## Orphaned transactions
+
+A transaction can disappear from the database without LogMiner ever returning its COMMIT or
+ROLLBACK, for example when its session is killed in a way that leaves no end record in the redo
+mined so far. Such a transaction would stay in the buffer and hold the resume position at its first
+change for ever. Every `cdc.transaction.orphan.check.interval.ms` (five minutes by default) the
+connector checks the transactions it has buffered for longer than that interval against
+`GV$TRANSACTION`. A transaction is an orphan when it was absent in two consecutive checks, the
+connector has mined past the SCN of the first absence without seeing its end, and the session named
+by its START row no longer exists.
+
+With `cdc.transaction.orphan.action=release` (the default) the connector drops an orphan as a
+rollback and writes a `transaction-orphan-released` event to the ops topic. Its id joins the
+released ledger carried in the offsets, so if a COMMIT for it arrives after all, the task stops with
+[CDC-7001](../operations/runbooks/orphan-release-violation.md) rather than publish part of it. With
+`fail` the task stops with [CDC-7002](../operations/runbooks/orphan-transaction.md) and the operator
+decides.
+
+Transactions with an all-zero transaction id, which LogMiner reports for some internal operations,
+never own changes and never create a buffer entry.
 
 ## Long transactions
 

@@ -66,7 +66,12 @@ metrics, show progress.
 
 - A table whose key columns change during its snapshot is read with the key it had at the start.
 - A keyless table with row movement enabled can have rows that move between ROWID ranges during the
-  snapshot; `oracle-cdc-doctor` warns about such tables.
+  snapshot; `oracle-cdc-doctor` warns about such tables when they are keyed by ROWID
+  (`cdc.key.missing=rowid`).
+- Snapshot chunks waiting for streaming to reach their SCN are held in memory, up to
+  `cdc.snapshot.max.pending.chunks` chunks of `cdc.snapshot.chunk.rows` rows; they do not spill to
+  disk.
+- A signal that asks for a snapshot while another one runs is rejected, not queued.
 - Partitions are read through the table's key or ROWID ranges, not one partition at a time.
 - Columns of type BOOLEAN, JSON, VECTOR or BFILE have no record mapping yet. A table with one stops
   the snapshot with `CDC-3001`, or with `cdc.on.decode.error=dlq` is skipped with a

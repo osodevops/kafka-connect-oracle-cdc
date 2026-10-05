@@ -26,13 +26,16 @@ so nothing is pushed to a registry.
 
 ## Edge cases
 
-`lab/local/k8s/edge-cases.sh` induces one failure per case and verifies that the platform
-recovers: worker `SIGKILL`, Strimzi manual rolling update, rollout restart, two-worker
-rebalance, broker restart, Oracle pod restart from its volume, a NetworkPolicy partition
-between Connect and Oracle, a connector config update, an operator restart during a change,
-an OOM kill under a low memory limit, and the connector offsets listing. Each case runs a seeded
-workload from the bench tool through the fault and then checks that every committed transaction
-in the workload ledger reached Kafka, reporting any duplicated transactions.
+`lab/local/k8s/edge-cases.sh` induces one failure per case: worker `SIGKILL`, Strimzi manual
+rolling update, rollout restart, two-worker rebalance, broker restart, Oracle pod restart from its
+volume, a NetworkPolicy partition between Connect and Oracle, a connector config update, an
+operator restart during a change, an OOM kill under a low memory limit, and the connector offsets
+listing. Each case runs a seeded workload from the bench tool through the fault, checks that the
+platform recovers, and then checks that every committed transaction in the workload ledger reached
+Kafka, reporting any duplicated transactions.
+
+So far the worker kill, the rolling update, the rebalance and the Oracle pod restart have passed
+with that ledger check. The other cases are in the script but have not been verified yet.
 
 ## Lessons the manifests encode
 

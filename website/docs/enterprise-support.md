@@ -7,54 +7,83 @@ sidebar_position: 90
 
 # Enterprise support
 
-The connector is open source and free to run. If you run it in production and want someone
-accountable for it, OSO, the team that builds and maintains it, offers an annual **Enterprise
-support subscription**. There are no licence keys and nothing changes in the software: the
-subscription buys support and maintenance commitments, and if it ends the connector keeps
-running.
+The connector is open source under the Apache-2.0 licence and free to run. If you run it in
+production and want someone accountable for it, OSO, the team that builds and maintains it, offers
+an annual **Enterprise support subscription**. There are no licence keys and nothing changes in the
+software: the connector has no phone-home, and if a subscription ends the connector keeps running.
 
-## Community or enterprise
+The commitments on this page are the ones in the repository's `SUPPORT.md`, which is the source of
+truth. A subscriber's schedule may extend them but never reduces them.
 
-| | Community | Enterprise support subscription |
+## How to get help
+
+| Channel | Who | Commitment |
 |---|---|---|
-| Who | Everyone | Subscribers |
-| Channel | [GitHub issues](https://github.com/osodevops/kafka-connect-oracle-cdc/issues) and [discussions](https://github.com/osodevops/kafka-connect-oracle-cdc/discussions) | support@oso.sh, the OSO support portal, and a shared Slack Connect or Microsoft Teams channel |
-| Response | Best effort, no commitment | P1 within 60 minutes with a workaround or recovery path within four hours, P2 within four hours, P3 one business day, P4 two business days |
-| Who answers | Maintainers, as time allows | The engineers who write the code, directly |
-| Fixes | Next release | Patch releases for your P1 and P2 defects |
+| [GitHub issues](https://github.com/osodevops/kafka-connect-oracle-cdc/issues) and [discussions](https://github.com/osodevops/kafka-connect-oracle-cdc/discussions) | Everyone | Best effort, no commitment |
+| support@oso.sh and the support portal | Subscribers | Response targets below |
+| Shared Slack Connect or Microsoft Teams channel | Subscribers | Included |
+| security@oso.sh or GitHub private vulnerability reporting | Everyone | See `SECURITY.md` |
+| sales@oso.sh | Prospective subscribers | Scoping call |
 
-Business hours are 08:00 to 18:00 UK time, Monday to Friday, excluding UK public holidays.
-There is no staffed 24x7 desk; out-of-hours cover is a priced option.
+Subscribers' questions are answered by the engineers who write the code.
 
-## P1 for this connector
+When you open a ticket, include the connector version, the Oracle Database version and release
+update, the Kafka Connect version and platform, the connector configuration with credentials
+removed, the `oracle-cdc-doctor check` report, and the Connect task status and logs.
 
-- The connector has stopped and no workaround restores capture
-- The resume SCN is approaching archive retention and redo is at risk of being purged
-- Records are suspected lost, duplicated or corrupted
-- Mining is causing measurable production impact on the source database
+## Hours
 
-## What the subscription includes
+08:00 to 18:00 UK time, Monday to Friday, excluding UK public holidays. There is no staffed 24x7
+desk. Out-of-hours P1 cover is available as a priced option.
 
-| Component | Detail |
-|---|---|
-| Maintained releases | Security patches, dependency updates and critical defect fixes for the supported versions |
-| Oracle release readiness | Each Oracle Database release update in the supported matrix is tested before customers apply it |
-| Kafka Connect compatibility | Verification on Apache Kafka, Amazon MSK Connect, Strimzi and Confluent Platform |
-| `oracle-cdc-doctor` findings review | Help interpreting findings, redo sizing advice and DBA script review |
-| Migration guidance | From Confluent Oracle CDC Source and Debezium Oracle, including cutover verification |
-| Onboarding review | Configuration, grants, offsets, journal and runbook review, and an upgrade to the current release |
-| Roadmap | Your issues and feature requests are prioritised and reviewed each quarter |
+## Priorities and response targets
 
-## What is not covered
+| Priority | Definition | Initial response | Workaround or recovery path |
+|---|---|---|---|
+| P1 | The connector has stopped and no workaround restores capture; the resume SCN is approaching archive retention (risk of purge); records are suspected lost, duplicated or corrupted; mining is causing measurable production impact on the source database | 60 minutes | 4 hours |
+| P2 | Degraded capture (lag beyond the agreed target, snapshots failing) with a workaround | 4 hours | 1 business day |
+| P3 | A defect or question that is not urgent | 1 business day | 3 business days |
+| P4 | Enhancement request | 2 business days | 5 business days |
 
-- Operating the Oracle database itself, Oracle licensing questions, GoldenGate and XStream
-- Confluent's and Debezium's connectors
-- Kafka platform operation, available from OSO as a separate service
+Every P1 gets a root
+cause analysis within five business days. Escalation runs from the engineer to the lead engineer
+to the CTO. Subscribers receive a monthly report and a quarterly service review.
 
-Supported versions: the current and previous minor release of the connector; Oracle Database
-versions per the published matrix; Kafka Connect 3.6 and later.
+## What the subscription covers
 
-OSO supports the connector. Oracle supports your database. LogMiner is a feature of Oracle
-Database included in all editions.
+- The connector itself.
+- Review of `oracle-cdc-doctor` findings, redo sizing advice and review of the DBA scripts.
+- Oracle release update and upgrade readiness: each release update in the supported matrix is
+  tested before subscribers apply it.
+- Migration guidance from Confluent Oracle CDC Source and Debezium Oracle, and the migration and
+  verification tools.
+
+## What it does not cover
+
+- Operating the Oracle database itself, and Oracle licensing questions.
+- GoldenGate and XStream products.
+- Confluent's and Debezium's connectors.
+- Kafka platform operation, which OSO offers as a separate service.
+
+OSO supports the connector. Oracle supports your database. LogMiner is a feature of Oracle Database
+included in all editions.
+
+## Supported versions
+
+- Connector: the current and the previous minor release.
+- Oracle Database: per the support matrix; 19c, 21c and 23ai at 1.0. What the test suites run
+  today is listed under [compatibility](getting-started/installation.md#compatibility).
+- Kafka Connect 3.6 and later on Apache Kafka, Strimzi, Confluent Platform 7.6 and later, and
+  Amazon MSK Connect; Java 17 and 21.
+
+## Security fixes
+
+The targets in `SECURITY.md`: acknowledgement within two business days, assessment within five,
+and critical and high severity issues fixed or mitigated within ten business days.
+
+## Continuity
+
+Releases are automated, at least two OSO engineers hold release rights, and the source is public,
+so there is nothing to escrow.
 
 [Contact OSO](https://oso.sh/contact/) to discuss a subscription.

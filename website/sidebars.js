@@ -92,7 +92,12 @@ const sidebars = {
       items: ['migration/from-confluent', 'migration/from-debezium', 'migration/cutover-verification'],
     },
     'comparison/index',
-    'guides/index',
+    {
+      type: 'category',
+      label: 'Guides',
+      link: {type: 'doc', id: 'guides/index'},
+      items: ['guides/oracle-cdc-to-kafka'],
+    },
     'enterprise-support',
     {
       type: 'html',

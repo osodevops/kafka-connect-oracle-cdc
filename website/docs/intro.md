@@ -15,23 +15,32 @@ silently.
 
 ## Status
 
-The connector is under active development and has not yet made a release. This site documents
-the design as it is implemented; every page says whether the capability it describes exists in
-the current code, is being built, or is planned. Nothing on this site is a benchmark claim.
+The connector is under active development and has not made a release yet. Everything this site
+describes as available is in the code on the main branch and covered by its test suites; you can
+build and run it today (see [getting started](getting-started/index.md)). Nothing on this site is
+a benchmark claim.
 
 | Capability | Status |
 |---|---|
-| Database preflight (`oracle-cdc-doctor check`, `setup-sql`) | Available in the repository |
-| Deterministic workload generator and ledger (`bench workload`) | Available in the repository |
-| Docker Compose and Strimzi labs | Available in the repository |
-| Capture engine, Debezium-compatible envelope, at-least-once delivery for one or more PDBs (no DDL replay yet) | Available in the repository (Phase 1a) |
-| Spill to disk for large transactions, transaction journal, ops topic, internal topic creation, archive-only capture mode | Implemented |
-| Orphan detection, long-transaction policy, decode DLQ | Implemented |
-| LOB columns: `skip`, `inline` assembly from redo, `reselect` as of the commit SCN | Implemented |
-| JMX metrics, Prometheus exporter rules, Grafana dashboard and alert rules; parallel decoding | Implemented |
-| Exactly-once delivery with Kafka transactions at Oracle commit boundaries | Implemented |
-| Snapshots, DDL replay, multi-PDB | Planned (Phase 1c) |
-| RAC, Confluent record format, RDS, Autonomous Database | Planned (Phase 2 and 3) |
+| Streaming capture with LogMiner, Debezium-compatible records, at-least-once delivery | Available |
+| [Exactly-once delivery](concepts/exactly-once.md), Kafka transactions at Oracle commit boundaries | Available |
+| [Snapshots](concepts/snapshots.md): chunked, SCN-anchored, resumable, interleaved with streaming | Available |
+| [Signals](operations/signals.md): snapshots on demand, pause, resume, stop, table refresh, state dump | Available |
+| [Transaction buffer](concepts/transaction-buffer-and-journal.md) with spill to disk, Kafka transaction journal, orphan detection, long-transaction policy | Available |
+| [Schema versions and DDL](concepts/schema-and-ddl.md): schema topic, rows written before a DDL decoded with a dictionary from the redo | Available |
+| [LOB columns](reference/record-formats.md#lob-columns): skip, inline from redo, or reselect as of the commit SCN | Available |
+| Decode DLQ, [ops topic](reference/ops-topic.md), heartbeats, archive-only mining | Available |
+| [Metrics](reference/metrics.md), Prometheus exporter rules, [Grafana dashboard and alert rules](operations/dashboards-and-alerts.md) | Available |
+| [`oracle-cdc-doctor`](operations/doctor.md) preflight checks and setup script | Available |
+| Several PDBs from one connector | See [multi-PDB capture](concepts/multi-pdb.md) |
+| `oracle-cdc-admin` command line tool | Not available yet |
+| Migration tools from Confluent and Debezium | See [migration](migration/from-debezium.md) |
+| Oracle RAC, Amazon RDS, Autonomous Database, standby capture | Not available yet |
+| Confluent-compatible record format, transaction metadata records, schema change topic | Not available yet |
+
+Oracle Database 19c and later is required. The test suites run against Oracle Database Free,
+release 23.26.3;
+see [installation](getting-started/installation.md#compatibility) for what is tested.
 
 ## Design in one paragraph
 
@@ -40,13 +49,15 @@ running transaction never pins the connector's offsets and never fills the heap:
 transactions spill to disk and, past a threshold, to a durable journal topic in Kafka. Offsets
 only ever encode what Kafka Connect acknowledged. Any condition the engine does not understand,
 such as a missing archived log, a corrupt redo record or a column it cannot decode, stops the
-task with a typed error and a runbook link rather than skipping data.
+task with a typed error and a [runbook](operations/runbooks/index.md) link rather than skipping
+data.
 
 ## Where to go next
 
 - [Getting started](getting-started/index.md) runs the whole stack on a laptop.
 - [Database setup](database-setup/index.md) prepares an Oracle database for capture.
-- [oracle-cdc-doctor](operations/doctor.md) checks the database before the connector starts.
+- [How capture works](concepts/how-capture-works.md) explains the engine.
+- [Comparison](comparison/index.md) sets the connector beside Confluent's and Debezium's.
 - [Enterprise support](enterprise-support.md) describes the production support subscription.
 
 ## Trademarks
