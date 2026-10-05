@@ -78,8 +78,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/oracle/oradata
-            - name: archive
+            # archived redo must survive a pod restart: an emptyDir here lost the logs the
+            # connector still needed and it stopped, correctly, with CDC-2002 LOG_PURGED
+            - name: data
               mountPath: /opt/oracle/archive
+              subPath: archive
             - name: dshm
               mountPath: /dev/shm
           startupProbe:
@@ -108,9 +111,6 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 2Gi
-        - name: archive
-          emptyDir:
-            sizeLimit: 20Gi
   volumeClaimTemplates:
     - metadata:
         name: data

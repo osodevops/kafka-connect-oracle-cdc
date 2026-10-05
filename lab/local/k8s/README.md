@@ -57,3 +57,9 @@ so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.
 - A fault that restarts Oracle also kills the generator's own connections; the harness treats a
   stopped generator as expected for those cases and still requires every ledger transaction to be
   in Kafka.
+- Archived redo lived on an `emptyDir`, so an Oracle pod restart wiped it; the connector then
+  stopped with `CDC-2002 LOG_PURGED` naming the missing archived log, which is the right outcome
+  and exactly what the ledger check reported (three transactions in that log). The archive
+  directory now lives on the data PVC (`subPath: archive`). Resetting the lab connector after
+  such a loss: stop the `KafkaConnector` (`spec.state: stopped`), annotate it
+  `strimzi.io/connector-offsets=delete`, then set it running again.
