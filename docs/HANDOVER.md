@@ -59,30 +59,22 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 
 Nothing uncommitted. Still open:
 
-- **Nightly results, 5 and 6 October 2026 (first run, Mac asleep most of the time, see section 4).** Passed: broker restart,
-  abandoned transaction, archive purge during lag, network faults. One product defect, fixed:
-  - Log switch storm: CDC-2001 "the latest log ... ending at SCN n, before the end SCN" while the
-    switch to the next log was under way and `V$LOG` did not list it yet. A false gap; the
-    inventory now ends the step at the newest listed log in online mode.
-  Failed on the test or the host, not on lost data:
-  - Worker kills: the unpaced workload (about 230 transactions a second) outran the capture on
-    Oracle Database Free's two CPU threads; the ledger then counted undelivered transactions as
-    missing (no duplicates, gaps or order violations among the 20,089 delivered). The workload is
-    now paced (`WorkloadSpec.pauseMillisBetweenTransactions`) and the suite asserts catch-up first.
-  - Spill cap: after the remedy 24,155 of 30,000 events arrived within the 15-minute read, in
-    order and without duplicates; the worker log went silent for the whole read, as in the
-    schema topic loss suites, while gates and agents loaded the host.
-  - Schema topic loss: the DDL case did stop typed (CDC-6001) but the test read the status only
-    inside its loop; it now reads it once more after the deadline. The rebuild case saw no row in
-    three minutes while the log was silent.
-  - Database restart: the check's `AS OF SCN` read hit ORA-01466; the bench check now reports that
-    as inconclusive, as `verify_cutover.py` does.
-  Re-run each failed suite alone on an awake, quiet host before trusting a verdict (the storm
-  suite too, for the fix); if the spill or schema suites stay slow there, profile exactly-once
-  delivery of a large spilled transaction.
+- **Nightly tier, 6 October 2026, Mac awake.** Every suite passes: broker restart, abandoned
+  transaction, archive purge during lag, network faults, log switch storm (172 forced switches,
+  22,135 transactions), database restart (SHUTDOWN ABORT mid-stream, 9 reconnects, both workloads
+  PASS), schema topic loss (rebuild and DDL while stopped), spill cap and spill volume (the whole
+  30,000 and 12,000 event transactions after the remedy), worker kills (25 SIGKILLs under EOS,
+  6,347 transactions, no duplicate), and the soak harness trial. The first run's failures the night
+  before came from the Mac sleeping (section 4), from test designs, and from three product defects
+  now fixed: the log switch false gap (`83db7d1`), ORA-01368 (`d0f1be1`) and ORA-16331 after a
+  restart (see below).
 - `nightly.yml` does not pass `-Dnightly.kills`, and 1,000 kills do not fit a hosted runner's six
   hours; the default is 25. Sion to decide where the long run lives.
-- P1-30: the 72-hour soak and the 19c and 21c qualification (T4 lab) have not run.
+- P1-30: the 72-hour soak has not run. `bench soak` is merged and its trial passed on Testcontainers
+  (`SoakHarnessNightlyIT`: three checks PASS, catch-up under five seconds, a fifteen-minute host
+  sleep detected and recorded); run it with `make -C lab/local/compose soak HOURS=72` once the Mac
+  can stay awake for three days (the target recreates the workload tables, see the lab README).
+  The 19c and 21c qualification (T4 lab) has not run either.
 - P1-31: Strimzi edge cases rollout_restart, broker_restart, partition, config_update,
   operator_restart_during_change, oom, offsets_list; `bench check` in `edge-cases.sh`.
 - No suite yet runs a worker with an Avro converter and a schema registry (the round trip is
@@ -92,8 +84,10 @@ Nothing uncommitted. Still open:
   before the connector reaches the first) leaves an inexact version, and rows naming the dropped
   column stop with CDC-3001 (CDC-6001 under replay). Decoding them needs layouts derived from the
   redo dictionary's DDL tracking rather than from the online catalog.
-- A soak harness: the paced `bench workload` in hourly segments on the compose lab, `bench check`
-  after each, heap and lag sampled from the JMX exporter, an evidence summary at the end.
+- In progress on a branch (`feat/layouts-at-start`): exact layouts for every captured table at
+  start (ADR-0016 amendment), so a schema migration before the connector first reads a table, for
+  example during a long initial snapshot, no longer stops with CDC-6001; and CDC-6001 rather than
+  CDC-3001 for rows naming a column an inexact version lacks.
 
 For Sion (outside the repository): create the Central and GPG secrets and run
 `verify-release-secrets.yml`; add required reviewers to the `release` environment; allow Actions
