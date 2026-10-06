@@ -120,10 +120,14 @@ class ExcludedColumnsStayOutAcrossDdlConnectorIT {
       all.addAll(
           ConnectCluster.consume(consumer, 50, Duration.ofMinutes(3), Duration.ofSeconds(5)));
       assertThat(all).as("the snapshot").hasSizeGreaterThanOrEqualTo(50);
+      // each batch is consumed before the next DDL: the connector then reads every layout at its
+      // DDL (an exact version). A DDL that overtakes the connector is the lag case of ADR-0016,
+      // proven by the LagCase suites; it is not what this suite is about.
       try (Connection w = db.connect(OracleTestDatabase.PDB1, schema, schema)) {
         for (int i = 51; i <= 60; i++) {
           exec(w, "INSERT INTO cust VALUES (" + i + ", 'n" + i + "', 'SECRET-" + i + "')");
         }
+        all.addAll(batch(consumer, 10));
         exec(w, "ALTER TABLE cust ADD (ssn_hash VARCHAR2(64))");
         for (int i = 61; i <= 70; i++) {
           exec(
@@ -138,6 +142,7 @@ class ExcludedColumnsStayOutAcrossDdlConnectorIT {
                   + i
                   + "')");
         }
+        all.addAll(batch(consumer, 10));
         exec(w, "ALTER TABLE cust ADD (note VARCHAR2(20))");
         for (int i = 71; i <= 80; i++) {
           exec(
@@ -155,15 +160,17 @@ class ExcludedColumnsStayOutAcrossDdlConnectorIT {
                   + "')");
         }
         exec(w, "UPDATE cust SET ssn = 'SECRET-NEW', name = 'renamed' WHERE id <= 10");
+        all.addAll(batch(consumer, 20));
         exec(w, "ALTER TABLE cust DROP COLUMN note");
         for (int i = 81; i <= 90; i++) {
           exec(w, "INSERT INTO cust (id, name, ssn) VALUES (" + i + ", 'n" + i + "', 'SECRET')");
         }
         exec(w, "DELETE FROM cust WHERE id = 90");
       }
-      // 50 read, 40 created, 10 updated, one delete and its tombstone
+      // after the 50 read and 30 created and 10 updated above: 10 created, one delete and its
+      // tombstone
       all.addAll(
-          ConnectCluster.consume(consumer, 52, Duration.ofMinutes(4), Duration.ofSeconds(10)));
+          ConnectCluster.consume(consumer, 12, Duration.ofMinutes(4), Duration.ofSeconds(10)));
     }
     Set<Integer> created = new TreeSet<>();
     Set<Integer> updated = new TreeSet<>();
@@ -205,6 +212,15 @@ class ExcludedColumnsStayOutAcrossDdlConnectorIT {
     assertThat(deleted).containsExactly(90);
     assertThat(notes).hasSize(10).containsEntry(71, "note71").containsEntry(80, "note80");
     System.out.println("dbz-1599: " + all.size() + " records, none with an excluded column");
+  }
+
+  /** The next {@code n} records, failing when they do not arrive. */
+  private static List<ConsumerRecord<String, String>> batch(
+      KafkaConsumer<String, String> consumer, int n) throws Exception {
+    List<ConsumerRecord<String, String>> got =
+        ConnectCluster.consume(consumer, n, Duration.ofMinutes(3), Duration.ofSeconds(5));
+    assertThat(got).as("a batch delivered before the next DDL").hasSizeGreaterThanOrEqualTo(n);
+    return got;
   }
 
   private static void exec(Connection c, String sql) throws SQLException {
