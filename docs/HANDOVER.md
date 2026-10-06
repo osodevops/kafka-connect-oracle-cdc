@@ -75,8 +75,10 @@ Nothing uncommitted. Still open:
   before came from the Mac sleeping (section 4), from test designs, and from three product defects
   now fixed: the log switch false gap (`83db7d1`), ORA-01368 (`d0f1be1`) and ORA-16331 after a
   restart (see below).
-- `nightly.yml` does not pass `-Dnightly.kills`, and 1,000 kills do not fit a hosted runner's six
-  hours; the default is 25. Sion to decide where the long run lives.
+- `nightly.yml` takes manual-run inputs: `kills` (default 25), `large_rows` (default 1,000,000 on
+  hosted runners), `runner` and `t2_timeout`. 1,000 kills do not fit a hosted runner's six hours:
+  run them with `runner` set to a self-hosted or larger runner and `t2_timeout` raised. Where the
+  long run lives is Sion's decision.
 - P1-30: the 72-hour soak has not run. `bench soak` is merged and its trial passed on Testcontainers
   (`SoakHarnessNightlyIT`: three checks PASS, catch-up under five seconds, a fifteen-minute host
   sleep detected and recorded); run it with `make -C lab/local/compose soak HOURS=72` once the Mac

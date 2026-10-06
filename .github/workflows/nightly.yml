@@ -18,6 +18,19 @@ on:
   schedule:
     - cron: '17 1 * * *'
   workflow_dispatch:
+    inputs:
+      kills:
+        description: Worker kills in RepeatedWorkerKillsNightlyIT (the release gate asks for 1000)
+        default: '25'
+      large_rows:
+        description: Rows in LargeTransactionNightlyIT's single transaction (PRD-00 asks for 5000000)
+        default: '1000000'
+      runner:
+        description: Runner label; a self-hosted or larger runner for long kill runs
+        default: ubuntu-latest
+      t2_timeout:
+        description: Minutes for the T2 job (hosted runners stop jobs at 360)
+        default: '330'
 
 permissions:
   contents: read
@@ -29,8 +42,8 @@ concurrency:
 jobs:
   suites:
     name: ${{ matrix.label }} on ${{ matrix.oracle }}
-    runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout }}
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: ${{ matrix.tier == 'nightly' && fromJSON(inputs.t2_timeout || '330') || matrix.timeout }}
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +117,8 @@ jobs:
           mvn -pl e2e-tests verify
           -De2e.groups=${{ matrix.tier }}
           -Doracle.image.tag=${{ matrix.oracle }}
+          -Dnightly.kills=${{ inputs.kills || '25' }}
+          -Dnightly.large.rows=${{ inputs.large_rows || '1000000' }}
           --batch-mode --no-transfer-progress
 
       - name: Upload evidence JSON
