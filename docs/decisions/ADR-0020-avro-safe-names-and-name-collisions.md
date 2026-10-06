@@ -91,5 +91,6 @@ schema. Avro for Java 1.12 and later refuses such a schema; 1.11 reads it. So fo
 names, and a topic prefix with `-`, an unadjusted name is not always a visible failure at the
 connector. Users with names outside `[A-Za-z_][A-Za-z0-9_]*` must set the adjustment modes, or turn
 on the registry's validity rule (Apicurio: `apicurio.rules.global.validity=FULL`), which then
-refuses the schema and fails the task. The record formats page says so. A doctor finding for
-unadjusted names under an Avro converter is future work.
+refuses the schema and fails the task. The record formats page says so, and doctor rule DOC-22,
+which the connector's validation runs, blocks on column names and warns on owner, table and prefix
+names Avro refuses when the connector itself sets an Avro converter.
