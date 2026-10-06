@@ -248,6 +248,30 @@ class CaptureEngineTest {
   }
 
   @Test
+  void duringALogSwitchAStepMinesToTheNewestListedLogAndTheNextStepReadsOn() throws Exception {
+    // the archived logs end at 3000 and V$LOG does not list the next log yet, while the current
+    // SCN is already past it: a log switch under way, not a gap
+    Harness h = new Harness();
+    h.fake.startAt(2990);
+    TxKey a = h.fake.tx(1, 1, 1);
+    h.fake.start(a, "APP").insert(a, T, "a1").commit(a); // 2990 to 2992
+    CaptureEngine e =
+        h.engine(Position.initial(2980, new DatabaseIdentity(1, 1)), DecodeErrorAction.FAIL);
+    h.safeEnd = 3010;
+    h.runUntilIdle(e);
+    assertThat(h.sink.sqls()).containsExactly("a1");
+    assertThat(e.cursor().scn()).as("mined to the newest log's last SCN").isEqualTo(2999);
+    // the next log appears; the next step continues from there
+    h.catalog.onlineCurrent(1, 21, 3000);
+    h.fake.startAt(3001);
+    TxKey b = h.fake.tx(1, 1, 2);
+    h.fake.start(b, "APP").insert(b, T, "b1").commit(b);
+    h.runUntilIdle(e);
+    assertThat(h.sink.sqls()).containsExactly("a1", "b1");
+    assertThat(e.cursor().scn()).isEqualTo(3010);
+  }
+
+  @Test
   void resumeCandidateStaysAtTheOldestOpenTransaction() throws Exception {
     Harness h = new Harness();
     TxKey open = h.fake.tx(1, 1, 7);

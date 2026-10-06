@@ -48,6 +48,27 @@ class LogInventoryTest {
   }
 
   @Test
+  void duringALogSwitchTheSetEndsAtTheNewestListedLog() throws Exception {
+    // the current SCN has passed sequence 12's end, and V$LOG does not list sequence 13 yet
+    FakeCatalog cat = new FakeCatalog().archivedRun(1, 10, 3, 1000, 100);
+    LogSet set = new LogInventory(cat, CaptureMode.ONLINE, 1).forRange(1050, 1350);
+    assertThat(set.endScn()).isEqualTo(1299);
+    assertThat(set.logs()).extracting(RedoLog::sequence).containsExactly(10L, 11L, 12L);
+    // in archive-only mode the safe end never passes the archived end, so this stays a gap
+    assertThatThrownBy(
+            () -> new LogInventory(cat, CaptureMode.ARCHIVE_ONLY, 1).forRange(1050, 1350))
+        .isInstanceOf(OracleCdcGapException.class);
+  }
+
+  @Test
+  void aSkippedSequenceIsStillAGapWhenALaterLogIsListed() {
+    FakeCatalog cat = new FakeCatalog().archivedRun(1, 10, 3, 1000, 100).onlineCurrent(1, 14, 1400);
+    assertThatThrownBy(() -> new LogInventory(cat, CaptureMode.ONLINE, 1).forRange(1050, 1450))
+        .isInstanceOf(OracleCdcGapException.class)
+        .hasMessageContaining("sequence 13 is missing");
+  }
+
+  @Test
   void missingSequenceIsAGapNamingTheThreadAndSequence() {
     FakeCatalog cat = new FakeCatalog().archivedRun(1, 10, 4, 1000, 100).removeArchived(1, 12);
     assertThatThrownBy(

@@ -45,7 +45,14 @@ public final class LogInventory {
     this.destId = destId;
   }
 
-  /** Logs covering [startScn, endScn], continuity-checked per required thread. */
+  /**
+   * Logs covering [startScn, endScn], continuity-checked per required thread. In {@code online}
+   * mode the returned set may end earlier than {@code endScn}: while a log switch is in progress
+   * the current SCN can pass the end of a thread's newest log before the next log is listed in
+   * {@code V$LOG}. No sequence is missing then; the redo after that log is not written yet. The set
+   * ends at the newest log's last SCN and the next step reads on. A sequence that is skipped is
+   * still a gap, because a later log is then listed.
+   */
   public LogSet forRange(long startScn, long endScn) throws SQLException {
     List<RedoLog> archived = catalog.archivedLogs(startScn, endScn, destId);
     List<RedoLog> online = mode == CaptureMode.ONLINE ? catalog.onlineLogs() : List.of();
@@ -107,10 +114,32 @@ public final class LogInventory {
         chosen.addAll(tail);
       }
     }
+    long end = endScn;
+    if (mode == CaptureMode.ONLINE) {
+      for (int thread : requiredThreads) {
+        if (threads.stream().noneMatch(t -> t.thread() == thread && t.enabled())) {
+          continue;
+        }
+        RedoLog last =
+            chosen.stream()
+                .filter(l -> l.thread() == thread)
+                .max(Comparator.comparingLong(RedoLog::sequence))
+                .orElse(null);
+        if (last == null || last.nextScn() > endScn) {
+          continue;
+        }
+        boolean later =
+            java.util.stream.Stream.concat(archived.stream(), online.stream())
+                .anyMatch(l -> l.thread() == thread && l.sequence() > last.sequence());
+        if (!later) {
+          end = Math.min(end, last.nextScn() - 1); // the switch to the next log is under way
+        }
+      }
+    }
     LogSet set =
         new LogSet(
             startScn,
-            endScn,
+            end,
             chosen.stream()
                 .sorted(
                     Comparator.comparingInt(RedoLog::thread).thenComparingLong(RedoLog::sequence))

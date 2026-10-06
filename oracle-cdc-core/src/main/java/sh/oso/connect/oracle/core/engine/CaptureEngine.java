@@ -271,13 +271,7 @@ public final class CaptureEngine {
     long end = safeEnd.get();
     metrics.safeEndScn.set(end);
     if (end <= cursor.scn()) {
-      metrics.idlePolls.incrementAndGet();
-      buffer.flushJournal(clock.get()); // age-based journaling must not wait for new redo
-      enforceTransactionAge();
-      checkOrphans();
-      sink.idle(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
-      publishBuffer();
-      return Progress.IDLE;
+      return idle();
     }
     if (recycler.due()) {
       source.recycle();
@@ -285,6 +279,12 @@ public final class CaptureEngine {
       metrics.sessionRecycles.incrementAndGet();
     }
     LogSet logs = inventory.forRange(cursor.scn(), end);
+    if (logs.endScn() < end) {
+      end = logs.endScn(); // a log switch is under way: mine to the newest listed log's end
+      if (end <= cursor.scn()) {
+        return idle();
+      }
+    }
     StepPlan plan = scheduler.plan(cursor.scn(), end, logs.logs());
     metrics.windowLogs.set(plan.windowLogs());
     Instant t0 = clock.get();
@@ -392,6 +392,17 @@ public final class CaptureEngine {
   /** ADR-0019: a step below the first-start floor keeps only transactions open at the start. */
   private StepOutcome scoped(StepOutcome outcome) {
     return firstStart == null ? outcome : firstStart.filter(outcome);
+  }
+
+  /** Nothing to mine yet: journaling, age and orphan checks, and the idle position. */
+  private Progress idle() throws SQLException {
+    metrics.idlePolls.incrementAndGet();
+    buffer.flushJournal(clock.get()); // age-based journaling must not wait for new redo
+    enforceTransactionAge();
+    checkOrphans();
+    sink.idle(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
+    publishBuffer();
+    return Progress.IDLE;
   }
 
   private StepOutcome replay(
