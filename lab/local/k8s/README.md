@@ -81,7 +81,7 @@ How `edge-cases.sh` induces each case (all eleven are in the default list):
 | `partition` | packets between the Connect pods and the Oracle pod dropped in the node's `FORWARD` chain for `PARTITION_SECONDS` (default 90) | a Connect pod must fail to open a socket to Oracle, or the case fails |
 | `config_update` | `cdc.poll.linger.ms` toggled on the `KafkaConnector` | the worker's REST API must show the new value |
 | `operator_restart_during_change` | the connector paused, the operator pod killed, the connector resumed | |
-| `oom` | the Connect memory limit lowered to `OOM_LIMIT` (default 1Gi, below the 1536m heap ceiling; an idle worker needs about 800 MiB) while one transaction inserts `OOM_ROWS` (default 400,000) rows into `WORKLOAD.EDGE_BIG`; the limits in `connect.yaml` come back afterwards | every row of the transaction in its topic exactly once; the worker restarts and their reasons are logged |
+| `oom` | the Connect memory limit lowered to `OOM_LIMIT` (default 1Gi, below the 1536m heap ceiling) and one transaction of `OOM_ROWS` (default 400,000) rows committed into `WORKLOAD.EDGE_BIG` at once, so starting workers have it to buffer; the limits in `connect.yaml` come back afterwards | at least one worker OOMKilled, then every row of the transaction in its topic exactly once |
 | `offsets_list` | the Strimzi `connector-offsets=list` annotation, with `spec.listOffsets` naming the config map | a fresh config map holding the offset of the `cdc` partition |
 
 The lab's default CNI does not enforce `NetworkPolicy`, so `partition` uses `iptables` on the
