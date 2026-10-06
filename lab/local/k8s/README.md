@@ -67,3 +67,25 @@ so the wrapper clears `/dev/shm` and stale semaphores before starting Oracle.
   On this lab Strimzi 1.2's `strimzi.io/connector-offsets` annotation rejected both `delete` and
   `DELETE` and the worker's `GET /connectors/oracle-cdc/offsets` returned HTTP 500, so neither
   shortcut was usable.
+
+How `edge-cases.sh` induces each case (all eleven are in the default list):
+
+| Case | Fault | Extra check |
+|---|---|---|
+| `kill_worker` | SIGKILL of one Connect pod | |
+| `rolling_update` | Strimzi manual rolling update, one worker at a time | |
+| `rollout_restart` | every Connect pod deleted at once with its grace period, the restart a drain or a script does outside Strimzi (a `StrimziPodSet` has no `kubectl rollout restart`) | |
+| `rebalance` | SIGKILL of the worker that owns the task | |
+| `broker_restart` | the single broker pod killed, so Kafka is wholly down for a while | |
+| `oracle_restart` | the Oracle pod deleted gracefully, back from its volume | |
+| `partition` | packets between the Connect pods and the Oracle pod dropped in the node's `FORWARD` chain for `PARTITION_SECONDS` (default 90) | a Connect pod must fail to open a socket to Oracle, or the case fails |
+| `config_update` | `cdc.poll.linger.ms` toggled on the `KafkaConnector` | the worker's REST API must show the new value |
+| `operator_restart_during_change` | the connector paused, the operator pod killed, the connector resumed | |
+| `oom` | the Connect memory limit lowered to `OOM_LIMIT` (default 640Mi, heap unchanged) while one transaction inserts `OOM_ROWS` (default 400,000) rows into `WORKLOAD.EDGE_BIG`; the limits in `connect.yaml` come back afterwards | every row of the transaction in its topic exactly once; the worker restarts and their reasons are logged |
+| `offsets_list` | the Strimzi `connector-offsets=list` annotation | a fresh config map with the offsets |
+
+The lab's default CNI does not enforce `NetworkPolicy`, so `partition` uses `iptables` on the
+minikube node instead of `chaos/deny-connect-to-oracle.yaml` (which `make chaos-partition` still
+applies, for a cluster started with `--cni=calico`). The workload reaches Oracle through a
+`kubectl port-forward`, which does not cross that chain, so it keeps committing through the
+partition.
