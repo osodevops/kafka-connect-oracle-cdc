@@ -239,6 +239,9 @@ class SchemaTopicLossNightlyIT {
           break;
         }
       }
+      if (trace == null) {
+        trace = NightlyRun.failedTrace(c, name); // a read can outlast the deadline: look once more
+      }
       if (trace != null) {
         got = rows(c, data, 15, Duration.ofSeconds(30)); // whatever was published before the stop
       }

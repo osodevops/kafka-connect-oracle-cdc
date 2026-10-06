@@ -68,6 +68,10 @@ class ExactlyOnceConnectorIT {
       c.put("cdc.decimal.mode", "string");
       c.put("cdc.eos.batch.max.records", "40");
       c.put("cdc.eos.split.max.records", "50");
+      // the table is empty at the start; without this a kill before the empty snapshot's end is
+      // committed makes the next run snapshot the rows written since, as op=r records that carry
+      // no transaction headers
+      c.put("cdc.snapshot.mode", "none");
       cluster.register("oracle-cdc", c);
       cluster.awaitRunning("oracle-cdc", Duration.ofMinutes(2));
       Thread.sleep(2000);

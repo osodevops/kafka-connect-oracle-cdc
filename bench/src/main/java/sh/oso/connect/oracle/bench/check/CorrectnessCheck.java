@@ -184,7 +184,9 @@ public final class CorrectnessCheck {
                   + m.maxCommitScn()
                   + " is no longer available (ORA-"
                   + e.getErrorCode()
-                  + "); increase undo retention");
+                  + (e.getErrorCode() == 1466
+                      ? "); the table's definition changed near that SCN"
+                      : "); increase undo retention"));
           tablesOut.put(table, Map.of("inconclusive", e.getMessage().split("\n")[0]));
         } else {
           throw e;

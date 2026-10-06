@@ -217,6 +217,14 @@ public final class WorkloadGenerator {
             maybeTruncate(c);
             maybeDdl(c);
           }
+          if (spec.pauseMillisBetweenTransactions > 0) {
+            try {
+              Thread.sleep(spec.pauseMillisBetweenTransactions);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              break;
+            }
+          }
         }
       } finally {
         running.decrementAndGet();

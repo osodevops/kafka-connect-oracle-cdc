@@ -30,8 +30,8 @@ import java.util.TreeMap;
 
 /**
  * Assertion one of ADR-0012: the materialised rows of each table equal {@code SELECT * ... AS OF
- * SCN} at the check SCN, compared column by column through the {@link Normaliser}. ORA-01555 marks
- * the run inconclusive rather than failed.
+ * SCN} at the check SCN, compared column by column through the {@link Normaliser}. ORA-01555,
+ * ORA-08181 and ORA-01466 mark the run inconclusive rather than failed.
  */
 public final class StateChecker {
 
@@ -151,7 +151,12 @@ public final class StateChecker {
     return sb.toString();
   }
 
+  /**
+   * The {@code AS OF SCN} read cannot be answered: the undo is gone (ORA-01555, ORA-08181), or the
+   * SCN is too close to or before a change of the table's definition (ORA-01466). The run is then
+   * inconclusive; nothing is known about the records.
+   */
   public static boolean isSnapshotTooOld(SQLException e) {
-    return e.getErrorCode() == 1555 || e.getErrorCode() == 8181;
+    return e.getErrorCode() == 1555 || e.getErrorCode() == 8181 || e.getErrorCode() == 1466;
   }
 }

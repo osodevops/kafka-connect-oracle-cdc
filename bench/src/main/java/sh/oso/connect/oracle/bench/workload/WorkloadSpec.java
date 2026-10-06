@@ -76,6 +76,12 @@ public final class WorkloadSpec {
   /** Longest CLOB written by a LOB operation; above about 4,000 characters it goes out of line. */
   public int lobMaxChars = 8000;
 
+  /**
+   * Milliseconds each session waits after a transaction (0: none). Paces a workload that must stay
+   * within what the capture under test can keep up with, for example while faults are injected.
+   */
+  public int pauseMillisBetweenTransactions = 0;
+
   public String tablePrefix = "WL_T";
 
   public String ledgerTable = "WL_LEDGER";
@@ -106,6 +112,9 @@ public final class WorkloadSpec {
     }
     if (maxRowsPerTransaction < 1) {
       throw new IllegalArgumentException("maxRowsPerTransaction must be at least 1");
+    }
+    if (pauseMillisBetweenTransactions < 0) {
+      throw new IllegalArgumentException("pauseMillisBetweenTransactions cannot be negative");
     }
   }
 }

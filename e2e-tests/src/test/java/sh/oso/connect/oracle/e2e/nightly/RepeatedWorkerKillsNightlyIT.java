@@ -62,6 +62,10 @@ class RepeatedWorkerKillsNightlyIT {
     spec.durationSeconds = (int) Math.max(4L * 3600, kills * 120L);
     spec.largeTransactionEvery = 30;
     spec.largeTransactionRows = 120;
+    // about 40 transactions a second in all: Oracle Database Free mines on two CPU threads, and an
+    // unpaced workload outruns the capture between kills, so the oracle would count transactions
+    // not yet delivered as missing
+    spec.pauseMillisBetweenTransactions = 50;
     Evidence ev =
         Evidence.of(
             getClass(),
@@ -116,7 +120,7 @@ class RepeatedWorkerKillsNightlyIT {
       long end = NightlyRun.scn(root);
       ev.param("workloadResult", ConnectCluster.json(r.toJson()));
       cluster.awaitRunning(NAME, Duration.ofMinutes(3));
-      boolean caughtUp = NightlyRun.awaitResumePast(cluster, NAME, end, Duration.ofMinutes(10));
+      boolean caughtUp = NightlyRun.awaitResumePast(cluster, NAME, end, Duration.ofMinutes(20));
       CheckReport report =
           NightlyRun.check(cluster, w, schema, spec, PREFIX, Duration.ofMinutes(15));
       ev.check("oracle", report)
@@ -135,6 +139,17 @@ class RepeatedWorkerKillsNightlyIT {
               + report.invariants().get("transactionsWithDuplicateEvents")
               + " verdict="
               + report.verdict());
+      // without catching up, transactions the connector has not reached yet count as missing:
+      // that is a throughput finding, not a correctness one, and must not read as data loss
+      assertThat(caughtUp)
+          .as(
+              "the committed position reached the workload's end SCN %s; the oracle's verdict"
+                  + " was %s with %s of %s ledger transactions seen",
+              end,
+              report.verdict(),
+              report.transactions().get("seen"),
+              report.transactions().get("ledger"))
+          .isTrue();
       assertThat(report.verdict()).as(report.toJson()).isEqualTo(CheckReport.Verdict.PASS);
       assertThat(report.transactions().get("seen")).isEqualTo(report.transactions().get("ledger"));
       assertThat(report.invariants().get("transactionsWithDuplicateEvents"))

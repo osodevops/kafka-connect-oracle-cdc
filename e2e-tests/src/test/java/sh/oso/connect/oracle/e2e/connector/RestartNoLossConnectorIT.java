@@ -79,6 +79,9 @@ class RestartNoLossConnectorIT {
       c.put("cdc.tables.include", "FREEPDB1\\." + schema + "\\.WL_.*");
       c.put("cdc.tables.exclude", "FREEPDB1\\." + schema + "\\.WL_LEDGER");
       c.put("cdc.poll.linger.ms", "100");
+      // streaming across a kill is the subject: an initial snapshot that reads rows the workload
+      // has already written publishes op=r records, which carry no transaction headers
+      c.put("cdc.snapshot.mode", "none");
       cluster.register("oracle-cdc", c);
       cluster.awaitRunning("oracle-cdc", Duration.ofMinutes(2));
       Thread.sleep(2000);
