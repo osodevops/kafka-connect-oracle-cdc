@@ -46,6 +46,13 @@ the resume SCN. If it is not, a DDL was missed (for example, the offset was move
 topic belongs to another connector), and the task stops with `CDC-6003`. The time of an SCN is known
 only to within a few seconds, so a DDL within ten seconds of the resume point counts as ahead of it.
 
+After that check the task reads, in one pass over the dictionary, the layout of every captured
+table that has no stored version, and stores it as version 1. A table that joins the captured set
+later is read when it joins. The version counts as valid from the position the task started from
+when the table's last DDL is more than ten seconds before that position, and otherwise from ten
+seconds after that DDL. A DDL after the start, even one during a long initial snapshot, therefore
+finds the earlier layout already stored.
+
 Without broker access the topic is neither read nor written, and versions start from the dictionary
 at every start.
 
@@ -60,12 +67,13 @@ names are those of each row's moment. The next range returns to the online catal
 writes a `dictionary-replay` event to the ops topic and counts in the `LagReplays` metric.
 
 Rows mined this way decode with the schema version valid at their SCN, and every record renders
-with the version its row was decoded with. A version read from the dictionary counts as valid from
-the table's last DDL, so a table the connector first saw after the DDL has no version for the
-earlier rows. When several DDLs on one table fall inside the range, the dictionary is already past
-the earlier ones when the connector applies them, so the layout between them is not known. In
-these cases, and when no usable build exists, the task stops with `CDC-6001` rather than decode
-with a guessed layout.
+with the version its row was decoded with. When the DDL ran while the connector was stopped and no
+stored version survived, or within ten seconds of the position it started from, no version is known
+for the earlier rows. When several DDLs on one table ran before the connector reached the first,
+the dictionary is already past the earlier ones when the connector applies them, so the layout
+between them is not known, and a row that names a column missing from such a version is not
+decoded either. In these cases, and when no usable build exists, the task stops with `CDC-6001`
+rather than decode with a guessed layout.
 
 The connector writes builds itself when its user has `EXECUTE ON DBMS_LOGMNR_D`: at start if the
 archived logs hold none, then at `cdc.dictionary.build.time` (02:00 database time by default) and

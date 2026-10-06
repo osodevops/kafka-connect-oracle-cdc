@@ -16,6 +16,7 @@ Know the exact column layout of every captured table at any SCN the engine may d
 
 - **Per-table versioned schema.** Each captured table has a list of schema versions `(object_id, version, effective_scn, columns, key, partitions)`. Versions are stored in the compacted topic `cdc.schema.topic` (default `${prefix}.cdc.schema`), keyed by `PDB.SCHEMA.TABLE`, value holding the current version plus versions newer than the oldest needed SCN (the position's `resume_scn` or oldest journaled transaction). Older versions are pruned on write, so the topic stays small.
 - **Source of truth is the data dictionary.** Column metadata is read from `DBA_TAB_COLS`, `DBA_CONSTRAINTS`, `DBA_CONS_COLUMNS`, `DBA_LOG_GROUPS`, `DBA_PART_TABLES`. We never parse DDL text to build schemas; we parse DDL only to classify it.
+- **Layouts at start.** At start, and when a table joins the captured set, the connector reads the layout of every captured table that has no stored version, in a bounded number of dictionary queries per PDB, valid from the start position when no DDL on the table can follow it (ADR-0016 amendment).
 - **Rebuild.** If the schema topic is lost, the connector rebuilds current versions from the dictionary and, if `resume_scn` is older than the last DDL on a table (`DBA_OBJECTS.LAST_DDL_TIME`), requires `oracle-cdc-admin resnapshot` for that table instead of guessing.
 
 ## 3. DDL flow (`cdc.dictionary.mode=auto`, the only mode)

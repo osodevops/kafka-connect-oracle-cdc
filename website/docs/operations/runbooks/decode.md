@@ -23,7 +23,10 @@ Row-level failures, where one mined change could not be decoded:
 - LogMiner marked the row `UNSUPPORTED` for a captured table, typically because of a column type it
   cannot reconstruct: "LogMiner marked a row of ... UNSUPPORTED".
 - The SQL_REDO text did not parse, named a column the table does not have, or disagreed with
-  LogMiner's operation code; or a LOB row had a shape the connector does not know.
+  LogMiner's operation code; or a LOB row had a shape the connector does not know. When the
+  table's schema version was read after a further DDL had already changed the table, a column it
+  lacks is reported as [CDC-6001](dictionary-unavailable.md) instead, because the column may have
+  existed when the row was written.
 
 Table-level failures, raised when the connector first reads a captured table:
 
@@ -35,6 +38,9 @@ Table-level failures, raised when the connector first reads a captured table:
   connector chose or a column in `cdc.key.columns`): "cdc.columns.exclude matches column ... which
   is part of the record key". The task checks this at start, and again when a DDL changes a
   table's key.
+
+The connector reads every captured table's layout at start, but passes over a table it cannot key
+or find there; the failure is then raised at the table's first change.
 
 The message never quotes row data. Where the cause is a value (a literal the connector could not
 convert, or the SQL_REDO text around a parse error), it says the value is withheld. To see it,

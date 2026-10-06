@@ -18,16 +18,28 @@ these was true:
 - No dictionary build in the archived logs ends before the range, or a log between the build and
   the range is missing.
 - The rows still came back with generic names when mined with the redo dictionary.
-- No exact schema version of the table is known for the rows' SCN. Either the connector first read
-  the table after the DDL, or several DDLs on the table fell inside the window being mined again, so
-  the layout between them is not known.
+- No exact schema version of the table is known for the rows' SCN. The connector reads the layout
+  of every captured table when it starts, and of a table that joins the captured set when it joins,
+  so this happens when:
+  - the DDL ran while the connector was stopped and no stored version survived (no
+    `cdc.kafka.bootstrap.servers`, or a lost schema topic);
+  - the table's last DDL ran within ten seconds of the position the connector started from (the
+    time of an SCN is known only to within a few seconds, so the connector cannot tell which came
+    first);
+  - several DDLs on the table ran before the connector reached the first, so the layout between
+    them is not known.
+- A row names a column that the table's schema version does not have, and that version was read
+  after a further DDL had already changed the table (several DDLs before the connector reached the
+  first). The column may have existed when the row was written.
 
 The message says which, and names the table and the SCN.
 
 ## Why it stopped rather than continued
 
 Decoding these rows with today's layout could publish values under the wrong columns or drop them.
-Skipping them would lose them silently.
+Skipping them would lose them silently. Unlike a [CDC-3001](decode.md) decode failure, these rows
+never go to the DLQ, even with `cdc.on.decode.error=dlq`: the layout is unknown for the whole range,
+not wrong for one row.
 
 ## Confirm the cause
 
@@ -66,4 +78,6 @@ switched off.
   describes. Then reload the table with a [`snapshot` signal](../signals.md).
 
 To avoid this, keep `cdc.kafka.bootstrap.servers` set so schema versions persist across restarts,
-and avoid several DDLs on one captured table while the connector is stopped or far behind.
+avoid several DDLs on one captured table while the connector is stopped or far behind, and let the
+connector finish starting before a schema migration runs. A DDL after the start is safe, including
+during the initial snapshot.
