@@ -51,6 +51,11 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `83db7d1` | A log switch in progress is not a redo gap: online mode ends the step at the newest listed log | as above |
 | `d0f1be1` | ORA-01368 is a step retry; `redo-profile` samples the newest log by SCN; closing a LogMiner session on a dead connection never throws; the UNSUPPORTED stop names object and transaction; resnapshot, explain-lag and LOB savepoint suites fixed | as above |
 | `1767868` | The dbz-1599 column-filter suite consumes each batch before its next DDL (an ADD and DROP within a second is the lag case, a typed stop by ADR-0016). **For Sion's review: a change to a regression suite** | the suite alone, green |
+| `93ecd17`, `7dcf97e` | `bench soak` (T3, P1-30): one paced workload, a check every N hours after catch-up, metrics sampled from the JMX exporter, an internal summary; `make soak` on the compose lab | bench gate; `SoakHarnessNightlyIT` on Testcontainers (three checks PASS) |
+| `c4a04df`, `ce24bd7`, `adb4906` | ORA-16331 after a restart is transient; `CorrectnessCheck.stateAt` compares at a later quiesced SCN; the soak trial suite | gate; database restart, schema topic loss and soak trial suites green |
+| `d792f0a`, `56e550e`, `3e9f155` | Layouts at start (ADR-0016 amendment, parallel branch): every captured table's layout is read when the task starts and when a table joins, valid from the resume SCN when no DDL can be later, in one bulk dictionary pass per PDB; rows naming a column an inexact version lacks stop with CDC-6001; schema-topic writes during `start()` are held so a large table set cannot block it | gate; connector tier 26, engine tier 53, schema topic loss nightly |
+| `32b3bb3` | DOC-21 (ADR-0021): a closed pluggable database is a warning, one without a saved state information | gate; `DoctorEngineIT` reads the PDB states on Oracle |
+| next after `32b3bb3` | The schema-loss rebuild case runs its rapid DDL again (decoded with the layout read at start); DOC-21 on Oracle in `DoctorEngineIT` | both suites green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
@@ -84,10 +89,8 @@ Nothing uncommitted. Still open:
   before the connector reaches the first) leaves an inexact version, and rows naming the dropped
   column stop with CDC-3001 (CDC-6001 under replay). Decoding them needs layouts derived from the
   redo dictionary's DDL tracking rather than from the online catalog.
-- In progress on a branch (`feat/layouts-at-start`): exact layouts for every captured table at
-  start (ADR-0016 amendment), so a schema migration before the connector first reads a table, for
-  example during a long initial snapshot, no longer stops with CDC-6001; and CDC-6001 rather than
-  CDC-3001 for rows naming a column an inexact version lacks.
+- In progress on a branch (`feat/avro-e2e`): `AvroConverterConnectorIT`, a worker with the Apicurio
+  Avro converter and registry carrying every round-trip type, adjusted names included.
 
 For Sion (outside the repository): create the Central and GPG secrets and run
 `verify-release-secrets.yml`; add required reviewers to the `release` environment; allow Actions
