@@ -84,14 +84,19 @@ class ColumnFilterDecodeTest {
 
   @Test
   void anExcludedColumnIsAbsentFromBothImagesAndNeverConverted() {
-    // SSN is a NUMBER column holding text: converting it would fail with the value in the message
+    // SSN is a NUMBER column holding text: converting it fails, and only the revealed message
+    // (cdc.log.sensitive.data=true) quotes the value
     String insert =
         "insert into \"APP\".\"CUSTOMERS\"(\"ID\",\"NAME\",\"SSN\") values ('1','a','"
             + SECRET
             + "')";
     assertThatThrownBy(() -> RowDecoder.decode(dml(Operation.INSERT, insert), schema()))
-        .isInstanceOf(DecodeException.class)
-        .hasMessageContaining(SECRET);
+        .isInstanceOfSatisfying(
+            DecodeException.class,
+            e -> {
+              assertThat(e.getMessage()).doesNotContain(SECRET).contains("withheld");
+              assertThat(e.revealed().getMessage()).contains(SECRET);
+            });
     RowChange ins = RowDecoder.decode(dml(Operation.INSERT, insert), schema(), SSN);
     assertThat(ins.after()).containsOnlyKeys("ID", "NAME").containsEntry("NAME", "a");
     assertThat(ins.partial()).isFalse();
@@ -152,12 +157,22 @@ class ColumnFilterDecodeTest {
         .hasMessageContaining("withheld")
         .hasNoCause()
         .satisfies(e -> assertThat(e.getMessage()).doesNotContain(SECRET));
-    // a filter that cannot match the table leaves the parser's message as it was (a pattern that
-    // starts with .* reads every name to its end, so it counts as possibly matching any table)
+    // even revealed, the filtered table's message never quotes the statement
+    assertThatThrownBy(() -> RowDecoder.decode(dml(Operation.INSERT, broken), schema(), SSN))
+        .isInstanceOfSatisfying(
+            DecodeException.class,
+            e -> assertThat(e.revealed().getMessage()).doesNotContain(SECRET));
+    // a filter that cannot match the table leaves the parser's message as it was, value withheld
+    // but revealable (a pattern that starts with .* reads every name to its end, so it counts as
+    // possibly matching any table)
     ColumnFilter elsewhere = ColumnFilter.of(List.of("FREEPDB1\\.APP\\.ORDERS\\..*"), false);
     assertThatThrownBy(() -> RowDecoder.decode(dml(Operation.INSERT, broken), schema(), elsewhere))
-        .isInstanceOf(DecodeException.class)
-        .satisfies(e -> assertThat(e.getMessage()).doesNotContain("withheld"));
+        .isInstanceOfSatisfying(
+            DecodeException.class,
+            e -> {
+              assertThat(e.getMessage()).doesNotContain("may match columns").doesNotContain(SECRET);
+              assertThat(e.revealed().getMessage()).contains(SECRET);
+            });
   }
 
   @Test

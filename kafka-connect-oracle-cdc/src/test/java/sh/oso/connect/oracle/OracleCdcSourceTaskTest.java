@@ -608,8 +608,36 @@ class OracleCdcSourceTaskTest {
       assertThat(v.getString("sql_redo")).isEqualTo("bad");
       assertThat(v.getString("xid")).isEqualTo(a.xid().toString());
       assertThat(v.getString("exception")).endsWith("DecodeException");
+      // the DLQ record carries the redo; the ops event, read by monitoring, never the value
+      SourceRecord event =
+          all.stream()
+              .filter(r -> TaskHarness.sql(r).equals("<ops:decode-error-dlq>"))
+              .findFirst()
+              .orElseThrow();
+      assertThat(String.valueOf(event.value())).doesNotContain("4111");
       // the DLQ record's offset never passes the open transaction's first change
       assertThat(PositionCodec.read(dlq.sourceOffset()).resumeScn()).isLessThanOrEqualTo(1001);
+    }
+  }
+
+  @Test
+  void aDecodeFailureWithholdsTheRowValueUnlessSensitiveLoggingIsOn() throws Exception {
+    for (boolean sensitive : new boolean[] {false, true}) {
+      try (TaskHarness h = new TaskHarness()) {
+        h.props.put(CoreConfig.LOG_SENSITIVE_DATA, Boolean.toString(sensitive));
+        TxKey a = h.fake.tx(1, 1, 1);
+        h.fake.start(a, "APP").insert(a, TaskHarness.T, "bad").commit(a);
+        h.safeEnd = h.fake.nextScn();
+        h.start();
+        Throwable t = org.assertj.core.api.Assertions.catchThrowable(() -> h.pollUntil(1, 5000));
+        assertThat(t).isInstanceOf(ConnectException.class).hasMessageContaining("CDC-3001");
+        if (sensitive) {
+          assertThat(t).hasMessageContaining("4111 1111 1111 1111");
+        } else {
+          assertThat(t.getMessage()).doesNotContain("4111").contains("withheld");
+          assertThat(t.getCause().getMessage()).doesNotContain("4111");
+        }
+      }
     }
   }
 

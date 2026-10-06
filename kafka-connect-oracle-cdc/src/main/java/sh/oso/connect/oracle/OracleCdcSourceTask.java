@@ -285,7 +285,8 @@ public class OracleCdcSourceTask extends SourceTask {
               engine,
               Duration.ofMillis(Math.max(100, config.pollLingerMs() * 2)),
               t -> {
-                LOG.error("Capture engine stopped: {}", t.getMessage(), t);
+                Throwable shown = shown(t);
+                LOG.error("Capture engine stopped: {}", shown.getMessage(), shown);
                 try {
                   sink.stopped(t);
                 } catch (RuntimeException ignore) {
@@ -322,9 +323,20 @@ public class OracleCdcSourceTask extends SourceTask {
       return records;
     }
     if (failure != null) {
-      throw new ConnectException(failure.getMessage(), failure);
+      Throwable shown = shown(failure);
+      throw new ConnectException(shown.getMessage(), shown);
     }
     return null;
+  }
+
+  /**
+   * The failure as the task reports it: a decode error's row value is withheld unless {@code
+   * cdc.log.sensitive.data=true} (see {@link sh.oso.connect.oracle.core.errors.DecodeException}).
+   */
+  private Throwable shown(Throwable failure) {
+    return config != null && config.logSensitiveData()
+        ? sh.oso.connect.oracle.core.errors.DecodeException.reveal(failure)
+        : failure;
   }
 
   @Override
@@ -837,7 +849,8 @@ public class OracleCdcSourceTask extends SourceTask {
               } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
               } catch (RuntimeException e) {
-                LOG.error("Snapshot stopped: {}", e.getMessage(), e);
+                Throwable shown = shown(e);
+                LOG.error("Snapshot stopped: {}", shown.getMessage(), shown);
                 snapshotOnlyFailure = e;
                 try {
                   sink.stopped(e);

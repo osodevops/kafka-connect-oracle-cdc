@@ -62,7 +62,8 @@ final class TaskHarness implements AutoCloseable {
   static final ChangeDecoder DECODER =
       (d, schema) -> {
         if ("bad".equals(d.sqlRedo())) {
-          throw new sh.oso.connect.oracle.core.errors.DecodeException("bad row", "none");
+          throw sh.oso.connect.oracle.core.errors.DecodeException.withValue(
+              "bad row", "'4111 1111 1111 1111'", "none", null);
         }
         Map<String, Object> after = new java.util.LinkedHashMap<>();
         after.put("ID", new java.math.BigDecimal(d.sqlRedo().hashCode() & 0x7fffffff));

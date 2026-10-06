@@ -127,11 +127,21 @@ final class SqlRedoScanner {
   }
 
   DecodeException error(String what, int pos) {
+    return error(what, null, pos);
+  }
+
+  /**
+   * A parse error; {@code found}, the token the parser met, and the text around {@code pos} may be
+   * row data, so they are withheld from the message (see {@link DecodeException}).
+   */
+  DecodeException error(String what, String found, int pos) {
     int from = Math.max(0, pos - 20);
     int to = Math.min(s.length(), pos + 20);
-    return new DecodeException(
-        "SQL_REDO " + what + " at offset " + pos + " near \"" + s.substring(from, to) + "\"",
+    return DecodeException.withValue(
+        "SQL_REDO " + what + " at offset " + pos,
+        (found == null ? "" : "found '" + found + "' ") + "near \"" + s.substring(from, to) + "\"",
         "Report the statement shape with the Oracle version; the connector stops rather than"
-            + " guess.");
+            + " guess.",
+        null);
   }
 }

@@ -861,7 +861,10 @@ public class CoreConfig extends AbstractConfig {
         Type.BOOLEAN,
         false,
         Importance.LOW,
-        "Allow row values in log output. Off by default.",
+        "Include row values in error messages and the log: the literal a decode error could not"
+            + " read, and the SQL_REDO text around a parse error. Off by default, when those"
+            + " messages say the value was withheld; the decode dead letter queue holds the redo"
+            + " either way. Values of columns matched by cdc.columns.exclude are never included.",
         GROUP_ERRORS,
         ++o,
         Width.SHORT,

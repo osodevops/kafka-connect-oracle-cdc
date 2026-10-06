@@ -57,8 +57,9 @@ public final class SqlRedoParser {
     } catch (DecodeException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw new DecodeException(
-          "SQL_REDO could not be parsed: " + e.getMessage(),
+      throw DecodeException.withValue(
+          "SQL_REDO could not be parsed (" + e.getClass().getSimpleName() + ")",
+          String.valueOf(e.getMessage()),
           "Report the statement shape with the Oracle version.",
           e);
     }
@@ -80,8 +81,9 @@ public final class SqlRedoParser {
     } catch (DecodeException e) {
       throw e;
     } catch (RuntimeException e) {
-      throw new DecodeException(
-          "LOB SQL_REDO could not be parsed: " + e.getMessage(),
+      throw DecodeException.withValue(
+          "LOB SQL_REDO could not be parsed (" + e.getClass().getSimpleName() + ")",
+          String.valueOf(e.getMessage()),
           "Report the statement shape with the Oracle version.",
           e);
     }
@@ -181,7 +183,7 @@ public final class SqlRedoParser {
     }
     Long v = variables.get(tok.text().toLowerCase(Locale.ROOT));
     if (v == null) {
-      throw sc.error("expected a number but found '" + tok.text() + "'", tok.pos());
+      throw sc.error("expected a number", tok.text(), tok.pos());
     }
     return v;
   }
@@ -386,8 +388,11 @@ public final class SqlRedoParser {
       try {
         sb.append((char) Integer.parseInt(hex, 16));
       } catch (NumberFormatException e) {
-        throw new DecodeException(
-            "UNISTR escape \\" + hex + " is not hexadecimal", "Report the statement shape.", e);
+        throw DecodeException.withValue(
+            "UNISTR escape at offset " + pos + " is not hexadecimal",
+            "\\" + hex,
+            "Report the statement shape.",
+            e);
       }
       i += 4;
     }
@@ -401,7 +406,7 @@ public final class SqlRedoParser {
   private void keyword(String kw) {
     Token tok = t;
     if (tok.kind() != Kind.WORD || !tok.text().equalsIgnoreCase(kw)) {
-      throw sc.error("expected '" + kw + "' but found '" + tok.text() + "'", tok.pos());
+      throw sc.error("expected '" + kw + "'", tok.text(), tok.pos());
     }
     t = sc.next();
   }
@@ -425,7 +430,7 @@ public final class SqlRedoParser {
   private Token expect(Kind k, String what) {
     Token tok = t;
     if (tok.kind() != k) {
-      throw sc.error("expected " + what + " but found '" + tok.text() + "'", tok.pos());
+      throw sc.error("expected " + what, tok.text(), tok.pos());
     }
     t = sc.next();
     return tok;

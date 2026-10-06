@@ -121,17 +121,15 @@ public final class OracleTypeCodec {
               "Exclude the column's table or wait for a release that supports the type (DOC-5).");
       }
     } catch (DateTimeParseException | NumberFormatException e) {
-      throw new DecodeException(
+      throw DecodeException.withValue(
           "Column "
               + column.name()
               + " ("
               + column.typeText()
-              + ") literal "
+              + ") has a "
               + literal.kind()
-              + " '"
-              + literal.value()
-              + "' is not valid: "
-              + e.getMessage(),
+              + " literal that is not valid",
+          "'" + literal.value() + "': " + e.getMessage(),
           "Check the mining session NLS settings (CORE-CONN-4) and report the row.",
           e);
     }

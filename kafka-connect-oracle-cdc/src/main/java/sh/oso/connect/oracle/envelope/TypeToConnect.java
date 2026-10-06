@@ -247,7 +247,7 @@ public final class TypeToConnect {
       case INT64:
         return d.longValueExact();
       default:
-        throw new DataException("cannot map " + d + " to " + schema.type());
+        throw new DataException("cannot map a NUMBER value to " + schema.type());
     }
   }
 }

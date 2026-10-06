@@ -36,6 +36,12 @@ Table-level failures, raised when the connector first reads a captured table:
   is part of the record key". The task checks this at start, and again when a DDL changes a
   table's key.
 
+The message never quotes row data. Where the cause is a value (a literal the connector could not
+convert, or the SQL_REDO text around a parse error), it says the value is withheld. To see it,
+read the row's SQL_REDO from LogMiner at the SCN in the message, or set
+`cdc.log.sensitive.data=true` and restart the task: the failure then repeats with the value in the
+message and in the worker log. Set it back once the cause is known.
+
 With `cdc.on.decode.error=dlq`, row-level failures do not stop the task: the row goes to the DLQ
 topic with its raw SQL_REDO and a `decode-error-dlq` or `unsupported-row` event goes to the ops
 topic. For a table that `cdc.columns.exclude` may match, the DLQ record and the message withhold

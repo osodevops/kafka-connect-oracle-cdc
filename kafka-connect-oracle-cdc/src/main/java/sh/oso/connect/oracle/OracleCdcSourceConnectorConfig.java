@@ -345,6 +345,11 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
     return getLong(SHUTDOWN_TIMEOUT_MS);
   }
 
+  /** {@code cdc.log.sensitive.data}: row values may appear in error messages and the log. */
+  public boolean logSensitiveData() {
+    return core.getBoolean(CoreConfig.LOG_SENSITIVE_DATA);
+  }
+
   public boolean tablesCaseSensitive() {
     return getBoolean(TABLES_CASE_SENSITIVE);
   }
