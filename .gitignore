@@ -33,6 +33,8 @@ docker/test-oracle/archive/
 sales/
 secrets/
 *.env
+# pinned lab versions, no secrets: the lab Makefile and edge-cases.sh need it
+!lab/local/k8s/versions.env
 
 # downloaded by lab/local/compose/Makefile
 lab/local/compose/observability/jmx_prometheus_javaagent.jar
