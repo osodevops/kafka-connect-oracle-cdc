@@ -76,7 +76,7 @@ After the restart, `GET /connector-plugins` on the worker lists
 
 | Component | Supported | What the test suites run today |
 |---|---|---|
-| Oracle Database | 19c and later (the doctor refuses older releases), single instance, CDB or non-CDB | Oracle Database Free 23.26.3, CDB with two PDBs. 19c and 21c are listed in the support policy for 1.0 and are not yet qualified |
+| Oracle Database | 19c and later (the doctor refuses older releases), single instance, CDB or non-CDB | Oracle Database Free 23.26.3, CDB with three PDBs. 19c and 21c are listed in the support policy for 1.0 and are not yet qualified |
 | Kafka Connect | 3.6 and later (the offsets REST API used in the runbooks needs 3.6) | Apache Kafka 3.9.1 in the integration tests and the Docker Compose lab; Strimzi with Kafka 4 in the Kubernetes lab |
 | Java | 17 and 21 | Builds and unit tests on 17 and 21 |
 | Converters | JSON, and Avro with the [name adjustment modes](../reference/record-formats.md#avro-and-other-strict-naming-rules) | The JSON converter with and without schemas, and Apicurio Registry 3.3.3's Avro converter. Protobuf and other converters are not tested |

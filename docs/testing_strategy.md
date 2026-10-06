@@ -93,7 +93,7 @@ A scheduled job lists new Oracle issues weekly and opens a triage ticket in our 
 
 | Platform | Tier | Phase |
 |---|---|---|
-| Oracle Database Free 23ai, 26ai (CDB with two PDBs) | T1, T2 | 1 |
+| Oracle Database Free 23ai, 26ai (CDB with three PDBs) | T1, T2 | 1 |
 | 19c EE and 21c EE, non-CDB and CDB | T4 | 1 |
 | 19c two-node RAC | T4 | 2 |
 | Active Data Guard physical standby (archive-only) | T4 | 2 |
