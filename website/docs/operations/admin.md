@@ -40,7 +40,8 @@ address, last acknowledged commit (SCN, transaction, thread, redo address, event
 generation, schema epoch, database identity, the orphan release ledger and the snapshot progress.
 `--format json` prints the raw offset next to the decoded fields. `--check-redo` also checks in
 V$ARCHIVED_LOG, with the continuity checks the connector runs, that every log from the resume SCN
-on is still present.
+on is still present, and adds each archived log to a LogMiner session that is never started, as
+`offsets set` does, so a file removed outside RMAN is reported as missing.
 
 ## offsets set
 

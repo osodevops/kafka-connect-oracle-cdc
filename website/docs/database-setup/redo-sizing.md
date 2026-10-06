@@ -27,11 +27,23 @@ holds the resume position at its first change for as long as it stays open. With
 open longer than `cdc.txjournal.threshold.ms` is journaled to Kafka and stops holding the position
 (see [transaction buffer and journal](../concepts/transaction-buffer-and-journal.md)).
 
+A first start needs redo from further back as well. When the connector starts with no stored
+offset, it reads the redo from the start of the oldest transaction open in the captured containers
+at that moment, so that the transaction is published whole when it commits. Transactions of other
+users and on other tables count too, because `GV$TRANSACTION` does not say which tables a
+transaction touched. The worker log names the transaction. If its redo is already gone, the task
+stops with [CDC-2002](../operations/runbooks/log-purged.md); wait for that transaction to end, or
+end it, and start the connector again.
+
 Two practical points:
 
 - Delete archived logs with RMAN and its retention policy, not with operating system commands. A
-  file removed outside RMAN still shows `DELETED = NO` in `V$ARCHIVED_LOG`; the connector finds out
-  only when LogMiner fails to open it.
+  file removed outside RMAN still shows `DELETED = NO` in `V$ARCHIVED_LOG`, so the catalog cannot
+  tell the connector it is gone. The task stops with
+  [CDC-2002](../operations/runbooks/log-purged.md) when LogMiner fails to open it, naming the file
+  and advising `CROSSCHECK ARCHIVELOG ALL`. The `offsets set` and `resnapshot` commands of
+  [`oracle-cdc-admin`](../operations/admin.md), and `takeover_scn.py`, add every archived log they
+  rely on to a LogMiner session first, so they refuse such a file before they move a position.
 - Prefer a local archive destination with its own free-space monitoring over a fast recovery area
   that can fill and halt the database. The connector reads one destination: the one named in
   `cdc.archive.destination`, or the lowest valid local one.
@@ -76,8 +88,17 @@ small, but the database still reads the whole log. A batch job that rewrites a l
 the captured set (a truncate and reload, for example) can make a few logs much slower to mine.
 The `RowsMined`, `LastStepMillis` and `ScnLag` [metrics](../reference/metrics.md) show it.
 
-## Not available yet
+## Measuring it with the doctor
 
-The doctor commands that measure this from the database itself, `redo-profile` (redo rates and
-redo per table from a short LogMiner sample) and `sizing`, are not available yet. The queries above
-give the same picture by hand.
+[`oracle-cdc-doctor`](../operations/doctor.md) measures all of this from the database itself:
+
+- `sizing` reports log switches per hour and thread, archive generation per day, the online log
+  size that keeps the peak hour at about four switches, and the retention and archive space a
+  given maximum downtime needs.
+- `redo-profile` samples the newest archived logs with LogMiner and reports which tables the redo
+  comes from, including the share that belongs to tables the connector does not capture, and
+  flags truncate-and-reload jobs.
+- `check` warns about frequent log switches (DOC-9) and archived redo that does not reach back far
+  enough (DOC-10).
+
+The queries above give the same picture by hand.

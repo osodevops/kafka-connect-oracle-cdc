@@ -38,7 +38,8 @@ What the containers do on first start:
    redistributed by this project.
 2. Kafka starts as a single KRaft node, with `transaction.max.timeout.ms` at 15 minutes.
 3. Connect starts in distributed mode with `exactly.once.source.support=enabled` and the JSON
-   converters with schemas.
+   converters with schemas. The Prometheus JMX exporter agent (downloaded by `up`) runs in the
+   worker with the shipped rules, so the task metrics are on `localhost:9404`.
 
 The example connector captures every table of the `WORKLOAD` schema in `FREEPDB1` except the
 workload ledger, with the topic prefix `cdc`:
@@ -91,6 +92,9 @@ added to the example configuration before running the workload:
 make -C lab/local/compose check       # writes its evidence to /tmp/oracle-cdc-evidence.json
 ```
 
+`make soak` runs the same oracle at check points during a long paced workload; the lab's README
+(`lab/local/compose/README.md`) describes it.
+
 ## Run the doctor
 
 The doctor checks the database against a connector configuration. From the host, the database is
@@ -114,7 +118,7 @@ Optional profiles, passed as `PROFILES="--profile <name>"` to `up`:
 
 | Profile | Adds |
 |---|---|
-| `observability` | Prometheus with the shipped alert rules and Grafana with the shipped dashboard. Prometheus scrapes the worker on port 9404, so attach the JMX exporter agent to the worker (see [dashboards and alerts](../operations/dashboards-and-alerts.md)) to feed them |
+| `observability` | Prometheus with the shipped alert rules and Grafana (on `localhost:3000`) with the shipped dashboard; Prometheus scrapes the worker's JMX exporter on port 9404 (see [dashboards and alerts](../operations/dashboards-and-alerts.md)) |
 | `chaos` | Toxiproxy between Connect and Oracle; point the connector at `toxiproxy:11521` |
 | `debezium` | A Debezium 3.7 Connect worker on the same Kafka and database, on port 8084, for side-by-side runs |
 

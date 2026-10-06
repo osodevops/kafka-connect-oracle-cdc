@@ -55,7 +55,6 @@ LogMiner does not support, such as identity columns and some of the newest colum
 - Oracle RAC, Amazon RDS for Oracle, Autonomous Database and standby capture.
 - A record format compatible with Confluent's Oracle CDC Source, and separate LOB topics.
 - Transaction metadata records and a schema change topic for consumers.
-- `oracle-cdc-admin` and the doctor's redo profiler.
 
 See the [status table](../intro.md#status) for everything that is available.
 
@@ -76,6 +75,11 @@ database under its own licence.
   transactions seen in Kafka; and within each transaction the event indexes are complete, with no
   duplicates and commit SCNs that never go backwards within a partition. It writes an evidence file
   with a SHA-256 digest. It reads this connector's topics.
+- **A soak harness.** `bench soak` runs a paced workload for as many hours as you choose against a
+  running connector, pauses at fixed check points until the connector has caught up, runs the
+  correctness oracle at each one, and samples the connector's metrics from the JMX exporter. The
+  Docker Compose lab runs it with `make soak`. The figures it records are for your own use; this
+  project does not publish them.
 - **A lab to run them in.** The [Docker Compose lab](../getting-started/quick-start.md) runs Oracle
   Database Free, Kafka and Connect; its `debezium` profile adds a Debezium worker on the same
   database and Kafka, so both connectors can mine the same workload side by side.

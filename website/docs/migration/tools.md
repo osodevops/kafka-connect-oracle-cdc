@@ -12,7 +12,7 @@ connector:
 |---|---|
 | `migrate_from_debezium.py` | Translates a Debezium Oracle connector configuration into `cdc.*` properties, with a report on every source property. See [Migrating from Debezium Oracle](from-debezium.md). |
 | `migrate_from_confluent.py` | Translates a Confluent Oracle CDC Source connector configuration the same way. See [Migrating from Confluent Oracle CDC Source](from-confluent.md). |
-| `takeover_scn.py` | Reads the stopped old connector's offset, checks that the redo from its SCN is still available, and writes `cdc.start.scn` (with `cdc.snapshot.mode=none`) into the new connector's configuration, so it begins where the old one stopped. |
+| `takeover_scn.py` | Reads the stopped old connector's offset, checks that the redo from its SCN is still available (every archived log is added to a LogMiner session, so a file removed outside RMAN is found), and writes `cdc.start.scn` (with `cdc.snapshot.mode=none`) into the new connector's configuration, so it begins where the old one stopped. |
 | `verify_cutover.py` | Compares the database at a check SCN with the state in the topics and writes evidence you can attach to a change record. See [Cutover verification](cutover-verification.md). |
 
 ## Install

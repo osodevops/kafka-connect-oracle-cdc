@@ -18,8 +18,9 @@ which:
   catalog marks it deleted."
 - The catalog still lists the file but LogMiner cannot open it when the connector adds it to the
   mining session (ORA-01284, ORA-00308, ORA-01285 or ORA-16226), usually because it was removed
-  with operating system commands: "mining from ... failed with ORA-01284." Nothing of that step is
-  applied.
+  with operating system commands: "mining from ... failed with ORA-01284." The cause in the task's
+  trace names the file: "Redo log ... is listed in the catalog but cannot be added", with the
+  advice to run `CROSSCHECK ARCHIVELOG ALL` and restore it. Nothing of that step is applied.
 
 The connector needs a log when it holds changes after the last acknowledged position, or the start
 of a transaction that is still open and not journaled. On a first start it also needs the logs
@@ -29,7 +30,8 @@ are captured whole" names it. If those logs are gone, wait for that transaction 
 and start the connector again.
 
 The steps below use Kafka Connect's REST API. [`oracle-cdc-admin`](../admin.md) wraps them:
-`offsets set` refuses an SCN whose redo is purged, and `resnapshot` reads chosen tables again.
+`offsets set` refuses an SCN whose redo is purged or whose archived logs LogMiner cannot open, and
+`resnapshot` reads chosen tables again.
 
 ## Why it stopped rather than continued
 
