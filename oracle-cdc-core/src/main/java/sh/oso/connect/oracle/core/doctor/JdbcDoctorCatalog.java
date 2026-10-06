@@ -383,6 +383,27 @@ public final class JdbcDoctorCatalog implements DoctorCatalog {
   }
 
   @Override
+  public List<PdbState> pdbStates() throws SQLException {
+    List<PdbState> out = new ArrayList<>();
+    try (Statement st = c.createStatement();
+        ResultSet rs =
+            st.executeQuery(
+                "SELECT p.name, p.open_mode, CASE WHEN EXISTS (SELECT 1 FROM dba_pdb_saved_states"
+                    + " s WHERE s.con_name = p.name) THEN 1 ELSE 0 END FROM v$pdbs p WHERE p.name"
+                    + " <> 'PDB$SEED' ORDER BY p.name")) {
+      while (rs.next()) {
+        out.add(new PdbState(rs.getString(1), rs.getString(2), rs.getInt(3) == 1));
+      }
+      return out;
+    } catch (SQLException e) {
+      if (e.getErrorCode() == 942) {
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  @Override
   public boolean canExecute(String owner, String name) throws SQLException {
     // ALL_OBJECTS lists a package only when the session may execute it, directly, through an
     // enabled role or through EXECUTE ANY PROCEDURE

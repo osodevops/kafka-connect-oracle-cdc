@@ -84,7 +84,8 @@ public final class Rules {
         kafkaTopics(),
         exactlyOnce(),
         idleTimeout(),
-        lagRecovery());
+        lagRecovery(),
+        pdbsOpen());
   }
 
   static Rule archivelog() {
@@ -712,6 +713,58 @@ public final class Rules {
                           + " and the other fixed views are planned without them, which slows"
                           + " mining steps.",
                       "EXEC DBMS_STATS.GATHER_FIXED_OBJECTS_STATS;"));
+        });
+  }
+
+  /**
+   * DOC-21: LogMiner reads every container whose redo lies in the mined range, captured or not, so
+   * a closed pluggable database stops mining with ORA-16331 until it opens; one without a saved
+   * state stays closed after a restart.
+   */
+  static Rule pdbsOpen() {
+    return rule(
+        "DOC-21",
+        ctx -> {
+          List<PdbState> pdbs = ctx.catalog().pdbStates();
+          if (pdbs == null) {
+            return List.of(
+                Finding.info(
+                    "DOC-21",
+                    "The pluggable databases' open modes could not be checked: V$PDBS or"
+                        + " DBA_PDB_SAVED_STATES is not readable."));
+          }
+          List<Finding> out = new ArrayList<>();
+          for (PdbState p : pdbs) {
+            if (!p.open()) {
+              out.add(
+                  Finding.warning(
+                      "DOC-21",
+                      "Pluggable database "
+                          + p.name()
+                          + " is "
+                          + p.openMode()
+                          + ": LogMiner reads every container whose redo it mines, captured or"
+                          + " not, so mining waits (ORA-16331) whenever redo of "
+                          + p.name()
+                          + " is in range until it opens.",
+                      "ALTER PLUGGABLE DATABASE "
+                          + p.name()
+                          + " OPEN; ALTER PLUGGABLE DATABASE "
+                          + p.name()
+                          + " SAVE STATE;"));
+            } else if (!p.savedState()) {
+              out.add(
+                  new Finding(
+                      "DOC-21",
+                      Severity.INFO,
+                      "Pluggable database "
+                          + p.name()
+                          + " has no saved state: after a restart it stays closed until opened by"
+                          + " hand, and mining waits for it (ORA-16331).",
+                      "ALTER PLUGGABLE DATABASE " + p.name() + " SAVE STATE;"));
+            }
+          }
+          return out;
         });
   }
 

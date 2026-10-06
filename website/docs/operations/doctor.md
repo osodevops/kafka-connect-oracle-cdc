@@ -68,6 +68,7 @@ worker to validate the configuration.
 | DOC-18 | With `exactly.once.support=required` or `transaction.boundary=connector`: `cdc.eos.batch.max.ms` below the producer's `transaction.timeout.ms`, that timeout within the brokers' `transaction.max.timeout.ms`, and the worker accepting exactly-once support | blocking | no |
 | DOC-19 | TCP keepalive idle time (`oracle.net.TCP_KEEPIDLE` in `cdc.database.connection.properties`) below the default idle timeouts of common load balancers | info | no |
 | DOC-20 | Whether the [lag case](../concepts/schema-and-ddl.md) can be recovered: `EXECUTE ON DBMS_LOGMNR_D`, the newest dictionary build flagged `DICTIONARY_BEGIN` and `DICTIONARY_END` in V$ARCHIVED_LOG, and every log from it on still present | info; warning when recovery is not possible | no |
+| DOC-21 | Every pluggable database of the CDB is open (`V$PDBS`) and has a saved state (`DBA_PDB_SAVED_STATES`) | warning or info | no |
 
 Notes on individual rules:
 
@@ -91,6 +92,11 @@ Notes on individual rules:
   log from that build on ([dictionary unavailable](runbooks/dictionary-unavailable.md)). With the
   privilege the connector writes a build at start when none exists and then on the
   `cdc.dictionary.build.*` schedule.
+- DOC-21: LogMiner reads every container whose redo lies in the range it mines, captured or not,
+  so a closed pluggable database makes mining wait with ORA-16331 until it opens (the connector
+  retries, see [transient database errors](runbooks/transient-database.md)). A PDB without a
+  saved state stays closed after a restart until someone opens it. The finding gives the
+  `ALTER PLUGGABLE DATABASE ... OPEN` and `SAVE STATE` statements.
 
 The `setup-sql --profile lab` output is the exact script that builds the test database image,
 and a test asserts they stay identical.

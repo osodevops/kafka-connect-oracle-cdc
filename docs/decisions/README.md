@@ -26,6 +26,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0018 | Column filters drop values before conversion and keep the full layout | Accepted |
 | 0019 | A first start mines the transactions already open whole | Accepted |
 | 0020 | Avro-safe names are opt-in, and name collisions stop the task | Accepted |
+| 0021 | Closed pluggable databases are a transient wait and a doctor finding | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 

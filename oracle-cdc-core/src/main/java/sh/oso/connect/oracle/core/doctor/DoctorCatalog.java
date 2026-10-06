@@ -57,6 +57,12 @@ public interface DoctorCatalog extends CatalogSource {
    */
   int fixedTablesWithStatistics() throws SQLException;
 
+  /**
+   * Every pluggable database but the seed (DOC-21); empty on a non-CDB, null when {@code V$PDBS} or
+   * the saved states are not readable.
+   */
+  java.util.List<PdbState> pdbStates() throws SQLException;
+
   /** Whether the connected user may execute the package {@code owner.name} (DOC-20). */
   boolean canExecute(String owner, String name) throws SQLException;
 }

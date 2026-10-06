@@ -99,6 +99,13 @@ public final class FakeDoctorCatalog implements DoctorCatalog {
     return fixedTablesWithStatistics;
   }
 
+  public List<PdbState> pdbStates = List.of(new PdbState("FREEPDB1", "READ WRITE", true));
+
+  @Override
+  public List<PdbState> pdbStates() {
+    return pdbStates;
+  }
+
   @Override
   public boolean canExecute(String owner, String name) {
     return dictionaryPackage && "SYS".equals(owner) && "DBMS_LOGMNR_D".equals(name);

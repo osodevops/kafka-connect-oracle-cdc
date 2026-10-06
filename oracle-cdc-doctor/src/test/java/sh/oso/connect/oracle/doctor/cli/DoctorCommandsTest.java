@@ -106,7 +106,7 @@ class DoctorCommandsTest {
     FakeEnv.Run all = env.doctor("check", "--config", config.toString(), "--format", "junit");
     assertThat(all.exit()).isZero();
     assertThat(all.out())
-        .contains("tests=\"20\" failures=\"0\"")
+        .contains("tests=\"21\" failures=\"0\"")
         .contains("<testcase name=\"DOC-20\" classname=\"oracle-cdc-doctor\">")
         .contains("<testcase name=\"DOC-1\" classname=\"oracle-cdc-doctor\"/>");
     assertThat(env.kafkaProps)

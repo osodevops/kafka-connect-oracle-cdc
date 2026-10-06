@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.topology.ThreadInfo;
 
-/** The full-mode rules (PRD-05 DOC-8 to DOC-11, DOC-13, DOC-16 to DOC-20) on their fixtures. */
+/** The full-mode rules (PRD-05 DOC-8 to DOC-11, DOC-13, DOC-16 to DOC-21) on their fixtures. */
 class FullRulesTest {
 
   static final Instant NOW = Instant.parse("2026-10-05T12:00:00Z");
@@ -93,7 +93,7 @@ class FullRulesTest {
         .containsExactly(
             "DOC-1", "DOC-2", "DOC-3", "DOC-4", "DOC-5", "DOC-6", "DOC-7", "DOC-8", "DOC-9",
             "DOC-10", "DOC-11", "DOC-12", "DOC-13", "DOC-14", "DOC-15", "DOC-16", "DOC-17",
-            "DOC-18", "DOC-19", "DOC-20");
+            "DOC-18", "DOC-19", "DOC-20", "DOC-21");
     assertThat(r.findings()).extracting(Finding::severity).containsOnly(Severity.INFO);
     assertThat(r.exitCode()).isEqualTo(Report.EXIT_OK);
     assertThat(Rules.fastMode()).hasSize(10);
@@ -242,6 +242,31 @@ class FullRulesTest {
         .singleElement()
         .extracting(Finding::severity)
         .isEqualTo(Severity.INFO);
+  }
+
+  @Test
+  void closedPluggableDatabasesWarnAndUnsavedStatesInform() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    assertThat(run(Rules.pdbsOpen(), ctx(cat, Map.of()))).isEmpty();
+    cat.pdbStates =
+        List.of(
+            new PdbState("FREEPDB1", "READ WRITE", true),
+            new PdbState("FREEPDB2", "MOUNTED", false),
+            new PdbState("FREEPDB3", "READ WRITE", false));
+    List<Finding> f = run(Rules.pdbsOpen(), ctx(cat, Map.of()));
+    assertThat(f).hasSize(2);
+    assertThat(f.get(0).severity()).isEqualTo(Severity.WARNING);
+    assertThat(f.get(0).message()).contains("FREEPDB2 is MOUNTED").contains("ORA-16331");
+    assertThat(f.get(0).fixSql()).contains("FREEPDB2 OPEN").contains("SAVE STATE");
+    assertThat(f.get(1).severity()).isEqualTo(Severity.INFO);
+    assertThat(f.get(1).message()).contains("FREEPDB3 has no saved state");
+    cat.pdbStates = null;
+    assertThat(run(Rules.pdbsOpen(), ctx(cat, Map.of())))
+        .singleElement()
+        .extracting(Finding::severity)
+        .isEqualTo(Severity.INFO);
+    cat.pdbStates = List.of();
+    assertThat(run(Rules.pdbsOpen(), ctx(cat, Map.of()))).as("a non-CDB").isEmpty();
   }
 
   /** Kafka facts from maps. */

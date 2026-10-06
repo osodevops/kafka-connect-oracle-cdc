@@ -45,6 +45,7 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | DOC-18 | Connect exactly-once enabled when config requires it | Blocking |
 | DOC-19 | Network idle timeout guard configured below known load balancer limits | Info |
 | DOC-20 | Dictionary build privilege present (enables DDL lag recovery) | Info |
+| DOC-21 | Every pluggable database open, with a saved state (a closed PDB stops mining with ORA-16331, ADR-0021) | Warning or info |
 
 The connector's `validate()` runs DOC-1 to DOC-7, DOC-12, DOC-14, DOC-15, DOC-17 and DOC-18 in fast mode.
 
