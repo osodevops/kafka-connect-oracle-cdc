@@ -55,7 +55,9 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `c4a04df`, `ce24bd7`, `adb4906` | ORA-16331 after a restart is transient; `CorrectnessCheck.stateAt` compares at a later quiesced SCN; the soak trial suite | gate; database restart, schema topic loss and soak trial suites green |
 | `d792f0a`, `56e550e`, `3e9f155` | Layouts at start (ADR-0016 amendment, parallel branch): every captured table's layout is read when the task starts and when a table joins, valid from the resume SCN when no DDL can be later, in one bulk dictionary pass per PDB; rows naming a column an inexact version lacks stop with CDC-6001; schema-topic writes during `start()` are held so a large table set cannot block it | gate; connector tier 26, engine tier 53, schema topic loss nightly |
 | `32b3bb3` | DOC-21 (ADR-0021): a closed pluggable database is a warning, one without a saved state information | gate; `DoctorEngineIT` reads the PDB states on Oracle |
-| next after `32b3bb3` | The schema-loss rebuild case runs its rapid DDL again (decoded with the layout read at start); DOC-21 on Oracle in `DoctorEngineIT` | both suites green |
+| `6c3001c` | The schema-loss rebuild case runs its rapid DDL again (decoded with the layout read at start); DOC-21 on Oracle in `DoctorEngineIT` | both suites green |
+| `8cc41aa`, `f9b2e3b`, `67c2ae4` | `AvroConverterConnectorIT` (parallel branch): a worker with Apicurio Registry 3.3.3 and its `AvroConverter` (jars staged into `e2e-tests/target`, licences checked by hand, test scope) carries every round-trip type with adjusted names; the record formats page shows converter configuration; ADR-0020 amendment: a name Avro refuses in an owner or table passes the converter and a default registry, only the consumer refuses it; the Avro exit criterion is proven | connector tier 28 tests green |
+| `64376ff`, `9ac72be`, `9a15285` | DOC-22 (fast mode, so the connector's validation runs it): with an Avro converter on the connector, column names Avro refuses block and owner, table or prefix names warn unless the adjustment modes are set; the validator hands the doctor the connector's properties | gate; `AvroConverterConnectorIT` (validation refuses the unadjusted column name); `DoctorEngineIT` |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
@@ -82,15 +84,11 @@ Nothing uncommitted. Still open:
   The 19c and 21c qualification (T4 lab) has not run either.
 - P1-31: Strimzi edge cases rollout_restart, broker_restart, partition, config_update,
   operator_restart_during_change, oom, offsets_list; `bench check` in `edge-cases.sh`.
-- No suite yet runs a worker with an Avro converter and a schema registry (the round trip is
-  proven at T0 with `AvroNamesRoundTripTest`).
 - dbz#2184 with `MAX_STRING_SIZE=EXTENDED` and dbz#2049 (RAC) need the T4 lab.
 - Roadmap (ADR-0016 follow-up): a DDL that overtakes the connector (an ADD and a DROP of a column
   before the connector reaches the first) leaves an inexact version, and rows naming the dropped
   column stop with CDC-3001 (CDC-6001 under replay). Decoding them needs layouts derived from the
   redo dictionary's DDL tracking rather than from the online catalog.
-- In progress on a branch (`feat/avro-e2e`): `AvroConverterConnectorIT`, a worker with the Apicurio
-  Avro converter and registry carrying every round-trip type, adjusted names included.
 
 For Sion (outside the repository): create the Central and GPG secrets and run
 `verify-release-secrets.yml`; add required reviewers to the `release` environment; allow Actions
