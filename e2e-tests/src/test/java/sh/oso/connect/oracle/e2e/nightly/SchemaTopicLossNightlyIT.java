@@ -88,6 +88,9 @@ class SchemaTopicLossNightlyIT {
       for (int i = 1; i <= 5; i++) {
         sql(w, "INSERT INTO sl VALUES (" + i + ", 'name-" + i + "')");
       }
+      // delivered before the DDL: a DDL that overtakes the connector's first read of the table is
+      // the lag case of ADR-0016 (a typed stop), not what this suite is about
+      assertThat(rows(c, data, 5, Duration.ofMinutes(3))).hasSize(5);
       sql(w, "ALTER TABLE sl ADD (note VARCHAR2(20))");
       for (int i = 6; i <= 10; i++) {
         sql(w, "INSERT INTO sl VALUES (" + i + ", 'name-" + i + "', 'note-" + i + "')");
