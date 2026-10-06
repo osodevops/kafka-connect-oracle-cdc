@@ -128,6 +128,28 @@ class DoctorEngineIT {
   }
 
   @Test
+  void doc21ReadsThePluggableDatabasesOpenAndSaved() throws SQLException {
+    // the test image opens both PDBs and saves their state, as the setup guide asks
+    try (Connection c = db.capture(OracleTestDatabase.CDB_SERVICE)) {
+      List<sh.oso.connect.oracle.core.doctor.PdbState> pdbs = new JdbcDoctorCatalog(c).pdbStates();
+      assertThat(pdbs)
+          .extracting(sh.oso.connect.oracle.core.doctor.PdbState::name)
+          .contains(OracleTestDatabase.PDB1, "FREEPDB2")
+          .doesNotContain("PDB$SEED");
+      assertThat(pdbs).allMatch(p -> p.open() && p.savedState(), "open with a saved state");
+      DoctorContext ctx =
+          new DoctorContext(
+              new CoreConfig(props("FREEPDB1\\." + schema + "\\.CLEAN")),
+              new JdbcDoctorCatalog(c),
+              List.of("FREEPDB1\\." + schema + "\\.CLEAN"),
+              List.of(),
+              "fail");
+      assertThat(new Doctor(Rules.all()).run(ctx).findings())
+          .noneMatch(f -> f.rule().equals("DOC-21"));
+    }
+  }
+
+  @Test
   void cleanTablesProduceNoFindings() throws SQLException {
     try (Connection c = db.capture(OracleTestDatabase.CDB_SERVICE)) {
       Report r =
