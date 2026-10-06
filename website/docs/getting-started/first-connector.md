@@ -40,8 +40,9 @@ Points worth knowing before the first run:
   `cdc.database.pdbs`; table patterns are regular expressions matched against `PDB.SCHEMA.TABLE`.
   For a non-container database leave `cdc.database.pdbs` empty and match `SCHEMA.TABLE`.
 - **Check first.** Run `oracle-cdc-doctor check --config orders-cdc.json`. It reports what is
-  missing with the SQL to fix it. Kafka Connect runs the same fast rules when the connector is
-  created, so a configuration that passes the doctor is accepted.
+  missing with the SQL to fix it. Kafka Connect runs the doctor's fast rules when the connector is
+  created or updated, and refuses the configuration on a blocking finding (see
+  [oracle-cdc-doctor](../operations/doctor.md)).
 - **Credentials.** Passwords are Connect `PASSWORD` types and never appear in logs. Use a config
   provider as shown rather than a literal.
 - **Broker access.** `cdc.kafka.bootstrap.servers` lets the connector create its internal topics,

@@ -15,6 +15,10 @@ Before the connector can capture anything, the database needs:
    (`C##` prefix) whose `CONTAINER_DATA` covers every PDB (DOC-4).
 5. Oracle Database 19c or later (DOC-15), and for the default `cdc.capture.mode=online`, a
    PRIMARY database open READ WRITE (DOC-14).
+6. In a CDB, every pluggable database open, with a saved state so that it opens again after a
+   restart (DOC-21). LogMiner reads every container whose redo lies in the range it mines,
+   captured or not, so a closed PDB makes mining wait until it opens (see
+   [transient database errors](../operations/runbooks/transient-database.md)).
 
 `oracle-cdc-doctor` writes the DBA script for the user and the grants, and checks all of the above
 against the database named in a connector configuration:
@@ -27,7 +31,8 @@ java -jar oracle-cdc-doctor-cli.jar check --config connector.json
 ```
 
 The connector's own `validate` (run by Kafka Connect when a connector is created or updated) runs
-the same fast rules, so a configuration that passes the doctor is accepted by Connect. See
+the doctor's fast rules and refuses the configuration on a blocking finding. `check` runs every
+rule, including the slower ones such as DOC-21 that validation leaves out. See
 [oracle-cdc-doctor](../operations/doctor.md) for the rules and exit codes.
 
 ## The script

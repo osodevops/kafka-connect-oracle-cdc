@@ -36,7 +36,8 @@ Table-level failures, raised when the connector first reads a captured table:
 - A snapshot met a column type the snapshot reader does not support.
 - `cdc.columns.exclude` matches a column of the record key (the primary key, the unique index the
   connector chose or a column in `cdc.key.columns`): "cdc.columns.exclude matches column ... which
-  is part of the record key". The task checks this at start, and again when a DDL changes a
+  is part of the record key". Kafka Connect's validation refuses such a pattern when the
+  connector is created or updated; the task checks again at start, and when a DDL changes a
   table's key.
 
 The connector reads every captured table's layout at start, but passes over a table it cannot key

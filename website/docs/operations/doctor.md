@@ -8,15 +8,18 @@ description: The preflight checker, its rules, the redo profiler, sizing and lag
 `oracle-cdc-doctor` runs against the database named in a connector configuration and reports
 what would stop capture, with the SQL that fixes it. It also profiles the redo the connector has
 to mine, sizes online logs and archive retention, and explains why a running connector lags. The
-connector's own `validate` runs the fast subset of the rules, so a configuration that passes the
-doctor is accepted by Connect. The operator commands for offsets, resnapshots, transactions and
-the journal are described in [oracle-cdc-admin](admin.md).
+connector's own `validate`, which Kafka Connect runs when a connector is created or updated, runs
+the fast subset of the rules and refuses the configuration on a blocking finding; warnings do not
+refuse it. Validation also refuses a `cdc.columns.exclude` pattern that matches a column of a
+table's record key, which `check` does not test. The operator commands for offsets, resnapshots,
+transactions and the journal are described in [oracle-cdc-admin](admin.md).
 
 ```bash
 java -jar oracle-cdc-doctor-cli.jar check --config connector.json [--format markdown|json|junit] [--rules all|fast]
     [--max-downtime 24h] [--bootstrap-servers host:9092] [--command-config client.properties] [--connect-url http://connect:8083]
-java -jar oracle-cdc-doctor-cli.jar setup-sql [--profile production|lab] [--user c##cdc] [--non-cdb] [--pdbs A,B]
-java -jar oracle-cdc-doctor-cli.jar redo-profile --config connector.json [--window 2h] [--sample-logs 1] [--top 20]
+java -jar oracle-cdc-doctor-cli.jar setup-sql [--config connector.json] [--profile production|lab] [--platform onprem|rds|autonomous]
+    [--user c##cdc] [--password ...] [--non-cdb] [--pdbs A,B]
+java -jar oracle-cdc-doctor-cli.jar redo-profile --config connector.json [--window 2h] [--sample-logs 1] [--top 20] [--query-timeout 10m]
 java -jar oracle-cdc-doctor-cli.jar sizing --config connector.json [--days 7] [--max-downtime 24h]
 java -jar oracle-cdc-doctor-cli.jar explain-lag (--jmx-url URL | --metrics-url URL) [--connect-url URL --name NAME | --config connector.json | --server PREFIX] [--interval 10s]
 ```
@@ -36,7 +39,7 @@ form such as `PT2H`.
 ## check
 
 `check` runs every rule below by default. `--rules fast` runs only the rules the connector's
-`validate` runs, which need nothing but the database. Output is Markdown (a findings table and the
+`validate` runs, which need nothing but the database and the configuration. Output is Markdown (a findings table and the
 SQL to run), JSON, or JUnit XML for CI: one test case per rule, failed when the rule has a blocking
 finding, with warnings and information in the test case output.
 
@@ -93,17 +96,18 @@ Notes on individual rules:
   log from that build on ([dictionary unavailable](runbooks/dictionary-unavailable.md)). With the
   privilege the connector writes a build at start when none exists and then on the
   `cdc.dictionary.build.*` schedule.
-- DOC-22: Avro names must match `[A-Za-z_][A-Za-z0-9_]*` in every part. A column name Avro
-  refuses fails the task in the converter at its table's first record, so it blocks. An owner,
-  table or topic prefix part Avro refuses passes the converter and a registry without a validity
-  rule, and a consumer on Avro for Java 1.12 or later then refuses the record, so it warns. Set the
-  [name adjustment modes](../reference/record-formats.md). A converter set only in the worker's
-  configuration is not visible to the doctor; the rule then says nothing.
 - DOC-21: LogMiner reads every container whose redo lies in the range it mines, captured or not,
   so a closed pluggable database makes mining wait with ORA-16331 until it opens (the connector
   retries, see [transient database errors](runbooks/transient-database.md)). A PDB without a
   saved state stays closed after a restart until someone opens it. The finding gives the
   `ALTER PLUGGABLE DATABASE ... OPEN` and `SAVE STATE` statements.
+- DOC-22: Avro names must match `[A-Za-z_][A-Za-z0-9_]*` in every part. A column name Avro
+  refuses fails the task in the converter at its table's first record, so it blocks. An owner,
+  table or topic prefix part Avro refuses passes the converter and a registry without a validity
+  rule, and a consumer on Avro for Java 1.12 or later then refuses the record, so it warns. Set
+  the [name adjustment modes](../reference/record-formats.md#avro-and-other-strict-naming-rules).
+  A converter set only in the worker's configuration is not visible to the doctor; the rule then
+  says nothing.
 
 The `setup-sql --profile lab` output is the exact script that builds the test database image,
 and a test asserts they stay identical.

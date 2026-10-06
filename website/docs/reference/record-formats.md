@@ -12,7 +12,7 @@ This is the only format available (`cdc.output.format=debezium`). A format compa
 Confluent's Oracle CDC Source connector is not built yet.
 
 How records are serialised (JSON, Avro, Protobuf) is up to the worker's `key.converter` and
-`value.converter`, as for any source connector.
+`value.converter`, or the connector's own overrides of them, as for any source connector.
 
 ## Topics
 
@@ -258,6 +258,12 @@ same way. Each Avro type keeps the Connect schema name Debezium consumers rely o
 With `cdc.kafka.bootstrap.servers` set, the task reads its transaction journal and schema topics
 back at start, so set `cdc.journal.converter` to the same converter class, with the same settings
 under `cdc.journal.converter.*`.
+
+When the Avro converter is set in the connector's own configuration, the connector's validation
+checks the captured names first (doctor rule [DOC-22](../operations/doctor.md#check)): a column name
+Avro does not allow, with `cdc.field.name.adjustment.mode=none`, refuses the configuration, and an
+owner, table or topic prefix that Avro does not allow, with `cdc.schema.name.adjustment.mode=none`,
+is a warning. A converter set only in the worker's configuration is not visible to validation.
 
 Without the adjustment modes, a name Avro does not allow is refused, but not always at the same
 point:
