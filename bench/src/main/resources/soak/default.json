@@ -1,0 +1,22 @@
+{
+  "description": "Default spec of bench soak (testing strategy T3). Two paced sessions of small mixed transactions: inserts, updates, key changes, deletes, savepoint and full rollbacks over three tables, with a 50 ms pause after each transaction so the capture keeps up on a workstation lab. Inserts and deletes are balanced so the tables stay small however long the run. LOB writes are off because the lab's example connector runs with cdc.lob.mode=skip (set lobWeight above 0 only with inline or reselect); truncates, DDL and large transactions are off so every check compares like with like. bench soak runs the spec open-ended and ends it itself, so the duration below only matters to bench workload.",
+  "seed": 30,
+  "sessions": 2,
+  "tables": 3,
+  "transactionsPerSession": 0,
+  "durationSeconds": 3600,
+  "maxRowsPerTransaction": 4,
+  "largeTransactionEvery": 0,
+  "insertWeight": 3,
+  "updateWeight": 4,
+  "deleteWeight": 3,
+  "keyChangeWeight": 0.5,
+  "lobWeight": 0,
+  "savepointRollbackProbability": 0.1,
+  "fullRollbackProbability": 0.05,
+  "truncateProbability": 0,
+  "ddlProbability": 0,
+  "pauseMillisBetweenTransactions": 50,
+  "tablePrefix": "WL_T",
+  "ledgerTable": "WL_LEDGER"
+}

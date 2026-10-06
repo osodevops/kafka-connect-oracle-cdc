@@ -54,6 +54,7 @@ public final class WorkloadGenerator {
   private volatile boolean paused;
   private final AtomicInteger running = new AtomicInteger();
   private final AtomicInteger parked = new AtomicInteger();
+  private volatile WorkloadResult current;
 
   public WorkloadGenerator(WorkloadSpec spec, String url, String user, String password) {
     spec.validate();
@@ -95,6 +96,7 @@ public final class WorkloadGenerator {
   /** Runs every session to completion and returns the counters. */
   public WorkloadResult run() throws SQLException, InterruptedException {
     WorkloadResult result = new WorkloadResult();
+    current = result;
     long start = System.nanoTime();
     long deadline =
         spec.durationSeconds > 0
@@ -128,6 +130,14 @@ public final class WorkloadGenerator {
     }
     result.durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
     return result;
+  }
+
+  /**
+   * The live counters of the run in progress (or the last one), or null before the first {@link
+   * #run}. A soak reads them while an open-ended run is still going.
+   */
+  public WorkloadResult progress() {
+    return current;
   }
 
   /** Every session finishes after its current transaction; {@link #run} then returns normally. */

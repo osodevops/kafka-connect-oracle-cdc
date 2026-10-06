@@ -19,17 +19,19 @@ import java.util.concurrent.Callable;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import sh.oso.connect.oracle.bench.check.CheckCommand;
+import sh.oso.connect.oracle.bench.soak.SoakCommand;
 import sh.oso.connect.oracle.bench.workload.WorkloadCommand;
 
 /**
  * Workload generator, materialiser and correctness oracle entry point (testing strategy section 3).
- * workload runs a seeded workload; check is the correctness oracle (P1-13).
+ * workload runs a seeded workload; check is the correctness oracle (P1-13); soak runs the T3 soak
+ * with the oracle at fixed check points (P1-30).
  */
 @Command(
     name = "bench",
     mixinStandardHelpOptions = true,
     description = "Deterministic Oracle workload generator and Kafka correctness oracle.",
-    subcommands = {WorkloadCommand.class, CheckCommand.class})
+    subcommands = {WorkloadCommand.class, CheckCommand.class, SoakCommand.class})
 public final class BenchMain implements Callable<Integer> {
 
   public static void main(String[] args) {

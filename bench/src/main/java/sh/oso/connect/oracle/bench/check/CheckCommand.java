@@ -77,18 +77,32 @@ public final class CheckCommand implements Callable<Integer> {
   @Option(names = "--out", description = "Evidence JSON file.")
   Path out;
 
+  /**
+   * The connector's topic for each table: {@code <prefix>.[<PDB>.]<OWNER>.<TABLE>}, the PDB part
+   * omitted for a non-CDB.
+   */
+  public static List<String> topics(String prefix, String pdb, String owner, List<String> tables) {
+    List<String> out = new ArrayList<>();
+    for (String t : tables) {
+      out.add(
+          prefix
+              + "."
+              + (pdb == null ? "" : pdb.toUpperCase(Locale.ROOT) + ".")
+              + owner.toUpperCase(Locale.ROOT)
+              + "."
+              + t.toUpperCase(Locale.ROOT));
+    }
+    return out;
+  }
+
   @Override
   public Integer call() throws Exception {
     Properties props = new Properties();
     props.setProperty("user", user);
     props.setProperty("password", password);
-    List<String> topics = new ArrayList<>();
     String owner = user.toUpperCase(Locale.ROOT);
     List<String> upper = tables.stream().map(t -> t.trim().toUpperCase(Locale.ROOT)).toList();
-    for (String t : upper) {
-      topics.add(
-          prefix + "." + (pdb == null ? "" : pdb.toUpperCase(Locale.ROOT) + ".") + owner + "." + t);
-    }
+    List<String> topics = topics(prefix, pdb, owner, upper);
     try (Connection c = DriverManager.getConnection(url, props)) {
       CorrectnessCheck check =
           new CorrectnessCheck(
