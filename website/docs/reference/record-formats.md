@@ -190,9 +190,10 @@ schema names are built from `cdc.topic.prefix`, the PDB, the owner and the table
 key field names are the column names. Oracle allows `$` and `#` in unquoted names and almost
 anything in quoted ones (lower case, spaces, slashes), and a topic prefix may contain a hyphen.
 Avro allows only letters, digits and underscores in each dot-separated part of a name, and no
-digit at the start, so a worker with an Avro converter fails the task on such a table. Two
-settings adjust the names. Names change only when a mode is set: with the default, `none`, every
-name is exactly as Oracle and the configuration give it.
+digit at the start, so records of such a table cannot be written or read as Avro (see
+[Using an Avro converter](#using-an-avro-converter) for where they are refused). Two settings
+adjust the names. Names change only when a mode is set: with the default, `none`, every name is
+exactly as Oracle and the configuration give it.
 
 | Mode | What it does | `my-cdc`, `ORDER#`, `1ST`, `ORDER_LINES` become |
 |---|---|---|
@@ -227,6 +228,49 @@ follows the topic, and the schema registered under it carries the adjusted names
 on a running connector therefore changes the schemas registered from then on, and Avro treats a
 renamed record or field as a different one, so choose the modes before the first record or plan
 the change as a change of record format.
+
+### Using an Avro converter
+
+The converter, not the connector, turns records into bytes, so Avro output needs an Avro converter
+and a schema registry, configured on the worker or as an override on the connector, plus both
+adjustment modes. With Apicurio Registry's converter, for example:
+
+```json
+"key.converter": "io.apicurio.registry.utils.converter.AvroConverter",
+"key.converter.apicurio.registry.url": "http://registry:8080/apis/registry/v3",
+"key.converter.apicurio.registry.auto-register": "true",
+"value.converter": "io.apicurio.registry.utils.converter.AvroConverter",
+"value.converter.apicurio.registry.url": "http://registry:8080/apis/registry/v3",
+"value.converter.apicurio.registry.auto-register": "true",
+"cdc.schema.name.adjustment.mode": "avro",
+"cdc.field.name.adjustment.mode": "avro"
+```
+
+The converter goes on the worker's `plugin.path` as a plugin directory of its own, with its
+dependencies (Apicurio publishes one as `apicurio-registry-distro-connect-converter` on Maven
+Central). Other Avro converters, such as Confluent's `io.confluent.connect.avro.AvroConverter`
+with `key.converter.schema.registry.url` and `value.converter.schema.registry.url`, are set the
+same way. Each Avro type keeps the Connect schema name Debezium consumers rely on in its
+`connect.name` property, for example `io.debezium.time.MicroTimestamp` or
+`io.debezium.data.VariableScaleDecimal`, and the source block keeps the Oracle names
+(`source.table` is `ORDER#`, not `ORDER_`).
+
+With `cdc.kafka.bootstrap.servers` set, the task reads its transaction journal and schema topics
+back at start, so set `cdc.journal.converter` to the same converter class, with the same settings
+under `cdc.journal.converter.*`.
+
+Without the adjustment modes, a name Avro does not allow is refused, but not always at the same
+point:
+
+- A column name such as `ID#` fails the conversion of the table's first record. The task stops
+  before anything of that table is written.
+- A table name such as `ORDER#`, or a topic prefix with a hyphen, ends up in the namespace of the
+  schema. Avro builds such a schema without complaint, so it is refused on the way in only by a
+  registry that checks schemas when they are registered; the task then stops. Apicurio Registry,
+  for example, checks Avro syntax only when a validity rule is configured. A registry that stores
+  the schema as written lets the records through. A consumer whose Avro library checks namespaces
+  when it parses a schema, as Avro for Java does from release 1.12, then fails to read them; one
+  that does not reads them under a name that is not valid Avro.
 
 ## LOB columns
 
