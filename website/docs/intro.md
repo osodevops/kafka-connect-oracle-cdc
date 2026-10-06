@@ -29,6 +29,8 @@ a benchmark claim.
 | [Transaction buffer](concepts/transaction-buffer-and-journal.md) with spill to disk, Kafka transaction journal, orphan detection, long-transaction policy | Available |
 | [Schema versions and DDL](concepts/schema-and-ddl.md): schema topic, rows written before a DDL decoded with a dictionary from the redo | Available |
 | [LOB columns](reference/record-formats.md#lob-columns): skip, inline from redo, or reselect as of the commit SCN | Available |
+| [Column exclusion](reference/record-formats.md#excluded-columns): named columns dropped before their values are read | Available |
+| [Avro-safe names](reference/record-formats.md#avro-and-other-strict-naming-rules) for schemas and fields, with a typed stop on name collisions | Available |
 | Decode DLQ, [ops topic](reference/ops-topic.md), heartbeats, archive-only mining | Available |
 | [Metrics](reference/metrics.md), Prometheus exporter rules, [Grafana dashboard and alert rules](operations/dashboards-and-alerts.md) | Available |
 | [`oracle-cdc-doctor`](operations/doctor.md): preflight checks, setup script, redo profile, sizing, lag explanation | Available |
@@ -58,6 +60,7 @@ data.
 - [Database setup](database-setup/index.md) prepares an Oracle database for capture.
 - [How capture works](concepts/how-capture-works.md) explains the engine.
 - [Comparison](comparison/index.md) sets the connector beside Confluent's and Debezium's.
+- [Migration](migration/tools.md) moves an existing Debezium or Confluent pipeline across.
 - [Enterprise support](enterprise-support.md) describes the production support subscription.
 
 ## Trademarks
