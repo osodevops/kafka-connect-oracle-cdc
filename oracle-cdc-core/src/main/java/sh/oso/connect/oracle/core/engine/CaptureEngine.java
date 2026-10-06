@@ -595,7 +595,11 @@ public final class CaptureEngine {
           throw new DecodeException(
               "LogMiner marked a row of "
                   + u.table().fqn()
-                  + " UNSUPPORTED at "
+                  + " (object "
+                  + u.dataObj()
+                  + ", transaction "
+                  + u.tx()
+                  + ") UNSUPPORTED at "
                   + u.id()
                   + (u.info() == null ? "" : " (" + u.info() + ")"),
               "The table has a column type LogMiner cannot reconstruct (DOC-5); exclude the table"

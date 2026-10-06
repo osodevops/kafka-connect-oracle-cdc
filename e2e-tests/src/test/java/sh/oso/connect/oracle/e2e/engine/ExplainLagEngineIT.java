@@ -222,7 +222,9 @@ class ExplainLagEngineIT {
   void miningSlowerThanItsTargetIsNamed(@TempDir Path dir) throws Exception {
     ObjectName name = null;
     try (Connection meta = metadata();
-        Connection mining = mining();
+        // every step's LogMiner query waits six seconds first: mining stays behind its target
+        // whatever the host's speed (an awake workstation mines the batch job in milliseconds)
+        Connection mining = slowContents(mining(), 6_000);
         Connection w = db.connect(OracleTestDatabase.PDB1, schema, schema)) {
       exec(w, "INSERT INTO noise SELECT LEVEL, LEVEL FROM dual CONNECT BY LEVEL <= " + NOISE_ROWS);
       OracleSql.archiveLogCurrent(db); // the batch job starts in a fresh log
@@ -483,6 +485,50 @@ class ExplainLagEngineIT {
     Connection c = db.capture(OracleTestDatabase.CDB_SERVICE);
     SessionInitializer.apply(c, ConnectionRole.METADATA);
     return c;
+  }
+
+  /**
+   * {@code real}, whose statements on {@code V$LOGMNR_CONTENTS} sleep {@code millis} before each
+   * execution.
+   */
+  private static Connection slowContents(Connection real, long millis) {
+    return (Connection)
+        java.lang.reflect.Proxy.newProxyInstance(
+            ExplainLagEngineIT.class.getClassLoader(),
+            new Class<?>[] {Connection.class},
+            (proxy, method, args) -> {
+              Object out = invoke(method, real, args);
+              if (out instanceof java.sql.PreparedStatement ps
+                  && args != null
+                  && args.length > 0
+                  && args[0] instanceof String sql
+                  && sql.toUpperCase(java.util.Locale.ROOT).contains("V$LOGMNR_CONTENTS")) {
+                return java.lang.reflect.Proxy.newProxyInstance(
+                    ExplainLagEngineIT.class.getClassLoader(),
+                    new Class<?>[] {java.sql.PreparedStatement.class},
+                    (p2, m2, a2) -> {
+                      if (m2.getName().startsWith("execute")) {
+                        try {
+                          Thread.sleep(millis);
+                        } catch (InterruptedException e) {
+                          Thread.currentThread().interrupt();
+                          throw new SQLException("interrupted while mining", "08000", 17008);
+                        }
+                      }
+                      return invoke(m2, ps, a2);
+                    });
+              }
+              return out;
+            });
+  }
+
+  private static Object invoke(java.lang.reflect.Method m, Object target, Object[] args)
+      throws Throwable {
+    try {
+      return m.invoke(target, args);
+    } catch (java.lang.reflect.InvocationTargetException e) {
+      throw e.getCause();
+    }
   }
 
   private Connection mining() throws SQLException {

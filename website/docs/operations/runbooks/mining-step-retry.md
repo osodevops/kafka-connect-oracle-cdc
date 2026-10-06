@@ -11,9 +11,10 @@ this code only after more than 20 failures of the same kind in a row.
 
 ## What the connector observed
 
-A LogMiner step failed with ORA-00310, ORA-00334, ORA-01289 or ORA-01291. These mean that an
-online redo log was switched, overwritten or archived while it was being read, or that a log the
-step needs is not yet visible. The connector discards everything the failed step read, counts it
+A LogMiner step failed with ORA-00310, ORA-00334, ORA-01289, ORA-01291 or ORA-01368. These mean
+that an online redo log was switched, overwritten or archived while it was being read (ORA-01368:
+the header of a log the step registered no longer matches it), or that a log the step needs is
+not yet visible. The connector discards everything the failed step read, counts it
 in the `StepRetries` metric and mines the same range again at the next poll, which normally
 succeeds once the log has been archived.
 
@@ -42,7 +43,7 @@ ORDER BY thread#, sequence#;
 ```
 
 Many online groups with `ARCHIVED = NO`, a destination in `ERROR`, or a full archive volume confirm
-an archiving problem. The database alert log shows ORA-00310, ORA-00334 or ORA-01289 around the
+an archiving problem. The database alert log shows ORA-00310, ORA-00334, ORA-01289 or ORA-01368 around the
 time of the failures. The `Step retries, timeouts and reconnects` panel of the shipped Grafana
 dashboard shows how often it happened before the stop.
 

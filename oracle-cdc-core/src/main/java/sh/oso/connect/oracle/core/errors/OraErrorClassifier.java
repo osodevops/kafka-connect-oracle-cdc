@@ -41,8 +41,12 @@ public final class OraErrorClassifier {
           28, 31, 3113, 3114, 3135, 12170, 12541, 12514, 12516, 12528, 12537, 12543, 1033, 1034,
           1089, 1090, 1092, 1109, 17002, 17008, 17410, 17800, 25408, 4068);
 
-  /** Online log reuse or a log not yet visible: discard the step and mine the same range again. */
-  static final Set<Integer> STEP_RETRY = Set.of(310, 334, 1289, 1291, 1013);
+  /**
+   * Online log reuse or a log not yet visible: discard the step and mine the same range again.
+   * ORA-01368 is a registered log whose header no longer matches: the group was reused under a long
+   * step.
+   */
+  static final Set<Integer> STEP_RETRY = Set.of(310, 334, 1289, 1291, 1368, 1013);
 
   /** A log the catalog lists cannot be read any more. */
   static final Set<Integer> PURGED = Set.of(1284, 308, 1285, 16226);

@@ -132,6 +132,15 @@ class RedoProfileTest {
     assertThat(RedoProfile.sampleRange(h, 1)).containsExactly(300, 399);
     assertThat(RedoProfile.sampleRange(h, 3)).containsExactly(150, 399);
     assertThat(RedoProfile.sampleRange(List.of(), 3)).isNull();
+    // two logs switched out within the same second: the newer one by SCN is the sample
+    Instant second = NOW.minus(Duration.ofMinutes(5));
+    List<ArchiveStat> sameSecond =
+        List.of(
+            new ArchiveStat(1, 21, 600, 700, null, second, 10, false),
+            new ArchiveStat(1, 22, 700, 900, null, second, 10, false));
+    assertThat(RedoProfile.sampleRange(sameSecond, 1)).containsExactly(700, 899);
+    assertThat(RedoProfile.sampleRange(List.of(sameSecond.get(1), sameSecond.get(0)), 1))
+        .containsExactly(700, 899);
     assertThat(RedoProfile.toMarkdown(NOW, NOW, List.of(), null, 5))
         .contains("No log was archived")
         .contains("No archived log is present to sample");

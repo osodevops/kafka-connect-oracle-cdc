@@ -95,7 +95,7 @@ class ResnapshotConnectorIT {
     c.put("cdc.kafka.bootstrap.servers", "kafka:19092");
     c.put("cdc.decimal.mode", "string");
     c.put("cdc.snapshot.mode", "none"); // the rows already there are not published at start
-    c.put("cdc.snapshot.chunk.rows", "500");
+    c.put("cdc.snapshot.chunk.rows", "1000"); // the smallest chunk: the rows take two
     cluster.register(NAME, c);
     cluster.awaitRunning(NAME, Duration.ofMinutes(2));
     cluster.awaitOffsets(NAME, Duration.ofSeconds(60));

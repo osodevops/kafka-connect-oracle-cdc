@@ -116,8 +116,9 @@ public final class RedoProfile {
     List<ArchiveStat> present =
         history.stream()
             .filter(a -> !a.deleted() && a.nextTime() != null)
+            // newest by SCN: NEXT_TIME has whole seconds, and logs switched within one second tie
             .sorted(
-                Comparator.comparing(ArchiveStat::nextTime)
+                Comparator.comparingLong(ArchiveStat::nextScn)
                     .thenComparingInt(ArchiveStat::thread)
                     .reversed())
             .limit(Math.max(1, count))

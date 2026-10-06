@@ -179,7 +179,9 @@ class RollsBackToSavepointExactlyEngineIT {
   void partialRollbacksOfLobWritesKeepTheChangesBeforeTheSavepoint() throws Exception {
     String big = "a".repeat(9000) + "z";
     String other = "b".repeat(11000) + "y";
-    String schema = SchemaFixtures.nameFor(getClass()) + "L";
+    // LogMiner reads no object whose owner name is longer than 30 characters (DOC-6)
+    String base = SchemaFixtures.nameFor(getClass());
+    String schema = base.substring(0, Math.min(base.length(), 29)) + "L";
     SchemaFixtures.recreate(db, OracleTestDatabase.PDB1, schema);
     try (Connection meta = db.capture(OracleTestDatabase.CDB_SERVICE);
         Connection w = db.connect(OracleTestDatabase.PDB1, schema, schema)) {

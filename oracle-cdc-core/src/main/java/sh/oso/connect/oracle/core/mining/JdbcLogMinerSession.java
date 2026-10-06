@@ -176,10 +176,19 @@ public final class JdbcLogMinerSession implements LogMinerSource {
     }
   }
 
+  /**
+   * Ends the session and closes the connection. A connection that is already closed or broken (an
+   * interrupted thread closes its socket) has taken the server-side session with it, so that is not
+   * an error here.
+   */
   @Override
   public void close() throws SQLException {
     try {
-      end();
+      if (!c.isClosed()) {
+        end();
+      }
+    } catch (java.sql.SQLRecoverableException gone) {
+      // the session ended with the connection
     } finally {
       c.close();
     }
