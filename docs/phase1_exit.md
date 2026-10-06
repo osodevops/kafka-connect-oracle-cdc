@@ -29,7 +29,7 @@ Outside this list, Phase 1 exit also needs the 72-hour soak with `bench check` (
 
 | Criterion | Status | Proof |
 |---|---|---|
-| A Debezium consumer reads our output without change for every type, Avro and JSON | partly | `DebeziumEnvelopeTest`, `TypeRoundTripEngineIT`, `CorrectnessOracleConnectorIT` (JSON); Avro converter not tested |
+| A Debezium consumer reads our output without change for every type, Avro and JSON | partly | `DebeziumEnvelopeTest`, `TypeRoundTripEngineIT`, `CorrectnessOracleConnectorIT` (JSON); `AvroNamesRoundTripTest` converts every round-trip type to Avro and back with an Avro converter's `AvroData` once `cdc.*.name.adjustment.mode` is set (ADR-0020); no suite yet runs a worker with an Avro converter and a schema registry |
 | 1,000 worker kills under exactly-once: no duplicates, no losses | partly | `ExactlyOnceConnectorIT` (two kills); the kill loop nightly suite with `-Dnightly.kills=1000` |
 | A `read_committed` consumer never sees a partial Oracle transaction (except flagged splits) | proven | `ExactlyOnceConnectorIT`, `EosBoundariesTest` |
 | One connector, three PDBs, one LogMiner session, per-PDB topics | partly | `MultiPdbConnectorIT` (two PDBs, the test image has two) |

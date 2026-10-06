@@ -37,38 +37,68 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `6a325b0` | Integration of the parallel branches with P1-20 and P1-22; `cdc.mining.inlist.max` capped at 1,000; generated lab exporter ConfigMap and configuration index | gate, engine tier 42 tests, connector tier green except one `LagCaseConnectorIT` run refused by a loaded host (passed alone) |
 | `56dbbf1` | P1-25 migration tooling (parallel branch): `tools/migration` uv project, translators from Debezium and Confluent, `takeover_scn.py`, `verify_cutover.py`, 303 pytest tests | ruff, pytest |
 | `86d5dff` | P1-24 doctor and admin (parallel branch): doctor rules DOC-7 to DOC-20 and the lag-case rule, JUnit XML, `redo-profile`, `sizing`, `explain-lag`; `oracle-cdc-admin offsets show/set`, `resnapshot`, `transactions`, `journal inspect` | gate in its worktree |
-| next after `86d5dff` (hash recorded at the following commit) | `cdc.start.scn` (takeover start without a stored offset; ahead of the database is a CDC-5001 stop); `offsets-set` documented as emitted by the admin CLI; runbooks name the admin commands | full gate, connector tier, engine tier (see the chain logs) |
+| `265e90d` | `cdc.start.scn` (takeover start without a stored offset; ahead of the database is a CDC-5001 stop); `offsets-set` documented as emitted by the admin CLI; runbooks name the admin commands | full gate, connector tier, engine tier (see the chain logs) |
+| `dde1f4f` | A listed archived log LogMiner cannot add is named with CROSSCHECK guidance (CDC-2002); DOC-3 wording; the Compose lab attaches the JMX exporter | full gate, engine and connector tiers |
+| `244d110` | `docs/phase1_exit.md`: every PRD-00 to PRD-03 acceptance criterion with its proving suite and status | docs only |
+| `17aea40` | P1-27 T2 nightly suites (`*NightlyIT`: broker restart, worker kills under EOS, abandoned transaction, archive purge during lag, database restart, log switch storm, network faults, schema topic loss, spill disk full) with evidence JSON | first nightly run on 5 October 2026, see "Nightly results" below |
+| `4bb0420` | `RedoProfileEngineIT`, `ExplainLagEngineIT`, `AdminOffsetsConnectorIT`, `ResnapshotConnectorIT`, `DebeziumCutoverConnectorIT`; `migration-tools` CI job | gate; Docker runs in the verification of the commits below |
+| `fe02073`, `42c689c`, `a2e8a5c` | P1-26 (parallel branch): column filters `cdc.columns.exclude` (SRC-SEL-2, ADR-0018); offsets of multi-record changes and excluded users' changes no longer pin or lose events; the Debezium regression corpus with `RegressionCorpusIndexTest` (issue numbers checked against GitHub) | gate in its worktree; Docker runs in the verification of the commits below |
+| `74951d2`, `39cdce4` | Avro-safe names (parallel branch, ADR-0020): `cdc.schema.name.adjustment.mode` and `cdc.field.name.adjustment.mode` (none, avro, avro_unicode); two tables on one topic only by sanitising, or two columns on one field, stop with CDC-6004; `AvroNamesRoundTripTest` (Apicurio `AvroData`, test scope); the Debezium translator carries the adjustment settings over and pins avro for 1.x | gate in its worktree; both tiers in the verification of the commits below |
+| `dcb90b1` | Admin `offsets set`, `resnapshot` and `takeover_scn.py` open every archived log through LogMiner and refuse one moved aside outside RMAN; socket reads time out one minute after `cdc.mining.query.timeout.ms`; the sink's JMX counters never wait on the record queue; the Debezium translator keeps the history broker address | gate; connector tier 26 suites, engine tier 53 tests (6 October 2026, Mac awake) |
+| `f4556f4` | Decode errors withhold row values (the literal, the SQL_REDO around a parse error) unless `cdc.log.sensitive.data=true`; ops events never carry them | as above |
+| `b91ebd9` | dbz-2779, ADR-0019: a first start mines from the oldest open transaction in the captured containers, keeps below the start SCN only transactions open at the start, and skips earlier commits; `MinesTransactionsOpenAtTheFirstStartWholeTest` (T0) and `KeepsTransactionsOpenAtSnapshotStartAcrossRestartConnectorIT` pass | as above |
+| `f1877be` | Nightly and suite fixes: paced kill-loop workload with a catch-up assertion, status read after the schema-loss deadline, ORA-01466 inconclusive in `bench check`; the EOS and restart suites run without an initial snapshot | as above (nightly re-runs pending, see below) |
+| `83db7d1` | A log switch in progress is not a redo gap: online mode ends the step at the newest listed log | as above |
+| `d0f1be1` | ORA-01368 is a step retry; `redo-profile` samples the newest log by SCN; closing a LogMiner session on a dead connection never throws; the UNSUPPORTED stop names object and transaction; resnapshot, explain-lag and LOB savepoint suites fixed | as above |
+| `1767868` | The dbz-1599 column-filter suite consumes each batch before its next DDL (an ADD and DROP within a second is the lag case, a typed stop by ADR-0016). **For Sion's review: a change to a regression suite** | the suite alone, green |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
 ### In flight, not committed
 
-Nothing. All parallel branches are merged (their worktrees under
-`../kafka-connect-oracle-cdc-worktrees/` can be removed). Next on `main`: the Docker-tier ITs the
-parallel branches could not run (below), P1-26, the nightly suites (P1-27 T2), then P1-30 and
-P1-31.
+Nothing uncommitted. Still open:
 
-ITs still to write, each designed in the agent reports:
-
-- `RedoProfileEngineIT`, `ExplainLagEngineIT` (doctor commands against Oracle Database Free).
-- `AdminOffsetsConnectorIT` (stop, `offsets set --reason`, a purged SCN refused, `offsets-set`
-  events), `ResnapshotConnectorIT` (the signal it writes, and the move past a purged gap).
-- `DebeziumCutoverConnectorIT` (Debezium 3.x and this plugin in one worker: stop Debezium,
-  `migrate_from_debezium.py`, `takeover_scn.py`, start with `cdc.start.scn`, `verify_cutover.py`
-  PASS; negative cases for a hidden archived log and a paused source), plus a `migration-tools`
-  CI job running ruff and pytest.
-- The T2 nightly suites (`*NightlyIT`): until they exist the release gate refuses to publish.
-
-Code issues found by the docs audit and still open: `LogSetProbe.probeReadable` is never called (a
-deleted archive file is found when LogMiner fails to add it, still CDC-2002); the doctor's DOC-3
-text mentions a `source.partial` field the envelope does not have; `cdc.log.sensitive.data` has no
-effect (nothing logs row values); the compose lab does not attach the JMX exporter.
+- **Nightly results, 5 and 6 October 2026 (first run, Mac asleep most of the time, see section 4).** Passed: broker restart,
+  abandoned transaction, archive purge during lag, network faults. One product defect, fixed:
+  - Log switch storm: CDC-2001 "the latest log ... ending at SCN n, before the end SCN" while the
+    switch to the next log was under way and `V$LOG` did not list it yet. A false gap; the
+    inventory now ends the step at the newest listed log in online mode.
+  Failed on the test or the host, not on lost data:
+  - Worker kills: the unpaced workload (about 230 transactions a second) outran the capture on
+    Oracle Database Free's two CPU threads; the ledger then counted undelivered transactions as
+    missing (no duplicates, gaps or order violations among the 20,089 delivered). The workload is
+    now paced (`WorkloadSpec.pauseMillisBetweenTransactions`) and the suite asserts catch-up first.
+  - Spill cap: after the remedy 24,155 of 30,000 events arrived within the 15-minute read, in
+    order and without duplicates; the worker log went silent for the whole read, as in the
+    schema topic loss suites, while gates and agents loaded the host.
+  - Schema topic loss: the DDL case did stop typed (CDC-6001) but the test read the status only
+    inside its loop; it now reads it once more after the deadline. The rebuild case saw no row in
+    three minutes while the log was silent.
+  - Database restart: the check's `AS OF SCN` read hit ORA-01466; the bench check now reports that
+    as inconclusive, as `verify_cutover.py` does.
+  Re-run each failed suite alone on an awake, quiet host before trusting a verdict (the storm
+  suite too, for the fix); if the spill or schema suites stay slow there, profile exactly-once
+  delivery of a large spilled transaction.
+- `nightly.yml` does not pass `-Dnightly.kills`, and 1,000 kills do not fit a hosted runner's six
+  hours; the default is 25. Sion to decide where the long run lives.
+- P1-30: the 72-hour soak and the 19c and 21c qualification (T4 lab) have not run.
+- P1-31: Strimzi edge cases rollout_restart, broker_restart, partition, config_update,
+  operator_restart_during_change, oom, offsets_list; `bench check` in `edge-cases.sh`.
+- No suite yet runs a worker with an Avro converter and a schema registry (the round trip is
+  proven at T0 with `AvroNamesRoundTripTest`).
+- dbz#2184 with `MAX_STRING_SIZE=EXTENDED` and dbz#2049 (RAC) need the T4 lab.
+- Roadmap (ADR-0016 follow-up): a DDL that overtakes the connector (an ADD and a DROP of a column
+  before the connector reaches the first) leaves an inexact version, and rows naming the dropped
+  column stop with CDC-3001 (CDC-6001 under replay). Decoding them needs layouts derived from the
+  redo dictionary's DDL tracking rather than from the online catalog.
+- A soak harness: the paced `bench workload` in hourly segments on the compose lab, `bench check`
+  after each, heap and lag sampled from the JMX exporter, an evidence summary at the end.
 
 For Sion (outside the repository): create the Central and GPG secrets and run
 `verify-release-secrets.yml`; add required reviewers to the `release` environment; allow Actions
 to create pull requests; consider a token so release PRs run CI; decide whether a preview release
-may go out before the nightly suites exist.
+may go out before the nightly suites pass.
 
 ### How the dbz-2713 regression was finished (worth knowing for later suites)
 
@@ -341,6 +371,21 @@ ops and heartbeat records on a miss; a miss is a product bug until proven otherw
 
 ## 4. Pitfalls met on this workstation (read before debugging a red run)
 
+- A test schema or table name longer than 30 characters is unreadable to LogMiner (DOC-6): every
+  row comes back UNSUPPORTED. `SchemaFixtures.nameFor` already fits; a suffix added to it must
+  shorten it first (the LOB case of `RollsBackToSavepointExactlyEngineIT` failed on exactly this).
+- Suites that read transaction headers (`cdc.event_index`, `source.txId`) from every record must
+  run with `cdc.snapshot.mode=none`, or skip `op=r` records: an initial snapshot that reads rows a
+  workload has already written publishes them without those headers.
+- Run the nightly tier (`-De2e.groups=nightly`, two to three hours) only while the Mac is awake,
+  and with nothing else on the host. On the night of 5 October 2026 it slept from 22:09 in cycles
+  of about sixteen minutes asleep and a few minutes of dark wake ("Dark Wake Thermal Emergency"
+  in `pmset -g log`, lid closed), so worker and broker logs went silent for fifteen minutes at a
+  time and every time-budgeted suite failed or crawled. Check `pmset -g log | grep -E "Sleep|Wake"`
+  before trusting a slow or silent run.
+- Commits on `main` mixed several increments while the nightly tier held Docker; the gate for
+  such a batch can run in a scratch worktree (`git worktree add --detach`, apply `git diff HEAD`,
+  copy untracked files) so that `e2e-tests/target` in the main checkout is not cleaned mid-tier.
 - A plain `NUMBER` column is a Connect Decimal; with the JSON converter it arrives as a base64 string,
   so `asInt()` reads 0. Connector suites that parse values set `cdc.decimal.mode=string`.
 - A flashback query within about three seconds of a DDL on the table raises ORA-01466; reselect
