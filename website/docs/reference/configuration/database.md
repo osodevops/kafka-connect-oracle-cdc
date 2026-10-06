@@ -21,8 +21,8 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | `cdc.database.tls.truststore.location` | string | none | low | Trust store file for TLS connections. |
 | `cdc.database.tls.truststore.password` | password | none | low | Trust store password. |
 | `cdc.database.tls.truststore.type` | string | `JKS` | low | Trust store type (JKS or PKCS12). |
-| `cdc.database.kerberos.ccache` | string | none | low | Kerberos credential cache file. Not used in this release: Kerberos authentication is not built yet. |
+| `cdc.database.kerberos.ccache` | string | none | low | Kerberos credential cache file. Reserved: Kerberos authentication is not built yet. |
 | `cdc.database.connection.properties` | string | none | low | Extra Oracle JDBC driver properties as k=v;k=v. |
-| `cdc.database.idle.timeout.ms` | long | `300000` | low | Not used in this release. Reserved for an idle network guard that probes the connection at half this interval, so a load balancer idle timeout cannot hang the connector. |
+| `cdc.database.idle.timeout.ms` | long | `300000` | low | Reserved for an idle network guard, not built yet, that would probe the connection at half this interval so a load balancer idle timeout cannot hang the connector. |
 | `cdc.database.pdbs` | list | empty | high | Pluggable databases to capture, comma separated. Leave empty for a non-CDB database. |
-| `cdc.database.fan.enabled` | boolean | `false` | low | Not used in this release: RAC is not supported yet. Reserved for subscribing to RAC Fast Application Notification events. |
+| `cdc.database.fan.enabled` | boolean | `false` | low | Reserved for subscribing to RAC Fast Application Notification events. RAC is not supported yet. |

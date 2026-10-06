@@ -17,8 +17,8 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | `cdc.mining.session.max.age.ms` | long | `3600000` | low | The LogMiner session is restarted at this age to release PGA. |
 | `cdc.mining.decode.threads` | int | `0` | low | Decode threads; 0 means the number of cores minus one, at most 8. |
 | `cdc.mining.inlist.max` | int | `1000` | low | Most captured object ids in one IN list of the mining query; more ids are split across several IN lists. Oracle allows at most 1000 entries in one list, and the task fails at start with a larger value. |
-| `cdc.mining.catchup.threshold.ms` | long | `300000` | low | Not used in this release: parallel catch-up mining is not built yet. Reserved for the lag that would enable it. |
-| `cdc.mining.catchup.parallelism` | int | `2` | low | Not used in this release: parallel catch-up mining is not built yet. Reserved for the number of catch-up sessions over adjacent SCN windows. |
-| `cdc.rac.safety.lag.ms` | long | `-1` | low | Not used in this release: RAC is not supported yet. Reserved for the hold-back from the cluster SCN on RAC so late-archiving threads are not missed. |
+| `cdc.mining.catchup.threshold.ms` | long | `300000` | low | Reserved for the lag that would enable parallel catch-up mining, which is not built yet. |
+| `cdc.mining.catchup.parallelism` | int | `2` | low | Reserved for the number of catch-up sessions over adjacent SCN windows. Parallel catch-up mining is not built yet. |
+| `cdc.rac.safety.lag.ms` | long | `-1` | low | Reserved for the hold-back from the cluster SCN on RAC so late-archiving threads are not missed. RAC is not supported yet. |
 | `cdc.dictionary.build.interval.ms` | long | `86400000` | low | Interval between data dictionary builds into the redo (DBMS_LOGMNR_D.BUILD), which let the connector decode rows written before a later DDL on their table. Needs EXECUTE ON DBMS_LOGMNR_D; without it builds are switched off with an ops event. One build also runs at start when the archived logs hold none. 0 switches builds off. |
 | `cdc.dictionary.build.time` | string | `02:00` | low | Time of day, in the database's time, of the first scheduled dictionary build; later builds follow every cdc.dictionary.build.interval.ms. |

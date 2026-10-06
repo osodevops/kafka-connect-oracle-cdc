@@ -636,7 +636,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Importance.LOW,
         "Creates the transaction metadata topic when the connector has broker access. Writing BEGIN"
             + " and END records per Oracle transaction to it is not built yet, so the topic stays"
-            + " empty in this release.",
+            + " empty.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,
@@ -779,7 +779,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ConfigDef.Range.atLeast(1),
         Importance.LOW,
         "A Kafka transaction is committed at the first Oracle commit after about this many bytes"
-            + " of change data (ADR-0007).",
+            + " of change data.",
         GROUP_EOS,
         ++e,
         Width.SHORT,

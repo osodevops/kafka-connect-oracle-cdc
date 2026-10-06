@@ -397,8 +397,7 @@ public class CoreConfig extends AbstractConfig {
         Type.STRING,
         null,
         Importance.LOW,
-        "Kerberos credential cache file. Not used in this release: Kerberos authentication is not"
-            + " built yet.",
+        "Kerberos credential cache file. Reserved: Kerberos authentication is not built yet.",
         GROUP_DATABASE,
         ++o,
         Width.LONG,
@@ -419,8 +418,8 @@ public class CoreConfig extends AbstractConfig {
         300000L,
         Range.atLeast(10000L),
         Importance.LOW,
-        "Not used in this release. Reserved for an idle network guard that probes the connection at"
-            + " half this interval, so a load balancer idle timeout cannot hang the connector.",
+        "Reserved for an idle network guard, not built yet, that would probe the connection at half"
+            + " this interval so a load balancer idle timeout cannot hang the connector.",
         GROUP_DATABASE,
         ++o,
         Width.SHORT,
@@ -440,8 +439,8 @@ public class CoreConfig extends AbstractConfig {
         Type.BOOLEAN,
         false,
         Importance.LOW,
-        "Not used in this release: RAC is not supported yet. Reserved for subscribing to RAC Fast"
-            + " Application Notification events.",
+        "Reserved for subscribing to RAC Fast Application Notification events. RAC is not"
+            + " supported yet.",
         GROUP_DATABASE,
         ++o,
         Width.SHORT,
@@ -453,8 +452,8 @@ public class CoreConfig extends AbstractConfig {
         "online",
         caseInsensitiveEnum(CaptureMode.class),
         Importance.MEDIUM,
-        "online mines online and archived logs; archive_only never adds online logs (required for"
-            + " standby capture).",
+        "online mines online and archived logs; archive_only mines archived logs only and never"
+            + " adds online logs.",
         GROUP_CAPTURE,
         ++o,
         Width.SHORT,
@@ -579,8 +578,7 @@ public class CoreConfig extends AbstractConfig {
         300000L,
         Range.atLeast(1000L),
         Importance.LOW,
-        "Not used in this release: parallel catch-up mining is not built yet. Reserved for the lag"
-            + " that would enable it.",
+        "Reserved for the lag that would enable parallel catch-up mining, which is not built yet.",
         GROUP_MINING,
         ++o,
         Width.SHORT,
@@ -591,8 +589,8 @@ public class CoreConfig extends AbstractConfig {
         2,
         Range.between(1, 8),
         Importance.LOW,
-        "Not used in this release: parallel catch-up mining is not built yet. Reserved for the"
-            + " number of catch-up sessions over adjacent SCN windows.",
+        "Reserved for the number of catch-up sessions over adjacent SCN windows. Parallel"
+            + " catch-up mining is not built yet.",
         GROUP_MINING,
         ++o,
         Width.SHORT,
@@ -602,8 +600,8 @@ public class CoreConfig extends AbstractConfig {
         Type.LONG,
         -1L,
         Importance.LOW,
-        "Not used in this release: RAC is not supported yet. Reserved for the hold-back from the"
-            + " cluster SCN on RAC so late-archiving threads are not missed.",
+        "Reserved for the hold-back from the cluster SCN on RAC so late-archiving threads are not"
+            + " missed. RAC is not supported yet.",
         GROUP_MINING,
         ++o,
         Width.SHORT,

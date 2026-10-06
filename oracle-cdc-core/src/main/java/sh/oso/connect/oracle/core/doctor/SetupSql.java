@@ -88,9 +88,7 @@ public final class SetupSql {
     }
     sb.append("WHENEVER SQLERROR EXIT FAILURE\n\n");
     sb.append(
-        cdb
-            ? "-- Common user: mines at CDB$ROOT and reads every PDB (PRD-00 CORE-MINE-9).\n"
-            : "-- Mining user.\n");
+        cdb ? "-- Common user: mines at CDB$ROOT and reads every PDB.\n" : "-- Mining user.\n");
     sb.append("CREATE USER ")
         .append(user)
         .append(" IDENTIFIED BY \"")

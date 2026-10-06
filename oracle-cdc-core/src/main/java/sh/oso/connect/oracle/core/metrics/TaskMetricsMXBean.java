@@ -94,17 +94,17 @@ public interface TaskMetricsMXBean {
 
   @Description(
       kind = Description.Kind.COUNTER,
-      value = "Open transactions released by orphan detection (CORE-TX-7).")
+      value = "Open transactions released by orphan detection.")
   long getOrphansReleased();
 
   @Description(
       kind = Description.Kind.COUNTER,
       value =
           "Steps mined again with a dictionary from the redo because rows predate a later DDL"
-              + " (PRD-03 lag case).")
+              + " (the lag case).")
   long getLagReplays();
 
-  @Description(kind = Description.Kind.COUNTER, value = "Snapshot chunks read (PRD-02).")
+  @Description(kind = Description.Kind.COUNTER, value = "Snapshot chunks read.")
   long getSnapshotChunksRead();
 
   @Description(
@@ -117,7 +117,7 @@ public interface TaskMetricsMXBean {
 
   @Description(
       kind = Description.Kind.COUNTER,
-      value = "Snapshot chunks read again after an error, with a fresh SCN (SNAP-3, SNAP-4).")
+      value = "Snapshot chunks read again after an error, with a fresh SCN.")
   long getSnapshotChunkRetries();
 
   @Description(
@@ -217,6 +217,6 @@ public interface TaskMetricsMXBean {
       "Time between the commit of the last transaction queued and its queueing, in milliseconds.")
   long getMillisBehindSource();
 
-  @Description("The 20 largest open transactions by bytes buffered (CORE-TX-8).")
+  @Description("The 20 largest open transactions by bytes buffered.")
   List<TransactionInfo> getLargestTransactions();
 }

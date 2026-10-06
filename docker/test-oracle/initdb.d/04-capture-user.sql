@@ -4,7 +4,7 @@
 -- and a CI test asserts they match. Grants follow docs/research/logminer_reference.md section 2.
 WHENEVER SQLERROR EXIT FAILURE
 
--- Common user: mines at CDB$ROOT and reads every PDB (PRD-00 CORE-MINE-9).
+-- Common user: mines at CDB$ROOT and reads every PDB.
 CREATE USER c##cdc IDENTIFIED BY "cdc" CONTAINER=ALL;
 ALTER USER c##cdc QUOTA UNLIMITED ON users CONTAINER=ALL;
 -- A common user sees container data objects (V$PDBS, V$SESSION, V$LOGMNR_CONTENTS, CDB_ views)

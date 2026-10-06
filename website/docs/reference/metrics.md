@@ -22,8 +22,8 @@ Each capture task registers one MXBean, `sh.oso.cdc:type=task,server=<prefix>`, 
 | `JournalChunks` | `oracle_cdc_journal_chunks_total` | counter | Transaction journal chunks queued. |
 | `JournalTombstones` | `oracle_cdc_journal_tombstones_total` | counter | Transaction journal tombstones queued. |
 | `JournaledTransactions` | `oracle_cdc_journaled_transactions` | gauge | Open transactions written to the transaction journal. |
-| `LagReplays` | `oracle_cdc_lag_replays_total` | counter | Steps mined again with a dictionary from the redo because rows predate a later DDL (PRD-03 lag case). |
-| `LargestTransactions` | not exported (composite) | table | The 20 largest open transactions by bytes buffered (CORE-TX-8). |
+| `LagReplays` | `oracle_cdc_lag_replays_total` | counter | Steps mined again with a dictionary from the redo because rows predate a later DDL (the lag case). |
+| `LargestTransactions` | not exported (composite) | table | The 20 largest open transactions by bytes buffered. |
 | `LastCommitTimestampMillis` | `oracle_cdc_last_commit_timestamp_millis` | gauge | Commit time of the last transaction queued, epoch milliseconds, or -1. |
 | `LastStepMillis` | `oracle_cdc_last_step_millis` | gauge | Duration of the last mining step, in milliseconds. |
 | `LobInsertsMerged` | `oracle_cdc_lob_inserts_merged_total` | counter | LOB locator updates folded into their INSERT. |
@@ -33,7 +33,7 @@ Each capture task registers one MXBean, `sh.oso.cdc:type=task,server=<prefix>`, 
 | `OldestOpenScn` | `oracle_cdc_oldest_open_scn` | gauge | First SCN of the oldest open transaction that is not journaled, or -1; the resume position cannot pass it. |
 | `OpenTransactions` | `oracle_cdc_open_transactions` | gauge | Transactions open in the buffer. |
 | `OpsEvents` | `oracle_cdc_ops_events_total` | counter | Ops topic events queued. |
-| `OrphansReleased` | `oracle_cdc_orphans_released_total` | counter | Open transactions released by orphan detection (CORE-TX-7). |
+| `OrphansReleased` | `oracle_cdc_orphans_released_total` | counter | Open transactions released by orphan detection. |
 | `QueueDepth` | `oracle_cdc_queue_depth` | gauge | Records waiting for Kafka Connect to poll. |
 | `Reconnects` | `oracle_cdc_reconnects_total` | counter | Reconnections after a transient database error (CDC-1001). |
 | `RolledBackTransactions` | `oracle_cdc_rolled_back_transactions_total` | counter | Transactions rolled back while buffered. |
@@ -41,10 +41,10 @@ Each capture task registers one MXBean, `sh.oso.cdc:type=task,server=<prefix>`, 
 | `SafeEndScn` | `oracle_cdc_safe_end_scn` | gauge | Database SCN read at the last step: the end of what can be mined. |
 | `ScnLag` | `oracle_cdc_scn_lag` | gauge | SafeEndScn minus MinedToScn. |
 | `SessionRecycles` | `oracle_cdc_session_recycles_total` | counter | LogMiner sessions restarted at cdc.mining.session.max.age.ms. |
-| `SnapshotChunkRetries` | `oracle_cdc_snapshot_chunk_retries_total` | counter | Snapshot chunks read again after an error, with a fresh SCN (SNAP-3, SNAP-4). |
+| `SnapshotChunkRetries` | `oracle_cdc_snapshot_chunk_retries_total` | counter | Snapshot chunks read again after an error, with a fresh SCN. |
 | `SnapshotChunksPending` | `oracle_cdc_snapshot_chunks_pending` | gauge | Snapshot chunks read and waiting for streaming to pass their SCN. |
 | `SnapshotChunksPublished` | `oracle_cdc_snapshot_chunks_published_total` | counter | Snapshot chunks published, after streaming passed their SCN. |
-| `SnapshotChunksRead` | `oracle_cdc_snapshot_chunks_read_total` | counter | Snapshot chunks read (PRD-02). |
+| `SnapshotChunksRead` | `oracle_cdc_snapshot_chunks_read_total` | counter | Snapshot chunks read. |
 | `SnapshotRowsPublished` | `oracle_cdc_snapshot_rows_published_total` | counter | Snapshot rows published as op=r records. |
 | `SnapshotTablesRemaining` | `oracle_cdc_snapshot_tables_remaining` | gauge | Tables the running snapshot has still to read. |
 | `SpillMaxBytes` | `oracle_cdc_spill_max_bytes` | gauge | cdc.buffer.spill.max.bytes, for ratio alerts. |
