@@ -111,11 +111,26 @@ public class OracleCdcSourceTask extends SourceTask {
               "cdc.start.scn " + configured + " is ahead of the database's current SCN " + current,
               "Set cdc.start.scn to an SCN the database has reached, or leave it empty.");
         }
-        position = Position.initial(configured != null ? configured : current, identity);
+        // ADR-0019: a transaction open at the start is mined whole. The open transactions are
+        // read between two current SCNs, so each one open at the start is either listed or
+        // begins after the first
+        EngineFactory.OpenTransactions open = session.openTransactions();
+        long startScn = configured != null ? configured : session.currentScn();
+        long openScn = Math.min(current, startScn);
+        position =
+            Position.firstStart(startScn, openScn, open.oldestStartScn(), open.keys(), identity);
         LOG.info(
             "No stored offset; starting at SCN {}{}",
-            position.resumeScn(),
+            startScn,
             configured != null ? " (cdc.start.scn)" : "");
+        if (position.resumeScn() < startScn) {
+          LOG.info(
+              "Mining from SCN {} so that the {} transaction(s) open at the start are captured"
+                  + " whole; the oldest is {}",
+              position.resumeScn(),
+              open.keys().size(),
+              open.oldest());
+        }
       } else {
         position = PositionCodec.read(stored);
         if (!position.identity().equals(identity)) {

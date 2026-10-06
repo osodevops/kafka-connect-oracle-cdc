@@ -67,6 +67,10 @@ final class ScriptedEngine {
   }
 
   CaptureEngine engine(int maxConsecutiveRetries) {
+    return engine(maxConsecutiveRetries, Position.initial(1000, new DatabaseIdentity(1, 1)));
+  }
+
+  CaptureEngine engine(int maxConsecutiveRetries, Position start) {
     InMemorySchemaStore store = new InMemorySchemaStore();
     store.save(
         new TableSchema(
@@ -115,7 +119,7 @@ final class ScriptedEngine {
           }
         };
     return new CaptureEngine(
-        Position.initial(1000, new DatabaseIdentity(1, 1)),
+        start,
         fake,
         new LogInventory(
             new FakeCatalog().archivedRun(1, 1, 40, 1000, 100), CoreConfig.CaptureMode.ONLINE, 1),

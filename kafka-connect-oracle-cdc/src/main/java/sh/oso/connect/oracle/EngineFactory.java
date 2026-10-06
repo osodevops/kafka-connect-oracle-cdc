@@ -32,11 +32,30 @@ public interface EngineFactory {
       OracleCdcSourceConnectorConfig config, sh.oso.connect.oracle.core.schema.SchemaStore schemas)
       throws Exception;
 
+  /**
+   * Transactions open in the captured containers: their keys, and the start SCN and description of
+   * the oldest (-1 and null when none is open).
+   */
+  record OpenTransactions(
+      java.util.Set<sh.oso.connect.oracle.core.model.TxKey> keys,
+      long oldestStartScn,
+      String oldest) {
+    public static final OpenTransactions NONE = new OpenTransactions(java.util.Set.of(), -1, null);
+  }
+
   /** Connected to the database: identity and current SCN first, then the engine for a position. */
   interface Session extends AutoCloseable {
     DatabaseIdentity identity();
 
     long currentScn();
+
+    /**
+     * ADR-0019: the transactions open now in the captured containers, read on a connector's first
+     * start so that a transaction already open is mined whole.
+     */
+    default OpenTransactions openTransactions() {
+      return OpenTransactions.NONE;
+    }
 
     boolean cdb();
 

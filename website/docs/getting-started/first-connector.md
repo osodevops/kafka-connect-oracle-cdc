@@ -55,7 +55,10 @@ Points worth knowing before the first run:
 
 1. The connector records the database's current SCN and identity as its start position and writes
    a heartbeat record to `app.cdc.heartbeat` (the prefix followed by `.cdc.heartbeat`). The
-   heartbeat's offset makes the start position durable before the first change.
+   heartbeat's offset makes the start position durable before the first change. A transaction
+   already open at that moment is captured whole when it commits: the connector reads the redo
+   from that transaction's start, so the redo since the start of the oldest open transaction must
+   still be on disk. The worker log names that transaction.
 2. With the default `cdc.snapshot.mode=initial`, it reads the rows the captured tables already hold
    and publishes them as `op=r` records, while it streams the changes made meanwhile (see
    [snapshots](../concepts/snapshots.md)). Set `cdc.snapshot.mode=none` to stream only.

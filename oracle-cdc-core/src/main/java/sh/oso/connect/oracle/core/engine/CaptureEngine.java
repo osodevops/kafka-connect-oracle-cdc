@@ -89,6 +89,7 @@ public final class CaptureEngine {
   private final SessionRecycler recycler;
   private final IdRefresher idRefresher;
   private final Position start;
+  private FirstStartScope firstStart;
   private final EngineMetrics metrics = new EngineMetrics();
   private final LobAssembler lobs;
   private LobReselector reselector;
@@ -127,6 +128,7 @@ public final class CaptureEngine {
       Reconnector reconnector,
       Supplier<Instant> clock) {
     this.start = start;
+    this.firstStart = FirstStartScope.of(start);
     this.source = source;
     this.inventory = inventory;
     this.safeEnd = safeEndScn;
@@ -286,10 +288,16 @@ public final class CaptureEngine {
     StepPlan plan = scheduler.plan(cursor.scn(), end, logs.logs());
     metrics.windowLogs.set(plan.windowLogs());
     Instant t0 = clock.get();
-    StepOutcome outcome = runner.run(source, cursor, plan.endScn());
+    StepOutcome outcome = scoped(runner.run(source, cursor, plan.endScn()));
     java.util.Set<sh.oso.connect.oracle.core.model.TableId> lag = lagTables(outcome);
     if (!lag.isEmpty()) {
-      outcome = replay(plan.endScn(), lag);
+      outcome = scoped(replay(plan.endScn(), lag));
+    }
+    if (firstStart != null
+        && outcome.applies()
+        && outcome.next() != null
+        && outcome.next().scn() >= firstStart.floor()) {
+      firstStart = null; // every later event is at or above the floor
     }
     metrics.rowsMined.addAndGet(outcome.rowsSeen());
     switch (outcome.kind()) {
@@ -381,6 +389,11 @@ public final class CaptureEngine {
    * the online catalog. Rows of the lag tables decode with the version valid at their SCN ({@link
    * SchemaRegistry#at}), and a DDL inside the step adds its version before the rows after it.
    */
+  /** ADR-0019: a step below the first-start floor keeps only transactions open at the start. */
+  private StepOutcome scoped(StepOutcome outcome) {
+    return firstStart == null ? outcome : firstStart.filter(outcome);
+  }
+
   private StepOutcome replay(
       long endScn, java.util.Set<sh.oso.connect.oracle.core.model.TableId> lag) {
     metrics.lagReplays.incrementAndGet();

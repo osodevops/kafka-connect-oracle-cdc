@@ -22,7 +22,11 @@ which:
   applied.
 
 The connector needs a log when it holds changes after the last acknowledged position, or the start
-of a transaction that is still open and not journaled.
+of a transaction that is still open and not journaled. On a first start it also needs the logs
+from the start of the oldest transaction open at that moment, so that the transaction is captured
+whole; the worker log line "Mining from SCN ... so that the ... transaction(s) open at the start
+are captured whole" names it. If those logs are gone, wait for that transaction to end (or end it)
+and start the connector again.
 
 The steps below use Kafka Connect's REST API. [`oracle-cdc-admin`](../admin.md) wraps them:
 `offsets set` refuses an SCN whose redo is purged, and `resnapshot` reads chosen tables again.

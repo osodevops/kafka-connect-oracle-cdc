@@ -19,7 +19,8 @@ import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
 
 /**
  * CORE-POS-3: after a restart, commits at or before the acknowledged commit are skipped entirely
- * except the acknowledged one itself, whose first {@code eventIndex} events are skipped.
+ * except the acknowledged one itself, whose first {@code eventIndex} events are skipped. Before any
+ * commit is acknowledged, commits below the first-start floor are skipped (ADR-0019).
  */
 public final class SkipRule {
 
@@ -28,7 +29,7 @@ public final class SkipRule {
   /** Number of leading events of {@code tx} to skip under {@code position}; may equal its size. */
   public static int eventsToSkip(Position position, CommittedTransaction tx) {
     if (!position.hasCommit()) {
-      return 0;
+      return position.beforeFirstStart(tx.commitScn()) ? tx.size() : 0;
     }
     int c =
         CommitOrder.compare(

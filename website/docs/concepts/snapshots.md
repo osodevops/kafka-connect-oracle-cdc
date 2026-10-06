@@ -12,7 +12,7 @@ decides whether it takes one:
 | Mode | What happens |
 |---|---|
 | `initial` (default) | Every captured table is read, then the connector streams on. Streaming starts at the same moment: changes made during the snapshot are not missed. |
-| `none` | No snapshot; the connector streams from the current SCN. |
+| `none` | No snapshot; the connector streams the changes committed from the current SCN on, including transactions that were already open, whole. |
 | `snapshot_only` | Every captured table is read; then the task stays idle and does not stream. |
 | `on_signal` | No snapshot by itself; tables are snapshotted when a `snapshot` signal names them (see [signals](../operations/signals.md)). |
 

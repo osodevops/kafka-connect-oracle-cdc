@@ -162,6 +162,49 @@ public final class JdbcEngineFactory implements EngineFactory {
     }
 
     @Override
+    public OpenTransactions openTransactions() {
+      List<String> pdbs = core.pdbs();
+      boolean byPdb = info.cdb() && !pdbs.isEmpty();
+      StringBuilder sql =
+          new StringBuilder(
+              "SELECT t.con_id, t.xidusn, t.xidslot, t.xidsqn, t.start_scn,"
+                  + " TO_CHAR(t.start_date, 'YYYY-MM-DD HH24:MI:SS') FROM gv$transaction t");
+      if (byPdb) {
+        sql.append(" JOIN v$containers c ON c.con_id = t.con_id WHERE UPPER(c.name) IN (");
+        sql.append(String.join(",", java.util.Collections.nCopies(pdbs.size(), "UPPER(?)")));
+        sql.append(")");
+      }
+      sql.append(" ORDER BY t.start_scn");
+      try (java.sql.PreparedStatement ps = meta.prepareStatement(sql.toString())) {
+        if (byPdb) {
+          for (int i = 0; i < pdbs.size(); i++) {
+            ps.setString(i + 1, pdbs.get(i).trim());
+          }
+        }
+        Set<sh.oso.connect.oracle.core.model.TxKey> keys = new java.util.LinkedHashSet<>();
+        long oldestScn = -1;
+        String oldest = null;
+        try (java.sql.ResultSet rs = ps.executeQuery()) {
+          while (rs.next()) {
+            sh.oso.connect.oracle.core.model.TxKey key =
+                new sh.oso.connect.oracle.core.model.TxKey(
+                    rs.getInt(1),
+                    new sh.oso.connect.oracle.core.model.Xid(
+                        rs.getLong(2), rs.getLong(3), rs.getLong(4)));
+            keys.add(key);
+            if (oldest == null) {
+              oldestScn = rs.getLong(5);
+              oldest = key + " started at SCN " + oldestScn + " (" + rs.getString(6) + ")";
+            }
+          }
+        }
+        return new OpenTransactions(keys, oldestScn, oldest);
+      } catch (SQLException e) {
+        throw classifier.toException(e, "reading the open transactions");
+      }
+    }
+
+    @Override
     public boolean cdb() {
       return info.cdb();
     }

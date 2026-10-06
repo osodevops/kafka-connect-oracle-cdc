@@ -104,6 +104,79 @@ public record Position(
         CURRENT_VERSION, startScn, 0, null, 0, 0, 0, 0, identity, List.of(), null, Map.of());
   }
 
+  /**
+   * ADR-0019: the first start at {@code startScn} when transactions may already be open. {@code
+   * open} are the transactions {@code GV$TRANSACTION} listed, read after SCN {@code openScn} and
+   * before {@code startScn} (so {@code openScn <= startScn}), and {@code oldestOpenStart} the
+   * earliest of their start SCNs, or -1 when none was open. Mining begins at the earlier of {@code
+   * openScn} and {@code oldestOpenStart}, so every transaction open at {@code startScn} is read
+   * whole: it is either in {@code open} or began at or after {@code openScn}. Below {@code
+   * startScn} only those transactions are kept and their commits below it are skipped. The fields
+   * live in the extras, so a restart before the first acknowledged commit applies them again.
+   */
+  public static Position firstStart(
+      long startScn,
+      long openScn,
+      long oldestOpenStart,
+      java.util.Collection<TxKey> open,
+      DatabaseIdentity identity) {
+    if (openScn > startScn) {
+      throw new IllegalArgumentException("openScn " + openScn + " is after startScn " + startScn);
+    }
+    long mineFrom = oldestOpenStart >= 0 ? Math.min(openScn, oldestOpenStart) : openScn;
+    if (mineFrom >= startScn) {
+      return initial(startScn, identity);
+    }
+    return initial(mineFrom, identity)
+        .withExtra(START_FLOOR_SCN, startScn)
+        .withExtra(START_OPEN_SCN, openScn)
+        .withExtra(
+            START_OPEN_XIDS,
+            open.isEmpty()
+                ? null
+                : String.join(",", open.stream().map(TxKey::toString).sorted().toList()));
+  }
+
+  /** The extras keys of {@link #firstStart}; dropped once a commit is acknowledged. */
+  public static final String START_FLOOR_SCN = "start_floor_scn";
+
+  public static final String START_OPEN_SCN = "start_open_scn";
+  public static final String START_OPEN_XIDS = "start_open_xids";
+
+  /** {@link #START_OPEN_SCN}, or 0 without a first-start floor. */
+  public long startOpenScn() {
+    return longExtra(START_OPEN_SCN);
+  }
+
+  /** The transactions open at the first start ({@link TxKey#toString()} forms). */
+  public java.util.Set<String> startOpenTransactions() {
+    Object v = extras.get(START_OPEN_XIDS);
+    return v == null || v.toString().isEmpty()
+        ? java.util.Set.of()
+        : java.util.Set.of(v.toString().split(","));
+  }
+
+  private long longExtra(String key) {
+    Object v = extras.get(key);
+    if (v instanceof Number n) {
+      return n.longValue();
+    }
+    return v == null ? 0 : Long.parseLong(v.toString());
+  }
+
+  /**
+   * Commits below this SCN were before the connector's first start and are skipped while no commit
+   * has been acknowledged; 0 when there is no floor.
+   */
+  public long startFloorScn() {
+    return longExtra(START_FLOOR_SCN);
+  }
+
+  /** True when {@code scn} is below the first-start floor and nothing has been acknowledged yet. */
+  public boolean beforeFirstStart(long scn) {
+    return !hasCommit() && scn < startFloorScn();
+  }
+
   public boolean hasCommit() {
     return lastCommitKey != null;
   }
@@ -171,6 +244,14 @@ public record Position(
 
   /** After the framework acknowledged {@code acknowledged} events of the commit at {@code id}. */
   public Position withCommit(RedoRecordId id, int thread, TxKey key, int acknowledged) {
+    Map<String, Object> kept = extras;
+    if (extras.containsKey(START_FLOOR_SCN)) {
+      // ADR-0019: with a commit acknowledged the first-start floor no longer applies
+      kept = new java.util.LinkedHashMap<>(extras);
+      kept.remove(START_FLOOR_SCN);
+      kept.remove(START_OPEN_SCN);
+      kept.remove(START_OPEN_XIDS);
+    }
     return new Position(
         version,
         resumeScn,
@@ -183,7 +264,7 @@ public record Position(
         identity,
         released,
         snapshot,
-        extras,
+        kept,
         resumeRsId,
         resumeSsn,
         id.hasRba() ? id.rsId() : null,

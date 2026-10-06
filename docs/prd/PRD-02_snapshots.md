@@ -32,7 +32,7 @@ Correctness argument: a change committed at or before `s` is reflected in the ch
 
 Constraint: streaming must have mined at least to `s` before the chunk can be emitted. If streaming lags badly, chunk reads pause when held chunks exceed `cdc.snapshot.max.pending.chunks` (default `2 x threads`).
 
-Before streaming has ever started (first deployment), the connector records `start_scn = CURRENT_SCN` before any chunk, starts mining from it, and applies the same rule.
+Before streaming has ever started (first deployment), the connector records `start_scn = CURRENT_SCN` before any chunk, mines from the start of the oldest transaction open at it, publishes only the commits from `start_scn` on, each open transaction whole, and applies the same rule (ADR-0019).
 
 ## 4. Functional requirements
 
