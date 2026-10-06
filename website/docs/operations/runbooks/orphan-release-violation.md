@@ -52,6 +52,15 @@ To publish the transaction whole, mine it again from its first change:
    fields, so transactions already delivered are skipped.
 3. Write the offset back and resume. The redo from `first_scn` must still be available.
 
+[`oracle-cdc-admin offsets set`](../admin.md#offsets-set) does these steps in one command, checks
+that the redo is present and records the change on the ops topic:
+
+```bash
+java -jar oracle-cdc-doctor-cli.jar admin offsets set --connect-url "$CONNECT" --name "$NAME" \
+    --scn <first_scn> --forget-released <id from released_xids> \
+    --reason "re-mine the transaction CDC-7001 named" --resume
+```
+
 If that redo is gone, the transaction cannot be published whole. Move the offset past its COMMIT
 SCN as a deliberate skip, remove the id from `released_xids`, and reload the tables the transaction
 touched with a [`snapshot` signal](../signals.md).

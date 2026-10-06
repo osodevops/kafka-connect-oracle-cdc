@@ -38,7 +38,9 @@ A very large log, a database under heavy load, or a session waiting on I/O expla
 from tables the connector does not capture still has to be read: a bulk job on another table (a
 truncate and reload, for example) can make one log far slower to mine than usual. The
 `Last step duration` panel of the shipped Grafana dashboard and the `LastStepMillis` and
-`WindowLogs` metrics show the trend before the stop.
+`WindowLogs` metrics show the trend before the stop. `oracle-cdc-doctor redo-profile` samples the
+newest archived logs and names the tables their redo comes from, which shows whether such a job
+runs regularly (see [oracle-cdc-doctor](../doctor.md#redo-profile)).
 
 ## Recover
 

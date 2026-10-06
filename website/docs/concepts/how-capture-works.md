@@ -91,9 +91,13 @@ position, so committed offsets keep moving and the redo the connector needs stay
 
 ## Errors
 
-A transient database error (a dropped connection, a killed session, an instance restart) makes the
-engine reopen its sessions with backoff, within `cdc.retry.max.time.ms`, and mine the failed step
-again from the same cursor; nothing of a failed step is ever applied. Every other unexpected
+A transient database error (a dropped connection, a killed session, an instance restart, or a
+pluggable database that is not open yet after a restart) makes the engine reopen its sessions with
+backoff, within `cdc.retry.max.time.ms`, and mine the failed step again from the same cursor; see
+[CDC-1001](../operations/runbooks/transient-database.md). A LogMiner error that mining the same
+range again fixes, such as an online log switched or reused while it was read, discards the step
+and mines it again without reconnecting ([CDC-1002](../operations/runbooks/mining-step-retry.md)).
+Nothing of a failed step is ever applied. Every other unexpected
 condition stops the task with a typed error: a code such as `CDC-2002`, an operator action, and a
 link to the runbook for the code (see [error classes](../reference/error-classes.md)). An ORA code
 the connector does not classify stops the task with the code in the message, rather than being

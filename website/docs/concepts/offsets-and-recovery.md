@@ -31,6 +31,8 @@ offset holds:
 | `released_xids` | Transactions that orphan detection released or the age policy discarded; a later COMMIT for one of them stops the task with [CDC-7001](../operations/runbooks/orphan-release-violation.md) |
 | `snapshot` | The snapshot progress as JSON text: whether the snapshot is complete, and per table whether it is done and the key or ROWID where its next chunk starts (see [snapshots](snapshots.md)); absent when no snapshot was ever started |
 | `signal_offset` | The offset of the last signal handled on the signal topic, so a restart does not handle it again (see [signals](../operations/signals.md)) |
+| `snapshot_pending` | Tables that joined the captured set while streaming and wait for their snapshot, so a restart does not lose them (see [multi-PDB capture](multi-pdb.md#tables-that-appear-later)) |
+| `start_floor_scn`, `start_open_scn`, `start_open_xids` | Present only after a first start and until the first commit is acknowledged: the start SCN, the SCN the open transactions were read after, and those transactions. Below the start SCN only those transactions are kept, so a restart before the first acknowledged commit applies the same rule (see [first connector](../getting-started/first-connector.md#what-happens-at-the-first-start)) |
 
 Fields the connector does not know are kept and written back, so a one-version downgrade does not
 lose them. An offset with a newer `v` than the connector reads stops the task with

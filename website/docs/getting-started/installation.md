@@ -51,7 +51,7 @@ The same build produces `oracle-cdc-doctor/target/oracle-cdc-doctor-<version>-cl
 |---|---|
 | Apache Kafka Connect | Unzip into a directory listed in the worker's `plugin.path` and restart the worker |
 | Confluent Platform | `confluent-hub install` with the path of the ZIP, or unzip it into `plugin.path` |
-| Strimzi | Add the ZIP as a `plugins` artifact in the `KafkaConnect` build section, or build an image with the plugin under `/opt/kafka/plugins`, as the [Strimzi lab](strimzi.md) does |
+| Strimzi | Add the ZIP as a plugin artefact in the `build` section of the `KafkaConnect` resource, or build an image with the plugin under `/opt/kafka/plugins`, as the [Strimzi lab](strimzi.md) does |
 | Amazon MSK Connect | Upload the ZIP to S3 and create a custom plugin from it |
 
 After the restart, `GET /connector-plugins` on the worker lists
@@ -79,6 +79,7 @@ After the restart, `GET /connector-plugins` on the worker lists
 | Oracle Database | 19c and later (the doctor refuses older releases), single instance, CDB or non-CDB | Oracle Database Free 23.26.3, CDB with two PDBs. 19c and 21c are listed in the support policy for 1.0 and are not yet qualified |
 | Kafka Connect | 3.6 and later (the offsets REST API used in the runbooks needs 3.6) | Apache Kafka 3.9.1 in the integration tests and the Docker Compose lab; Strimzi with Kafka 4 in the Kubernetes lab |
 | Java | 17 and 21 | Builds and unit tests on 17 and 21 |
+| Converters | JSON, and Avro with the [name adjustment modes](../reference/record-formats.md#avro-and-other-strict-naming-rules) | The JSON converter with and without schemas, and Apicurio Registry 3.3.3's Avro converter. Protobuf and other converters are not tested |
 | Platforms | Apache Kafka Connect, Strimzi, Confluent Platform 7.6 and later, Amazon MSK Connect | Apache Kafka Connect and Strimzi. Exactly-once delivery on MSK Connect has not been verified |
 
 Not supported yet: Oracle RAC, Amazon RDS for Oracle, Autonomous Database, and capture from a

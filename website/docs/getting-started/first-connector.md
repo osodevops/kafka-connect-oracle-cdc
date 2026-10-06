@@ -51,6 +51,16 @@ Points worth knowing before the first run:
   are off. Security settings for these clients go under `cdc.kafka.*`.
 - **One task.** The engine pipelines mining and decoding internally; a `tasks.max` above one is
   accepted with a warning and ignored.
+- **Converters.** Records are serialised by the worker's converters, or by `key.converter` and
+  `value.converter` set on the connector. JSON works as it is. For Avro, set both
+  `cdc.schema.name.adjustment.mode` and `cdc.field.name.adjustment.mode` to `avro` before the
+  first record, because Oracle names such as `ORDER#` are not valid Avro names; with the converter
+  set on the connector, validation refuses column names Avro does not allow. With broker access
+  and a converter other than JSON, set `cdc.journal.converter` to match. See
+  [using an Avro converter](../reference/record-formats.md#using-an-avro-converter).
+- **Columns to keep out of Kafka.** `cdc.columns.exclude` drops named columns before their values
+  are read into the connector (see [excluded columns](../reference/record-formats.md#excluded-columns)).
+  Set it before the first start: a snapshot or a change published without it cannot be withdrawn.
 
 ## What happens at the first start
 
