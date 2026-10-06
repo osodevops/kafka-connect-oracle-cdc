@@ -19,6 +19,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,6 +31,8 @@ import sh.oso.connect.oracle.core.config.CoreConfig.LobMode;
 import sh.oso.connect.oracle.core.errors.OracleCdcException;
 import sh.oso.connect.oracle.core.logs.DictionaryBuild;
 import sh.oso.connect.oracle.core.logs.LogInventory;
+import sh.oso.connect.oracle.core.model.TableId;
+import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.topology.ArchiveDestination;
 import sh.oso.connect.oracle.core.topology.DatabaseInfo;
 import sh.oso.connect.oracle.core.topology.ThreadInfo;
@@ -324,6 +327,17 @@ public final class Rules {
               "none".equalsIgnoreCase(ctx.property("cdc.field.name.adjustment.mode", "none"));
           List<String> schemaNames = new ArrayList<>();
           List<String> fieldNames = new ArrayList<>();
+          // columns cdc.columns.exclude drops never reach the converter
+          String patterns = ctx.property("cdc.columns.exclude", "");
+          ColumnFilter excluded =
+              patterns.isEmpty()
+                  ? ColumnFilter.none()
+                  : ColumnFilter.of(
+                      Arrays.stream(patterns.split(","))
+                          .map(String::trim)
+                          .filter(x -> !x.isEmpty())
+                          .toList(),
+                      Boolean.parseBoolean(ctx.property("cdc.tables.case.sensitive", "false")));
           if (schemaNone) {
             for (String part : ctx.property("cdc.topic.prefix", "").split("\\.")) {
               if (!part.isEmpty() && !AVRO_NAME.matcher(part).matches()) {
@@ -338,8 +352,9 @@ public final class Rules {
               schemaNames.add(t.fqn());
             }
             if (fieldNone) {
+              TableId id = new TableId(t.pdb(), t.owner(), t.name());
               for (CapturedTable.Column c : t.columns()) {
-                if (!AVRO_NAME.matcher(c.name()).matches()) {
+                if (!AVRO_NAME.matcher(c.name()).matches() && !excluded.excludes(id, c.name())) {
                   fieldNames.add(t.fqn() + "." + c.name());
                 }
               }

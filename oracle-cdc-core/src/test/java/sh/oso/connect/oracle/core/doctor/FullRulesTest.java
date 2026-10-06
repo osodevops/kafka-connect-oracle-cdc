@@ -264,10 +264,16 @@ class FullRulesTest {
         .contains("cdc.topic.prefix part oso-cdc")
         .contains("FREEPDB1.APP.ORDER#ITEMS")
         .doesNotContain("APP.ORDERS,");
-    Map<String, String> adjusted = new java.util.HashMap<>(avro);
+    Map<String, String> adjusted = new HashMap<>(avro);
     adjusted.put("cdc.schema.name.adjustment.mode", "avro");
     adjusted.put("cdc.field.name.adjustment.mode", "avro_unicode");
     assertThat(run(Rules.avroNames(), ctx(cat, adjusted))).isEmpty();
+    // a column cdc.columns.exclude drops never reaches the converter
+    Map<String, String> excludedColumn = new HashMap<>(avro);
+    excludedColumn.put("cdc.columns.exclude", "FREEPDB1\\.APP\\.ORDER#ITEMS\\.AMT\\$");
+    assertThat(run(Rules.avroNames(), ctx(cat, excludedColumn)))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.WARNING);
     // a JSON converter, or none on the connector (the worker's is not visible): nothing to say
     assertThat(run(Rules.avroNames(), ctx(cat, Map.of("cdc.topic.prefix", "oso-cdc")))).isEmpty();
     assertThat(
