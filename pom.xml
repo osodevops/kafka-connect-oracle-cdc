@@ -165,30 +165,20 @@
         <version>${avro.version}</version>
         <scope>test</scope>
       </dependency>
+      <!-- Apicurio Registry's Avro converter (Apache-2.0), test only. The connector's unit test uses
+           AvroData alone and excludes the rest where it declares them; e2e-tests runs the converter
+           and its Avro serde against a registry (AvroConverterConnectorIT). -->
       <dependency>
         <groupId>io.apicurio</groupId>
         <artifactId>apicurio-registry-utils-converter</artifactId>
         <version>${apicurio.version}</version>
         <scope>test</scope>
-        <exclusions>
-          <!-- only AvroData is used; the registry clients and other serdes are not needed -->
-          <exclusion>
-            <groupId>*</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
       <dependency>
         <groupId>io.apicurio</groupId>
         <artifactId>apicurio-registry-serde-common-avro</artifactId>
         <version>${apicurio.version}</version>
         <scope>test</scope>
-        <exclusions>
-          <exclusion>
-            <groupId>*</groupId>
-            <artifactId>*</artifactId>
-          </exclusion>
-        </exclusions>
       </dependency>
     </dependencies>
   </dependencyManagement>

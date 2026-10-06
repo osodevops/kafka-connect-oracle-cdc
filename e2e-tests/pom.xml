@@ -27,6 +27,12 @@
          ours. Never on the test classpath. -->
     <debezium.version>3.7.0.Final</debezium.version>
     <debezium.plugin.root>${project.build.directory}/debezium-plugin</debezium.plugin.root>
+    <!-- AvroConverterConnectorIT (ADR-0020): Apicurio Registry (Apache-2.0) in memory, and its Avro
+         converter with the Avro serde's runtime jars from Maven Central, staged as a plugin directory
+         the Connect worker mounts next to ours (pre-integration-test). The image tag follows the
+         converter version. -->
+    <apicurio.registry.image>quay.io/apicurio/apicurio-registry:${apicurio.version}</apicurio.registry.image>
+    <apicurio.converter.dir>${project.build.directory}/apicurio-converter</apicurio.converter.dir>
   </properties>
 
   <dependencies>
@@ -73,6 +79,33 @@
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <!-- the Avro converter and its Avro serde (AvroConverterConnectorIT): the suite reads records
+         with AvroKafkaDeserializer, and the apicurio-converter execution below stages the same jars
+         for the worker. The JSON Schema and Protobuf serdes are left out; nothing here uses them. -->
+    <dependency>
+      <groupId>io.apicurio</groupId>
+      <artifactId>apicurio-registry-utils-converter</artifactId>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>io.apicurio</groupId>
+          <artifactId>apicurio-registry-jsonschema-serde-kafka</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>io.apicurio</groupId>
+          <artifactId>apicurio-registry-protobuf-serde-kafka</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <!-- used directly by the suite (GenericRecord, Schema); declared here so that Avro's own
+           commons-compress, which needs 1.26 or later, wins over the older one Testcontainers asks
+           for, on the test classpath and in the staged converter directory -->
+      <groupId>org.apache.avro</groupId>
+      <artifactId>avro</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <dependency>
@@ -141,6 +174,26 @@
               <overWriteReleases>false</overWriteReleases>
             </configuration>
           </execution>
+          <execution>
+            <!-- AvroConverterConnectorIT: the Apicurio Avro converter and the runtime jars of its Avro
+                 serde, as resolved for this module's tests (one version of each), copied flat into a
+                 plugin directory. Kafka, the compression codecs and SLF4J stay out: the worker
+                 provides them. A group the converter needs and this list lacks shows up as a
+                 NoClassDefFoundError in the worker log, never as a silent pass. Every jar's licence
+                 is on the allowlist of the root POM. -->
+            <id>apicurio-converter</id>
+            <goals>
+              <goal>copy-dependencies</goal>
+            </goals>
+            <phase>pre-integration-test</phase>
+            <configuration>
+              <outputDirectory>${apicurio.converter.dir}</outputDirectory>
+              <includeGroupIds>io.apicurio,org.apache.avro,com.fasterxml.jackson.core,org.apache.commons,commons-codec,commons-io,com.microsoft.kiota,io.kiota,io.github.std-uritemplate,io.opentelemetry,io.vertx,io.netty,jakarta.annotation,jakarta.ws.rs,jakarta.validation,org.projectnessie.cel,com.dashjoin</includeGroupIds>
+              <overWriteReleases>false</overWriteReleases>
+              <overWriteSnapshots>false</overWriteSnapshots>
+              <overWriteIfNewer>true</overWriteIfNewer>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
       <plugin>
@@ -167,6 +220,8 @@
             <oracle.image.tag>${oracle.image.tag}</oracle.image.tag>
             <debezium.version>${debezium.version}</debezium.version>
             <debezium.plugin.dir>${debezium.plugin.root}/debezium-connector-oracle</debezium.plugin.dir>
+            <apicurio.registry.image>${apicurio.registry.image}</apicurio.registry.image>
+            <apicurio.converter.dir>${apicurio.converter.dir}</apicurio.converter.dir>
           </systemPropertyVariables>
         </configuration>
         <executions>
@@ -206,6 +261,12 @@
             <executions>
               <execution>
                 <id>debezium-plugin</id>
+                <configuration>
+                  <skip>true</skip>
+                </configuration>
+              </execution>
+              <execution>
+                <id>apicurio-converter</id>
                 <configuration>
                   <skip>true</skip>
                 </configuration>

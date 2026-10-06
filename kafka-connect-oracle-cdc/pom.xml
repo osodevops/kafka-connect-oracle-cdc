@@ -67,10 +67,23 @@
     <dependency>
       <groupId>io.apicurio</groupId>
       <artifactId>apicurio-registry-utils-converter</artifactId>
+      <exclusions>
+        <!-- only AvroData is used; the registry clients and other serdes are not needed -->
+        <exclusion>
+          <groupId>*</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>io.apicurio</groupId>
       <artifactId>apicurio-registry-serde-common-avro</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>*</groupId>
+          <artifactId>*</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
   </dependencies>
 

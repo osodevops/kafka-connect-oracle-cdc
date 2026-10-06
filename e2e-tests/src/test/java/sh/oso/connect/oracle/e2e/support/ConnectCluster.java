@@ -33,6 +33,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,8 +55,16 @@ public final class ConnectCluster implements AutoCloseable {
   private static final ObjectMapper MAPPER = new ObjectMapper();
   public static final String KAFKA_IMAGE = System.getProperty("kafka.image", "apache/kafka:3.9.1");
 
+  /** Apicurio Registry (Apache-2.0); the e2e-tests build pins the tag to the converter version. */
+  public static final String SCHEMA_REGISTRY_IMAGE =
+      System.getProperty("apicurio.registry.image", "quay.io/apicurio/apicurio-registry:3.3.3");
+
+  /** The registry's v3 API as the worker reaches it on the cluster network. */
+  public static final String SCHEMA_REGISTRY_URL = "http://apicurio:8080/apis/registry/v3";
+
   private final KafkaContainer kafka;
   private final GenericContainer<?> connect;
+  private GenericContainer<?> registry;
   private final HttpClient http = HttpClient.newHttpClient();
 
   public ConnectCluster() {
@@ -92,8 +101,9 @@ public final class ConnectCluster implements AutoCloseable {
   }
 
   /**
-   * Mounts another connector plugin directory next to ours, as {@code /plugins/<name>}; call before
-   * {@link #start}. The Debezium cutover suite mounts the Debezium Oracle connector this way.
+   * Mounts another plugin directory next to ours, as {@code /plugins/<name>}; call before {@link
+   * #start}. The Debezium cutover suite mounts the Debezium Oracle connector this way, and the Avro
+   * suite the Apicurio Avro converter ({@link #apicurioConverterDir()}).
    */
   public ConnectCluster withPlugin(Path dir, String name) {
     if (!Files.isDirectory(dir)) {
@@ -122,8 +132,68 @@ public final class ConnectCluster implements AutoCloseable {
     return p;
   }
 
+  /**
+   * The Apicurio Avro converter and its runtime jars, staged by the e2e-tests build
+   * (pre-integration-test) for {@link #withPlugin}.
+   */
+  public static Path apicurioConverterDir() {
+    String dir = System.getProperty("apicurio.converter.dir");
+    if (dir == null) {
+      throw new IllegalStateException(
+          "apicurio.converter.dir is not set; run the suite through Maven failsafe");
+    }
+    Path p = Path.of(dir);
+    if (!Files.isDirectory(p)) {
+      throw new IllegalStateException(
+          "Apicurio converter directory missing (the e2e-tests build stages it in"
+              + " pre-integration-test): "
+              + p);
+    }
+    return p;
+  }
+
+  /**
+   * Adds an Apicurio Registry with in-memory storage on the cluster network, reachable from the
+   * worker at {@link #SCHEMA_REGISTRY_URL} and from the test at {@link #schemaRegistryUrl()}; call
+   * before {@link #start}. It starts after the broker and before the worker, and nothing in the
+   * worker's own configuration changes: connectors opt in through their converter settings.
+   */
+  public ConnectCluster withSchemaRegistry() {
+    registry =
+        new GenericContainer<>(SCHEMA_REGISTRY_IMAGE)
+            .withNetwork(OracleTestDatabase.NETWORK)
+            .withNetworkAliases("apicurio")
+            .withExposedPorts(8080)
+            // the default storage, stated: an H2 database in memory, gone with the container
+            .withEnv("APICURIO_STORAGE_KIND", "sql")
+            .withEnv("APICURIO_STORAGE_SQL_KIND", "h2")
+            .waitingFor(
+                Wait.forHttp("/apis/registry/v3/system/info")
+                    .forPort(8080)
+                    .forStatusCode(200)
+                    .withStartupTimeout(Duration.ofMinutes(3)))
+            .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("apicurio"));
+    return this;
+  }
+
+  /** The registry's v3 API from the test JVM; needs {@link #withSchemaRegistry()}. */
+  public String schemaRegistryUrl() {
+    if (registry == null) {
+      throw new IllegalStateException("no schema registry: call withSchemaRegistry() first");
+    }
+    return "http://"
+        + registry.getHost()
+        + ":"
+        + registry.getMappedPort(8080)
+        + "/apis/registry/v3";
+  }
+
   public ConnectCluster start() {
     kafka.start();
+    if (registry != null) {
+      registry.start();
+      LOG.info("Schema registry at {}", schemaRegistryUrl());
+    }
     connect.start();
     LOG.info("Connect worker at {}", restUrl());
     return this;
@@ -527,6 +597,21 @@ public final class ConnectCluster implements AutoCloseable {
     }
   }
 
+  /** A read_committed consumer from the earliest offset that leaves keys and values as bytes. */
+  public KafkaConsumer<byte[], byte[]> byteConsumer(String group, String... topics) {
+    Properties p = new Properties();
+    p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+    p.put(ConsumerConfig.GROUP_ID_CONFIG, group);
+    p.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    p.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+    p.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
+    p.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+    p.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+    KafkaConsumer<byte[], byte[]> c = new KafkaConsumer<>(p);
+    c.subscribe(List.of(topics));
+    return c;
+  }
+
   public KafkaConsumer<String, String> consumer(String group, String... topics) {
     Properties p = new Properties();
     p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
@@ -545,13 +630,13 @@ public final class ConnectCluster implements AutoCloseable {
    * Polls until {@code n} records arrive or {@code idle} passes with nothing new after at least
    * one.
    */
-  public static List<ConsumerRecord<String, String>> consume(
-      KafkaConsumer<String, String> c, int n, Duration timeout, Duration idle) {
-    List<ConsumerRecord<String, String>> out = new ArrayList<>();
+  public static <K, V> List<ConsumerRecord<K, V>> consume(
+      KafkaConsumer<K, V> c, int n, Duration timeout, Duration idle) {
+    List<ConsumerRecord<K, V>> out = new ArrayList<>();
     long deadline = System.currentTimeMillis() + timeout.toMillis();
     long lastNew = System.currentTimeMillis();
     while (System.currentTimeMillis() < deadline) {
-      ConsumerRecords<String, String> batch = c.poll(Duration.ofMillis(500));
+      ConsumerRecords<K, V> batch = c.poll(Duration.ofMillis(500));
       if (!batch.isEmpty()) {
         batch.forEach(out::add);
         lastNew = System.currentTimeMillis();
@@ -578,6 +663,9 @@ public final class ConnectCluster implements AutoCloseable {
   @Override
   public void close() {
     connect.stop();
+    if (registry != null) {
+      registry.stop();
+    }
     kafka.stop();
   }
 }
