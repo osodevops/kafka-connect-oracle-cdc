@@ -33,6 +33,20 @@ spec:
   jvmOptions:
     -Xms: 512m
     -Xmx: 1536m
+  # Strimzi mounts /tmp as a 5 MiB in-memory volume, and the connector spills large transactions
+  # under the worker's temporary directory by default: give the spill a disk-backed volume and
+  # keep cdc.buffer.spill.max.bytes (connector.yaml) below its size limit. Strimzi only accepts
+  # additional volume mounts under /mnt.
+  template:
+    pod:
+      volumes:
+        - name: cdc-spill
+          emptyDir:
+            sizeLimit: 10Gi
+    connectContainer:
+      volumeMounts:
+        - name: cdc-spill
+          mountPath: /mnt/cdc-spill
   metricsConfig:
     type: jmxPrometheusExporter
     valueFrom:

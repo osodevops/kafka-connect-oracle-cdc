@@ -26,3 +26,6 @@ spec:
     cdc.topic.prefix: cdc
     cdc.tables.include: FREEPDB1\.WORKLOAD\..*
     cdc.tables.exclude: "FREEPDB1\\.WORKLOAD\\.WL_LEDGER"
+    # the spill volume connect.yaml mounts; the cap stays below its 10Gi size limit
+    cdc.buffer.spill.dir: /mnt/cdc-spill
+    cdc.buffer.spill.max.bytes: "8589934592"

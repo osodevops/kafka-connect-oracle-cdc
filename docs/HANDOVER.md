@@ -19,7 +19,7 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 
 | Commit | Content | Verified by |
 |---|---|---|
-| `ec66f77` and earlier | Phase 0 (P0-01 to P0-13, P0-15, P0-16) and Phase 1a (P1-01 to P1-05, P1-07 to P1-10) | full gate on JDK 17 and 21, engine and connector tiers, Strimzi edge cases kill_worker, rolling_update, oracle_restart, rebalance |
+| `ec66f77` and earlier | Phase 0 (P0-01 to P0-13, P0-15, P0-16) and Phase 1a (P1-01 to P1-05, P1-07 to P1-10) | full gate on JDK 17 and 21, engine and connector tiers, Strimzi edge cases kill_worker, rolling_update, oracle_restart, rebalance (the rolling update never rolled a worker until `33dd5d5`) |
 | `ae3c34e` | P1-13 correctness oracle (`bench check`, ADR-0012) | `CorrectnessOracleConnectorIT` PASS |
 | `cafbccc` | P1-11 ops topic and internal topics, P1-06 spill store, P1-14 transaction journal, P1-15 orphan detection, ADR-0014 redo-address cursor | full gate, connector tier 7 suites, engine tier 31 tests, all green |
 | `ddb4c4d` | P1-21 decode DLQ (`cdc.dlq.topic`), long-transaction policy (`cdc.transaction.max.age.ms`, `CDC-4004`), archive-only coverage, `dbz-2713` regression | full gate, connector tier 7 suites plus the two surefire tests, engine tier 33 tests, all green |
@@ -58,6 +58,12 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `6c3001c` | The schema-loss rebuild case runs its rapid DDL again (decoded with the layout read at start); DOC-21 on Oracle in `DoctorEngineIT` | both suites green |
 | `8cc41aa`, `f9b2e3b`, `67c2ae4` | `AvroConverterConnectorIT` (parallel branch): a worker with Apicurio Registry 3.3.3 and its `AvroConverter` (jars staged into `e2e-tests/target`, licences checked by hand, test scope) carries every round-trip type with adjusted names; the record formats page shows converter configuration; ADR-0020 amendment: a name Avro refuses in an owner or table passes the converter and a default registry, only the consumer refuses it; the Avro exit criterion is proven | connector tier 28 tests green |
 | `64376ff`, `9ac72be`, `9a15285` | DOC-22 (fast mode, so the connector's validation runs it): with an Avro converter on the connector, column names Avro refuses block and owner, table or prefix names warn unless the adjustment modes are set; the validator hands the doctor the connector's properties | gate; `AvroConverterConnectorIT` (validation refuses the unadjusted column name); `DoctorEngineIT` |
+| `ad1fb81`, `e16049f`, `4810b79` | A third PDB (`FREEPDB3`) in the test image; `MultiPdbConnectorIT` spans three PDBs with one connector and one LogMiner session; the readiness wait and `PreconditionEngineIT` expect all three | connector tier 28, engine tier 54 (6 October 2026) |
+| `bb78c5d`, `3c21fb4` | `LargeTransactionNightlyIT`: one transaction of `-Dnightly.large.rows` rows (default five million) against a 16 MiB heap budget. Its first run delivered 373,746 rows in two hours with the task RUNNING: the sink and the envelope both read event i, and for a spilled transaction the second read rewound the spill file, so emitting it was quadratic in its size. The spilled list now answers a repeated read from the change it read last (`SpillStoreTest.readingEachChangeTwiceInOrderOpensTheFileOnce`) | the suite at five million rows: every row once, no duplicate, task RUNNING; gate, both tiers |
+| `8994a76` | `nightly.yml` manual-run inputs (`kills`, `large_rows`, `runner`, `t2_timeout`) | none until CI runs after a push |
+| `2c0c35d` to `ae819aa` | Docs audit: the site describes what is built (no release or phase wording, no missing-feature claims for the redo profiler, sizing and admin CLI), validation refusals and DOC-21 and DOC-22 where users meet them, a credentials and sensitive data page, the status table, README and CONTRIBUTING | site build |
+| `24cd481`, `0a1a3d4`, `88b5d7c` | DOC-22 passes over columns `cdc.columns.exclude` drops; config, metric and setup text without internal references (regenerated references); the Strimzi lab's `versions.env` is tracked (the root `*.env` rule hid it) | gate; generated-docs drift check |
+| `557c3b8`, `33dd5d5`, `ccce841`, `749acda` | Strimzi edge cases: every case induces its fault and checks that it happened (pods replaced, partition in force, config read back from the worker, at least one OOMKilled worker, a fresh offsets config map), fails when the platform does not recover, and restores what it changed; the lab Connect workers spill to a disk-backed volume under `/mnt` | all eleven cases on `cdc-lab` (see P1-31 below) |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
@@ -71,7 +77,8 @@ Nothing uncommitted. Still open:
   22,135 transactions), database restart (SHUTDOWN ABORT mid-stream, 9 reconnects, both workloads
   PASS), schema topic loss (rebuild and DDL while stopped), spill cap and spill volume (the whole
   30,000 and 12,000 event transactions after the remedy), worker kills (25 SIGKILLs under EOS,
-  6,347 transactions, no duplicate), and the soak harness trial. The first run's failures the night
+  6,347 transactions, no duplicate; 150 SIGKILLs later that day, 37,386 transactions, no duplicate
+  and no loss), and the soak harness trial. The first run's failures the night
   before came from the Mac sleeping (section 4), from test designs, and from three product defects
   now fixed: the log switch false gap (`83db7d1`), ORA-01368 (`d0f1be1`) and ORA-16331 after a
   restart (see below).
@@ -84,8 +91,20 @@ Nothing uncommitted. Still open:
   sleep detected and recorded); run it with `make -C lab/local/compose soak HOURS=72` once the Mac
   can stay awake for three days (the target recreates the workload tables, see the lab README).
   The 19c and 21c qualification (T4 lab) has not run either.
-- P1-31: Strimzi edge cases rollout_restart, broker_restart, partition, config_update,
-  operator_restart_during_change, oom, offsets_list; `bench check` in `edge-cases.sh`.
+- P1-31 (6 October 2026, Connect image from `3c21fb4`): all eleven Strimzi edge cases pass with
+  the ledger check, no committed transaction missing and none duplicated. Nine passed in one run
+  of the corrected harness; config_update and oom passed on re-runs after harness fixes (a
+  harness-created table without supplemental logging made DOC-3 refuse the update; a worker cannot
+  start under 640Mi). The harness had passed cases it never tested: rolling_update annotated the
+  `KafkaConnect` (Strimzi ignores it there), every case ignored a failed platform check, the
+  partition relied on a NetworkPolicy this CNI ignores, offsets_list lacked `spec.listOffsets`.
+  Findings: Strimzi mounts `/tmp` as a 5 MiB in-memory volume, so the default spill directory
+  fills with the first transaction that spills and the task stops with CDC-4001 (typed, nothing
+  lost; after pointing `cdc.buffer.spill.dir` at a `/mnt` volume and restarting, all 400,000 rows
+  of that transaction arrived once). After a full broker outage, and after a pause and resume,
+  Connect can keep a stale UNASSIGNED connector status written by a worker that was shutting
+  down. Still open: `bench check` in `edge-cases.sh`, and a warning (startup log or doctor rule)
+  when the spill directory has less room than `cdc.buffer.memory.max.bytes`.
 - dbz#2184 with `MAX_STRING_SIZE=EXTENDED` and dbz#2049 (RAC) need the T4 lab.
 - Roadmap (ADR-0016 follow-up): a DDL that overtakes the connector (an ADD and a DROP of a column
   before the connector reaches the first) leaves an inexact version, and rows naming the dropped
@@ -586,10 +605,9 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 
 ### P1-31 Strimzi edge cases (lab/local/k8s)
 
-- Passing with ledger verification: kill_worker, rolling_update, oracle_restart, rebalance.
-  Remaining: rollout_restart, broker_restart, partition, config_update,
-  operator_restart_during_change, oom, offsets_list. Wire `bench check` into
-  `lab/local/k8s/edge-cases.sh` (Kafka must be reachable from the host, or run the check in-cluster).
+- All eleven cases pass with ledger verification (6 October 2026, see section 1). Remaining: wire
+  `bench check` into `lab/local/k8s/edge-cases.sh` (Kafka must be reachable from the host, or run
+  the check in-cluster).
   Rebuild the Connect image with every plugin change (`make connect-image`, unique tag, patch
   `spec.image`).
 
@@ -614,5 +632,5 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
   private-strand race; four runs of about 20,000 transactions each passed after the fix, plus the
   full tier twice. Keep running that suite on every change to mining or offsets.
 - The lab Oracle image is `oracle-cdc-test-db:23.26.3-slim-faststart` built from `docker/test-oracle`
-  (ARCHIVELOG, supplemental logging, `FREEPDB2`, common user `c##cdc` with the grants in
+  (ARCHIVELOG, supplemental logging, `FREEPDB2` and `FREEPDB3`, common user `c##cdc` with the grants in
   `04-capture-user.sql`, which `oracle-cdc-doctor setup-sql --profile lab` must reproduce byte for byte).

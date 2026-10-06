@@ -38,7 +38,9 @@ FROM gv$transaction t JOIN gv$session s ON s.inst_id = t.inst_id AND s.taddr = t
 ORDER BY t.used_urec DESC;
 ```
 
-On the worker, check the spill volume with `df -h` on the spill directory. Before the stop, the
+On the worker, check the spill volume with `df -h` on the spill directory. On Strimzi the default
+spill directory is under `/tmp`, a 5 MiB in-memory volume, so a single large transaction fills it;
+see [the spill volume on Strimzi](../../getting-started/strimzi.md#spill-volume). Before the stop, the
 `SpilledBytes`, `SpillMaxBytes`, `OpenTransactions` and `LargestTransactions` metrics, the
 `OracleCdcSpillNearLimit` alert and a [`log-state` signal](../signals.md) show the same picture.
 

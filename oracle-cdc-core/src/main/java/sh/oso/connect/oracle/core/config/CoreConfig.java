@@ -657,7 +657,9 @@ public class CoreConfig extends AbstractConfig {
         Type.STRING,
         null,
         Importance.LOW,
-        "Spill directory. Default: the worker's temporary directory plus the connector name.",
+        "Spill directory. Default: the worker's temporary directory plus the connector name. On"
+            + " Strimzi that is a 5 MiB in-memory volume: mount a disk-backed volume under /mnt and"
+            + " point this at it, with cdc.buffer.spill.max.bytes below its size.",
         GROUP_BUFFER,
         ++o,
         Width.LONG,
