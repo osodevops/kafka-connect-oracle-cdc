@@ -226,6 +226,9 @@ public final class EngineDriver implements AutoCloseable {
                 Instant::now)
             .withReselector(new JdbcLobReselector(() -> reselect))
             .withCapturedTables(t -> objects.tables().contains(t));
+    // as the task does at start (ADR-0016 amendment): every captured table without a stored
+    // version is read now, valid from the start
+    engine.readStartLayouts(objects.tables());
   }
 
   /** {@code cdc.users.exclude}: these users' transactions are dropped in the mining query. */

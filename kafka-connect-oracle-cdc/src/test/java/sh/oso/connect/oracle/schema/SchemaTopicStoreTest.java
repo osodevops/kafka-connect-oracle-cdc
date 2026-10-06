@@ -83,6 +83,30 @@ class SchemaTopicStoreTest {
   }
 
   @Test
+  void heldChangesAreWrittenOnReleaseAsEachTableStandsThen() {
+    // the task reads layouts in start(), before poll() can drain the record queue
+    SchemaTopicStore s = store();
+    s.hold();
+    s.save(at(1, 0));
+    s.save(at(2, 500));
+    assertThat(s.load(T)).as("kept while held").contains(at(2, 500));
+    assertThat(written).isEmpty();
+    s.release();
+    assertThat(written)
+        .as("one record with the table's history")
+        .containsExactly("ORDERS=[v1, v2]");
+    s.save(at(3, 700));
+    assertThat(written).as("written at once after the release").endsWith("ORDERS=[v1, v2, v3]");
+
+    written.clear();
+    s.hold();
+    s.save(at(4, 800));
+    s.remove(T);
+    s.release();
+    assertThat(written).as("removed while held: a tombstone").containsExactly("ORDERS removed");
+  }
+
+  @Test
   void seededVersionsAreNotWrittenBackAndATombstoneClearsTheTable() {
     SchemaTopicStore s = store();
     s.seed(T, List.of(at(3, 700), at(2, 500)));

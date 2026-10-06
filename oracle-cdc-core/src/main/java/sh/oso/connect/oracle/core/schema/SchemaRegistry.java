@@ -16,9 +16,17 @@
 package sh.oso.connect.oracle.core.schema;
 
 import java.sql.SQLException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.model.TableId;
 
@@ -27,9 +35,22 @@ import sh.oso.connect.oracle.core.model.TableId;
  * selected on load. A DDL on a captured table reads the dictionary again and stores a new version
  * effective from the DDL's SCN when the layout changed (PRD-03 section 3 step 3). The engine
  * applies rows in redo order, so the current version is the one valid at each row it decodes; redo
- * older than the dictionary (the lag case) decodes with {@link #at} (P1-17).
+ * older than the dictionary (the lag case) decodes with {@link #at} (P1-17). The task reads every
+ * captured table's layout when it starts ({@link #readLayouts}), so the first version predates any
+ * DDL after the start (ADR-0016 amendment).
  */
 public final class SchemaRegistry {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SchemaRegistry.class);
+
+  /**
+   * What an operator does when rows of a table were written under a layout the connector does not
+   * know (CDC-6001): from {@link #at}, and from the decoder for a column an inexact version lacks.
+   */
+  public static final String LAYOUT_UNKNOWN_ACTION =
+      "Keep cdc.kafka.bootstrap.servers set so versions persist across restarts, and avoid several"
+          + " DDLs on one table while the connector is stopped or lagging. To go on, move the"
+          + " offset past the DDL; the table's rows in between are not delivered.";
 
   private final SchemaStore store;
   private final DictionaryReader dictionary;
@@ -118,17 +139,73 @@ public final class SchemaRegistry {
               + " were written before a later DDL on the table, and "
               + (valid == null
                   ? "no stored version of the table is known to be valid there (the connector"
-                      + " first read the table after that DDL)"
+                      + " first read the table after that DDL, or too soon after an earlier one"
+                      + " to tell which came first)"
                   : "version "
                       + valid.version()
                       + ", valid there, was read after a further DDL had already changed the"
                       + " table, so its layout is not known")
               + ".",
-          "Keep cdc.kafka.bootstrap.servers set so versions persist across restarts, and avoid"
-              + " several DDLs on one table while the connector is stopped or lagging. To go on,"
-              + " move the offset past the DDL; the table's rows in between are not delivered.");
+          LAYOUT_UNKNOWN_ACTION);
     }
     return valid;
+  }
+
+  /**
+   * ADR-0016 amendment: stores version 1 of every table in {@code tables} that has no version yet,
+   * read in one pass ({@link DictionaryReader#readAll}). The task calls it when it starts and when
+   * tables join the captured set, so a DDL soon after cannot leave the rows written before it
+   * without a version.
+   *
+   * <p>A layout is valid from {@code fromScn} when the table's last DDL is more than {@link
+   * #SCN_TIME_SLACK} before the time of {@code quietSinceScn}: no DDL can lie between that SCN and
+   * the read. The slack leans the other way from that of {@link #applyDdl}, whose reference SCN is
+   * a DDL itself; here a DDL just after the SCN must never pass for one before it. Otherwise the
+   * layout is valid from its last DDL, as on a first read at decode time ({@link #current}). {@code
+   * fromScn} may be below {@code quietSinceScn} only when every row decoded below it belongs to a
+   * transaction that holds its table's lock across it (ADR-0019), so no DDL on the table falls
+   * between the row and that SCN.
+   *
+   * <p>A table the dictionary no longer holds, or that cannot be keyed, is left to its first
+   * decode, which reports it as before. Returns the versions stored.
+   */
+  public List<TableSchema> readLayouts(Collection<TableId> tables, long fromScn, long quietSinceScn)
+      throws SQLException {
+    List<TableId> wanted = new ArrayList<>();
+    for (TableId t : new LinkedHashSet<>(tables)) {
+      if (!known(t)) {
+        wanted.add(t);
+      }
+    }
+    if (wanted.isEmpty()) {
+      return List.of();
+    }
+    Map<TableId, DictionaryReader.Layout> layouts = dictionary.readAll(wanted);
+    Optional<Instant> quietSince = dictionary.timeOfScn(quietSinceScn);
+    Map<Instant, Long> sinceDdl = new HashMap<>();
+    List<TableSchema> stored = new ArrayList<>();
+    for (TableId t : wanted) {
+      DictionaryReader.Layout layout = layouts.get(t);
+      if (layout == null) {
+        continue; // dropped since it was resolved: the DROP is ahead in the redo
+      }
+      TableSchema keyed;
+      try {
+        keyed = keys.select(layout.columns(), layout.keys());
+      } catch (DecodeException e) {
+        LOG.warn("Layout of {} not stored ahead of its first change: {}", t.fqn(), e.getMessage());
+        continue;
+      }
+      Instant ddl = layout.lastDdlTime();
+      boolean quiet =
+          ddl != null
+              && quietSince.isPresent()
+              && !ddl.isAfter(quietSince.get().minus(SCN_TIME_SLACK));
+      TableSchema first = keyed.withVersion(1, quiet ? fromScn : since(ddl, sinceDdl));
+      put(first);
+      stored.add(first);
+    }
+    return stored;
   }
 
   /**
@@ -163,11 +240,23 @@ public final class SchemaRegistry {
    * mapping.
    */
   private long layoutSince(TableId table) throws SQLException {
-    Optional<java.time.Instant> ddl = dictionary.lastDdlTime(table);
-    if (ddl.isEmpty()) {
+    return since(dictionary.lastDdlTime(table).orElse(null), new HashMap<>());
+  }
+
+  /**
+   * The SCN from which a layout whose last DDL ran at {@code ddl} has held; {@code known} keeps the
+   * answers of one pass, as many tables share a DDL time.
+   */
+  private long since(Instant ddl, Map<Instant, Long> known) throws SQLException {
+    if (ddl == null) {
       return 0;
     }
-    return dictionary.scnAt(ddl.get().plus(SCN_TIME_SLACK)).orElse(0L);
+    Long scn = known.get(ddl);
+    if (scn == null) {
+      scn = dictionary.scnAt(ddl.plus(SCN_TIME_SLACK)).orElse(0L);
+      known.put(ddl, scn);
+    }
+    return scn;
   }
 
   /**

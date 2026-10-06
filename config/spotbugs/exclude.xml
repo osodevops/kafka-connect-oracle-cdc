@@ -26,11 +26,12 @@
       <Class name="~sh\.oso\.connect\.oracle\.bench\..*"/>
     </Or>
   </Match>
-  <!-- the workload generator, doctor catalog, LOB reselect and snapshot reader build statements from quoted identifiers by design; values are bound -->
+  <!-- the workload generator, doctor catalog, LOB reselect and snapshot reader build statements from quoted identifiers by design, and the dictionary reader's read at start a list of bind placeholders; values are bound -->
   <Match>
     <Bug pattern="SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING,SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE"/>
     <Or>
       <Class name="~sh\.oso\.connect\.oracle\.bench\.workload\..*"/>
+      <Class name="~sh\.oso\.connect\.oracle\.core\.schema\.JdbcDictionaryReader"/>
       <Class name="~sh\.oso\.connect\.oracle\.core\.doctor\.JdbcDoctorCatalog"/>
       <Class name="~sh\.oso\.connect\.oracle\.core\.engine\.JdbcLobReselector"/>
       <Class name="~sh\.oso\.connect\.oracle\.core\.snapshot\.JdbcSnapshotSource"/>

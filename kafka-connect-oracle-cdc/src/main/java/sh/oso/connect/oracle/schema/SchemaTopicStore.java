@@ -52,12 +52,44 @@ public final class SchemaTopicStore implements SchemaStore {
   private final LongSupplier resumeScn;
   private volatile Writer writer = Writer.NONE;
 
+  /** Tables saved or removed while held, written by {@link #release()}; guarded by this. */
+  private final Set<TableId> held = new java.util.LinkedHashSet<>();
+
+  private boolean holding; // guarded by this
+
   public SchemaTopicStore(LongSupplier resumeScn) {
     this.resumeScn = resumeScn;
   }
 
   public void writeTo(Writer w) {
     this.writer = w;
+  }
+
+  /**
+   * Keeps changes without writing them until {@link #release()}. The task reads every captured
+   * table's layout in start() (ADR-0016 amendment), before poll() runs: written there, thousands of
+   * tables would fill the record queue and start() would wait on it for ever.
+   */
+  public synchronized void hold() {
+    holding = true;
+  }
+
+  /**
+   * Writes each table changed while held, as it stands now, and writes every later change at once.
+   * Called on a thread that may wait for poll() to drain the queue (the engine's or the
+   * snapshot's).
+   */
+  public synchronized void release() {
+    holding = false;
+    for (TableId t : held) {
+      List<TableSchema> v = versions(t);
+      if (v.isEmpty()) {
+        writer.removed(t);
+      } else {
+        writer.versions(t, v);
+      }
+    }
+    held.clear();
   }
 
   /** Versions read back from the topic at start; nothing is written. */
@@ -87,20 +119,28 @@ public final class SchemaTopicStore implements SchemaStore {
   }
 
   @Override
-  public void save(TableSchema schema) {
+  public synchronized void save(TableSchema schema) {
     List<TableSchema> l = new ArrayList<>(versions.getOrDefault(schema.table(), List.of()));
     l.removeIf(s -> s.version() == schema.version());
     l.add(schema);
     l.sort(Comparator.comparingInt(TableSchema::version));
     List<TableSchema> kept = prune(l, resumeScn.getAsLong());
     versions.put(schema.table(), kept);
-    writer.versions(schema.table(), kept);
+    if (holding) {
+      held.add(schema.table());
+    } else {
+      writer.versions(schema.table(), kept);
+    }
   }
 
   @Override
-  public void remove(TableId table) {
+  public synchronized void remove(TableId table) {
     if (versions.remove(table) != null) {
-      writer.removed(table);
+      if (holding) {
+        held.add(table);
+      } else {
+        writer.removed(table);
+      }
     }
   }
 

@@ -168,6 +168,39 @@ public final class CaptureEngine {
     return this;
   }
 
+  /**
+   * ADR-0016 amendment, before the first step: stores version 1 of every table in {@code tables}
+   * that has no stored version, so a DDL soon after the start, or during an initial snapshot that
+   * holds streaming back for hours, cannot leave the rows written before it without a version. A
+   * version is valid from the start position's resume SCN when no DDL on its table can lie after
+   * that SCN ({@link SchemaRegistry#readLayouts}).
+   *
+   * <p>On a first start that mines from before its start SCN (ADR-0019) the resume SCN is the
+   * mining start, and the check is made at the SCN read before the open transactions were listed.
+   * Every row decoded below it belongs to a transaction that holds its table's lock across it, and
+   * no DDL on a table completes while a transaction holds that lock; transactions that ended
+   * earlier are dropped before they are decoded. So those rows were written with the layout read
+   * here, and the version can be valid from the mining start: valid from the start SCN, it would
+   * not cover them.
+   */
+  public java.util.List<TableSchema> readStartLayouts(
+      java.util.Collection<sh.oso.connect.oracle.core.model.TableId> tables) throws SQLException {
+    long from = start.resumeScn();
+    long quiet = start.beforeFirstStart(from) ? Math.max(from, start.startOpenScn()) : from;
+    return schemas.readLayouts(tables, from, quiet);
+  }
+
+  /**
+   * SRC-SEL-4, on the engine thread while the object ids are refreshed: stores version 1 of tables
+   * that joined the captured set, valid from the cursor when no DDL on them can lie after it. A
+   * table that joined through its own CREATE or RENAME has that DDL as its last, too close to the
+   * cursor to tell apart, so it keeps the first-read rule: valid from ten seconds after the DDL.
+   */
+  public java.util.List<TableSchema> readJoinedLayouts(
+      java.util.Collection<sh.oso.connect.oracle.core.model.TableId> tables) throws SQLException {
+    return schemas.readLayouts(tables, cursor.scn(), cursor.scn());
+  }
+
   /** CORE-MINE-6: decode a step's rows on this many threads before applying them in order. */
   public CaptureEngine withDecodeThreads(int threads) {
     this.decodeThreads = Math.max(1, threads);

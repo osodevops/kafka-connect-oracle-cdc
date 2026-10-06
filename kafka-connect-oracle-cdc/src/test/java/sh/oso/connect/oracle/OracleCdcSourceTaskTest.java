@@ -485,6 +485,126 @@ class OracleCdcSourceTaskTest {
     }
   }
 
+  /** A table with the test table's layout under another name. */
+  private static sh.oso.connect.oracle.core.schema.TableSchema layoutOf(TableId t) {
+    return new sh.oso.connect.oracle.core.schema.TableSchema(
+        t,
+        TaskHarness.tableSchema().columns(),
+        List.of("ID"),
+        sh.oso.connect.oracle.core.schema.KeySource.PRIMARY_KEY,
+        true,
+        false);
+  }
+
+  /** The schema topic records among {@code records}, by table name. */
+  private static Map<String, SourceRecord> schemaRecords(List<SourceRecord> records) {
+    Map<String, SourceRecord> out = new java.util.LinkedHashMap<>();
+    for (SourceRecord r : records) {
+      if (TaskHarness.isSchema(r)) {
+        out.put(((org.apache.kafka.connect.data.Struct) r.key()).getString("table"), r);
+      }
+    }
+    return out;
+  }
+
+  @Test
+  void everyCapturedTableIsReadAtStartWithoutStartWaitingOnTheRecordQueue() throws Exception {
+    // ADR-0016 amendment: version 1 of each captured table is stored at start, valid from the
+    // resume SCN, before any of its rows. More tables than the record queue holds (1,000 here)
+    // must not leave start() waiting for a poll() that cannot run yet
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+      h.props.put(OracleCdcSourceConnectorConfig.POLL_MAX_RECORDS, "250");
+      h.scnTime = java.time.Instant.parse("2026-10-06T09:00:00Z");
+      h.lastDdlTime = h.scnTime.minusSeconds(3600);
+      List<TableId> tables = new java.util.ArrayList<>();
+      for (int i = 0; i < 1200; i++) {
+        TableId t = new TableId("FREEPDB1", "APP", "T" + i);
+        tables.add(t);
+        h.dictionary.put(t, layoutOf(t));
+      }
+      h.captured = tables;
+      org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+          java.time.Duration.ofSeconds(30), () -> h.start());
+      Map<String, SourceRecord> written = new java.util.HashMap<>();
+      long deadline = System.currentTimeMillis() + 20_000;
+      while (written.size() < tables.size() && System.currentTimeMillis() < deadline) {
+        written.putAll(schemaRecords(h.pollUntil(500, 200, true)));
+      }
+      assertThat(written).hasSize(tables.size());
+      List<sh.oso.connect.oracle.core.schema.TableSchema> v =
+          sh.oso.connect.oracle.schema.SchemaRecords.versions(
+              tables.get(7), written.get("T7").value());
+      assertThat(v).extracting(s -> s.validFromScn()).containsExactly(1000L);
+      assertThat(PositionCodec.read(written.get("T7").sourceOffset()).resumeScn()).isEqualTo(1000);
+    }
+  }
+
+  @Test
+  void aMissedDdlStillStopsTheStartWhenOtherTablesAreReadThere() throws Exception {
+    // SCH-6 runs on the stored versions before the read at start, which only reads tables without
+    // one: a DDL the redo never showed still stops the task (CDC-6003)
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+      TableId other = new TableId("FREEPDB1", "APP", "LATER");
+      h.dictionary.put(other, layoutOf(other));
+      h.start();
+      List<SourceRecord> first = h.pollUntil(3, 3000, true);
+      assertThat(schemaRecords(first)).containsOnlyKeys(TaskHarness.T.table());
+      h.acknowledge(first);
+      h.task().stop();
+
+      h.captured = List.of(TaskHarness.T, other);
+      h.dictionary.put(
+          TaskHarness.T,
+          TaskHarness.tableSchema(
+              sh.oso.connect.oracle.core.schema.ColumnSpec.of(
+                  "MISSED", 3, sh.oso.connect.oracle.core.schema.OracleType.VARCHAR2)));
+      h.scnTime = java.time.Instant.parse("2026-10-06T09:00:00Z");
+      h.lastDdlTime = h.scnTime.minusSeconds(3600);
+      assertThatThrownBy(h::start)
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-6003")
+          .hasMessageContaining("APP.ORDERS");
+
+      // the same difference with the DDL after the resume point: ahead in the redo. The stored
+      // table is left as it is, and the new one is read at start
+      h.lastDdlTime = h.scnTime.plusSeconds(60);
+      h.start();
+      Map<String, SourceRecord> written = schemaRecords(h.pollUntil(3, 3000, true));
+      assertThat(written).containsOnlyKeys(other.table());
+    }
+  }
+
+  @Test
+  void aTableThatJoinsTheCapturedSetIsReadWhenItJoinsBeforeAnyOfItsRows() throws Exception {
+    // SRC-SEL-4 with the ADR-0016 amendment: the layout is stored at the refresh that adds the
+    // table (here after a refresh-tables signal), not at its first change, so a DDL in between
+    // cannot strand its earlier rows
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(OracleCdcSourceConnectorConfig.KAFKA_BOOTSTRAP_SERVERS, "kafka:9092");
+      TableId fresh = new TableId("FREEPDB1", "APP", "NEW_T");
+      h.dictionary.put(fresh, layoutOf(fresh));
+      h.onRefresh =
+          () -> {
+            h.captured = List.of(TaskHarness.T, fresh);
+            h.tablesListener.accept(java.util.Set.of(fresh), java.util.Set.of());
+          };
+      h.start();
+      h.signal("{\"id\": \"r\", \"type\": \"refresh-tables\"}");
+      List<SourceRecord> all = new java.util.ArrayList<>();
+      long deadline = System.currentTimeMillis() + 8000;
+      while (all.stream().noneMatch(r -> TaskHarness.sql(r).equals("<ops:table-added>"))
+          && System.currentTimeMillis() < deadline) {
+        all.addAll(h.pollUntil(1, 200, true));
+      }
+      assertThat(all.stream().filter(TaskHarness::isOps).map(TaskHarness::opsType))
+          .contains("table-added");
+      assertThat(schemaRecords(all)).containsKeys(TaskHarness.T.table(), fresh.table());
+      assertThat(all).noneMatch(r -> !TaskHarness.isInternal(r));
+    }
+  }
+
   /** The version numbers in the last schema topic record among {@code records}. */
   private static List<Integer> versions(TaskHarness h, List<SourceRecord> records) {
     SourceRecord last = null;

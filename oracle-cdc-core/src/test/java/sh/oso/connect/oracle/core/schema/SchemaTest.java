@@ -312,4 +312,147 @@ class SchemaTest {
     assertThatThrownBy(() -> reg.version(T, 9))
         .isInstanceOf(sh.oso.connect.oracle.core.errors.SchemaMismatchException.class);
   }
+
+  static TableSchema columnsOf(TableId t) {
+    return new TableSchema(
+        t,
+        List.of(
+            ColumnSpec.of("ID", 1, OracleType.NUMBER),
+            ColumnSpec.of("NAME", 2, OracleType.VARCHAR2)),
+        List.of(),
+        KeySource.NONE,
+        true,
+        false);
+  }
+
+  @Test
+  void theReadAtStartStoresEveryTableWithoutAVersionInOnePass() throws Exception {
+    // ADR-0016 amendment: valid from the start when the table's last DDL is more than the slack
+    // before the time of the SCN checked, otherwise from that DDL as a first read at decode time
+    java.time.Instant checked = java.time.Instant.parse("2026-10-06T09:00:00Z"); // SCN 5000
+    TableId quiet = new TableId("FREEPDB1", "APP", "QUIET");
+    TableId close = new TableId("FREEPDB1", "APP", "CLOSE");
+    TableId after = new TableId("FREEPDB1", "APP", "AFTER");
+    TableId sameDdl = new TableId("FREEPDB1", "APP", "SAME_DDL");
+    TableId noTime = new TableId("FREEPDB1", "APP", "NO_TIME");
+    TableId stored = new TableId("FREEPDB1", "APP", "STORED");
+    TableId gone = new TableId("FREEPDB1", "APP", "GONE");
+    TableId keyless = new TableId("FREEPDB1", "APP", "KEYLESS");
+    TableId otherPdb = new TableId("FREEPDB2", "APP", "QUIET");
+    Map<TableId, java.time.Instant> ddl =
+        Map.of(
+            quiet, checked.minusSeconds(3600),
+            otherPdb, checked.minusSeconds(3600),
+            close, checked.minusSeconds(5),
+            after, checked.plusSeconds(30),
+            sameDdl, checked.plusSeconds(30),
+            keyless, checked.minusSeconds(3600),
+            stored, checked.plusSeconds(60));
+    List<List<TableId>> bulk = new java.util.ArrayList<>();
+    int[] scnAt = {0};
+    DictionaryReader dict =
+        new DictionaryReader() {
+          public Optional<TableSchema> read(TableId t) {
+            return t.equals(gone) ? Optional.empty() : Optional.of(columnsOf(t));
+          }
+
+          public KeySelector.Candidates keyCandidates(TableId t) {
+            return new KeySelector.Candidates(
+                t.equals(keyless) ? List.of() : List.of("ID"), List.of());
+          }
+
+          @Override
+          public Optional<java.time.Instant> lastDdlTime(TableId t) {
+            return Optional.ofNullable(ddl.get(t));
+          }
+
+          @Override
+          public Optional<java.time.Instant> timeOfScn(long scn) {
+            return scn == 5000 ? Optional.of(checked) : Optional.empty();
+          }
+
+          @Override
+          public Optional<Long> scnAt(java.time.Instant time) {
+            scnAt[0]++;
+            return Optional.of(5000 + java.time.Duration.between(checked, time).toSeconds());
+          }
+
+          @Override
+          public Map<TableId, Layout> readAll(java.util.Collection<TableId> tables)
+              throws java.sql.SQLException {
+            bulk.add(List.copyOf(tables));
+            return DictionaryReader.super.readAll(tables);
+          }
+        };
+    InMemorySchemaStore store = new InMemorySchemaStore();
+    store.save(columnsOf(stored).withKey(List.of("ID"), KeySource.PRIMARY_KEY));
+    SchemaRegistry reg =
+        new SchemaRegistry(
+            store, dict, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
+
+    List<TableSchema> read =
+        reg.readLayouts(
+            List.of(quiet, close, after, sameDdl, noTime, stored, gone, keyless, otherPdb, quiet),
+            4990,
+            5000);
+
+    assertThat(bulk)
+        .as("one read for every table without a version")
+        .containsExactly(List.of(quiet, close, after, sameDdl, noTime, gone, keyless, otherPdb));
+    Map<TableId, Long> from = new java.util.HashMap<>();
+    read.forEach(v -> from.put(v.table(), v.validFromScn()));
+    assertThat(from)
+        .containsOnly(
+            Map.entry(quiet, 4990L), // the last DDL an hour before: valid from the start
+            Map.entry(otherPdb, 4990L), // the same name in another PDB is another table
+            Map.entry(close, 5005L), // five seconds before: too close to tell, as a first read
+            Map.entry(after, 5040L), // after the SCN checked: as a first read
+            Map.entry(sameDdl, 5040L),
+            Map.entry(noTime, 0L)); // no DDL time: valid from any SCN, as a first read
+    assertThat(scnAt[0]).as("one lookup per distinct DDL time").isEqualTo(2);
+    assertThat(read).allMatch(TableSchema::exact).allMatch(v -> v.version() == 1);
+    assertThat(reg.current(quiet).keyColumns()).containsExactly("ID");
+    assertThat(store.versions(stored)).as("a stored table is left alone").hasSize(1);
+    assertThat(reg.known(gone)).isFalse();
+    assertThat(reg.known(keyless)).as("left to its first decode").isFalse();
+    assertThatThrownBy(() -> reg.current(keyless))
+        .isInstanceOf(DecodeException.class)
+        .hasMessageContaining("cdc.key.missing=fail");
+    assertThat(reg.readLayouts(List.of(quiet, close), 4990, 5000)).isEmpty();
+    assertThat(bulk).hasSize(1);
+  }
+
+  @Test
+  void theReadAtStartKeepsTheFirstReadRuleWhenTheCheckedScnHasNoTime() throws Exception {
+    // the SCN is older than the database's SCN-to-time mapping: nothing says the DDL came first
+    java.time.Instant longAgo = java.time.Instant.parse("2026-09-01T09:00:00Z");
+    DictionaryReader dict =
+        new DictionaryReader() {
+          public Optional<TableSchema> read(TableId t) {
+            return Optional.of(columnsOf(t));
+          }
+
+          public KeySelector.Candidates keyCandidates(TableId t) {
+            return new KeySelector.Candidates(List.of("ID"), List.of());
+          }
+
+          @Override
+          public Optional<java.time.Instant> lastDdlTime(TableId t) {
+            return Optional.of(longAgo);
+          }
+
+          @Override
+          public Optional<Long> scnAt(java.time.Instant time) {
+            return Optional.of(321L);
+          }
+        };
+    SchemaRegistry reg =
+        new SchemaRegistry(
+            new InMemorySchemaStore(),
+            dict,
+            new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
+    assertThat(reg.readLayouts(List.of(T), 9000, 9000))
+        .extracting(TableSchema::validFromScn)
+        .containsExactly(321L);
+  }
 }

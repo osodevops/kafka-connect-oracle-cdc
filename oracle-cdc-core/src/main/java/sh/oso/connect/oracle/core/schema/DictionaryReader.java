@@ -42,4 +42,30 @@ public interface DictionaryReader {
   default Optional<java.time.Instant> timeOfScn(long scn) throws SQLException {
     return Optional.empty();
   }
+
+  /**
+   * A table's layout as the dictionary holds it now: its columns and supplemental logging (as
+   * {@link #read} returns them), its key candidates, and its last DDL time (null when unknown).
+   */
+  record Layout(TableSchema columns, KeySelector.Candidates keys, java.time.Instant lastDdlTime) {}
+
+  /**
+   * The layouts of many tables at once, for the read at start (ADR-0016 amendment); a table the
+   * dictionary does not hold is absent. Each table's last DDL time is read after its columns and
+   * keys, so a DDL in between shows as a later time, never as an older layout paired with an older
+   * time. The JDBC reader issues a bounded number of queries per container; this default reads one
+   * table at a time.
+   */
+  default java.util.Map<TableId, Layout> readAll(java.util.Collection<TableId> tables)
+      throws SQLException {
+    java.util.Map<TableId, Layout> out = new java.util.LinkedHashMap<>();
+    for (TableId t : tables) {
+      Optional<TableSchema> columns = read(t);
+      if (columns.isPresent()) {
+        KeySelector.Candidates keys = keyCandidates(t);
+        out.put(t, new Layout(columns.get(), keys, lastDdlTime(t).orElse(null)));
+      }
+    }
+    return out;
+  }
 }

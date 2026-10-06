@@ -95,6 +95,9 @@ public class OracleCdcSourceTask extends SourceTask {
       schemaStore =
           new sh.oso.connect.oracle.schema.SchemaTopicStore(
               () -> startPosition == null ? 0 : startPosition.resumeScn());
+      // versions read here are written once the engine (or snapshot) thread runs: start() cannot
+      // wait for poll() to drain the record queue
+      schemaStore.hold();
       session = factory.open(config, schemaStore);
       DatabaseIdentity identity = session.identity();
       Map<String, Object> partition = Map.of("server", config.topicPrefix());
@@ -239,6 +242,7 @@ public class OracleCdcSourceTask extends SourceTask {
       for (sh.oso.connect.oracle.core.model.TableId t : session.capturedTables()) {
         router.topic(t);
       }
+      readStartLayouts(engine, position);
       checkExcludedColumns();
       RecordQueueSink opsSink = sink;
       session.startDictionaryBuilds(
@@ -295,6 +299,7 @@ public class OracleCdcSourceTask extends SourceTask {
         registerMetrics(engine);
         return;
       }
+      engine.submit(schemaStore::release); // the first thing the engine thread does
       lifecycle =
           new EngineLifecycle(
               engine,
@@ -591,6 +596,29 @@ public class OracleCdcSourceTask extends SourceTask {
   }
 
   /**
+   * ADR-0016 amendment: the layout of every captured table without a stored version is read now,
+   * after SCH-6 has checked the stored ones and before a snapshot or the column filter reads one,
+   * valid from the start position. A DDL soon after the start, or during an initial snapshot that
+   * holds streaming back for hours, then cannot leave the rows written before it without a version.
+   */
+  private void readStartLayouts(CaptureEngine engine, Position position)
+      throws java.sql.SQLException {
+    List<sh.oso.connect.oracle.core.model.TableId> captured = session.capturedTables();
+    long started = System.nanoTime();
+    List<sh.oso.connect.oracle.core.schema.TableSchema> read = engine.readStartLayouts(captured);
+    long fromStart = read.stream().filter(v -> v.validFromScn() == position.resumeScn()).count();
+    LOG.info(
+        "Read the layouts of {} of {} captured tables in {} ms; {} valid from the resume SCN {},"
+            + " {} from their last DDL",
+        read.size(),
+        captured.size(),
+        (System.nanoTime() - started) / 1_000_000,
+        fromStart,
+        position.resumeScn(),
+        read.size() - fromStart);
+  }
+
+  /**
    * SRC-SEL-2: refuses to start when {@code cdc.columns.exclude} matches a key column of a captured
    * table, rather than at the table's first change. Tables added later, and keys a DDL changes, are
    * checked by the engine when it meets them.
@@ -657,6 +685,14 @@ public class OracleCdcSourceTask extends SourceTask {
     // CDC-6004 for a table that joins: checked before any of its records is built
     removed.forEach(router::release);
     added.forEach(router::topic);
+    // ADR-0016 amendment: a joining table's layout is read now, before its snapshot or its rows
+    try {
+      engine.readJoinedLayouts(added);
+    } catch (java.sql.SQLException e) {
+      throw new sh.oso.connect.oracle.core.errors.OraErrorClassifier(
+              java.util.Set.copyOf(config.core().extraRetryErrorCodes()))
+          .toException(e, "reading the layouts of tables that joined the captured set");
+    }
     if (config.core().snapshotMode() == CoreConfig.SnapshotMode.INITIAL) {
       sh.oso.connect.oracle.core.mining.event.MiningEvent.Ddl cause = engine.refreshCause();
       for (sh.oso.connect.oracle.core.model.TableId t : added) {
@@ -853,6 +889,7 @@ public class OracleCdcSourceTask extends SourceTask {
         new Thread(
             () -> {
               try {
+                schemaStore.release(); // the versions read in start()
                 while (!Thread.currentThread().isInterrupted()) {
                   if (sink.publishSnapshot()) {
                     LOG.info(
