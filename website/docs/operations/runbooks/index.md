@@ -42,3 +42,11 @@ republishes the table's current rows while streaming continues.
 
 The runbooks use Kafka Connect's REST API for offsets. [`oracle-cdc-admin`](../admin.md) wraps
 those steps, refuses an SCN whose redo is purged, and starts a resnapshot of chosen tables.
+
+## A task that runs but falls behind
+
+A task that keeps running but lags has no error code. `oracle-cdc-doctor explain-lag` reads the
+task's metrics twice and names the likely cause: the Kafka side, mining, a large transaction or
+dictionary replays (see [explain-lag](../doctor.md#explain-lag)). The shipped
+[dashboard and alerts](../dashboards-and-alerts.md) show the same signals over time, and
+`oracle-cdc-admin transactions` lists the open transactions the task is holding.

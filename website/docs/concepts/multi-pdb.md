@@ -18,6 +18,12 @@ routes every change by the container it came from.
   pattern can cover several PDBs (`FREEPDB[12]\.APP\..*`) or one PDB only.
 - **Snapshots.** An initial snapshot reads the matching tables of every listed PDB, each through a
   connection switched to its container.
+- **Every PDB must be open.** LogMiner reads every container whose redo lies in the range it mines,
+  including PDBs the connector does not capture. While one is closed, for example just after a
+  restart, mining waits and retries (ORA-16331, see
+  [transient database errors](../operations/runbooks/transient-database.md)). Give each PDB a saved
+  state so it opens with the CDB; `oracle-cdc-doctor check` reports PDBs that are closed or have
+  none (DOC-21).
 
 ## Tables that appear later
 
