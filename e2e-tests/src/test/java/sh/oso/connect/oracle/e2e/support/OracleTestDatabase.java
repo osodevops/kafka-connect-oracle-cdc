@@ -53,6 +53,7 @@ public final class OracleTestDatabase {
   public static final String CDB_SERVICE = "FREE";
   public static final String PDB1 = "FREEPDB1";
   public static final String PDB2 = "FREEPDB2";
+  public static final String PDB3 = "FREEPDB3";
 
   private static volatile OracleTestDatabase instance;
   private static volatile RuntimeException startFailure;

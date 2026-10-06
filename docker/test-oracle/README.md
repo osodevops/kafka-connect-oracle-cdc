@@ -3,7 +3,7 @@
 Base: `gvenzl/oracle-free:23.26.3-slim-faststart` (multi-arch, amd64 and arm64). The first start
 runs the hooks in `initdb.d/` once as SYS: archive destination, ARCHIVELOG mode, minimal
 supplemental logging, three 50 MB redo log groups, the `C##CDC` common capture user and a
-`WORKLOAD` schema in `FREEPDB1` and `FREEPDB2`. `startdb.d/00-assert.sh` runs on every start and
+`WORKLOAD` schema in `FREEPDB1`, `FREEPDB2` and `FREEPDB3` (created by `initdb.d/03a-third-pdb.sql`). `startdb.d/00-assert.sh` runs on every start and
 stops the container if any of that is missing.
 
 ```bash

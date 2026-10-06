@@ -38,7 +38,7 @@ with it, so the summary counts clock jumps of more than a minute as suspected ho
 ## 2. Test database image
 
 - Base: `gvenzl/oci-oracle-free` faststart images, which are designed for tests and include `FREEPDB1` ([gvenzl/oci-oracle-free](https://github.com/gvenzl/oci-oracle-free)).
-- Our derived image `ghcr.io/osodevops/oracle-cdc-test-db` adds an init script that: switches the database to ARCHIVELOG (shutdown, mount, `ALTER DATABASE ARCHIVELOG`, open); enables minimal supplemental logging; creates a second PDB `FREEPDB2`; creates the common capture user with grants from `oracle-cdc-doctor setup-sql`; sets small online logs (for example three 50 MB groups) to force frequent switches.
+- Our derived image `ghcr.io/osodevops/oracle-cdc-test-db` adds an init script that: switches the database to ARCHIVELOG (shutdown, mount, `ALTER DATABASE ARCHIVELOG`, open); enables minimal supplemental logging; creates second and third PDBs `FREEPDB2` and `FREEPDB3`; creates the common capture user with grants from `oracle-cdc-doctor setup-sql`; sets small online logs (for example three 50 MB groups) to force frequent switches.
 - A precondition test asserts ARCHIVELOG and supplemental logging before any suite runs.
 - The image is built in CI and never published outside our registry, so Oracle's own image terms stay with the user pulling the base image.
 

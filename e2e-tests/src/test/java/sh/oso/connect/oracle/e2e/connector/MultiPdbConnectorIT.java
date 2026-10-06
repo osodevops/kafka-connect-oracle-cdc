@@ -54,7 +54,8 @@ class MultiPdbConnectorIT {
 
   @BeforeAll
   void up() throws Exception {
-    for (String pdb : List.of(OracleTestDatabase.PDB1, OracleTestDatabase.PDB2)) {
+    for (String pdb :
+        List.of(OracleTestDatabase.PDB1, OracleTestDatabase.PDB2, OracleTestDatabase.PDB3)) {
       SchemaFixtures.recreate(db, pdb, schema);
       sql(
           pdb,
@@ -73,18 +74,20 @@ class MultiPdbConnectorIT {
     if (cluster != null) {
       cluster.close();
     }
-    for (String pdb : List.of(OracleTestDatabase.PDB1, OracleTestDatabase.PDB2)) {
+    for (String pdb :
+        List.of(OracleTestDatabase.PDB1, OracleTestDatabase.PDB2, OracleTestDatabase.PDB3)) {
       SchemaFixtures.drop(db, pdb, schema);
     }
   }
 
   @Test
-  void twoPdbsAreSnapshottedRoutedApartAndANewTableJoinsWithoutARestart() throws Exception {
-    Map<String, String> c = new HashMap<>(ConnectCluster.oracleDatabaseProps("FREEPDB1,FREEPDB2"));
+  void threePdbsAreSnapshottedRoutedApartAndANewTableJoinsWithoutARestart() throws Exception {
+    Map<String, String> c =
+        new HashMap<>(ConnectCluster.oracleDatabaseProps("FREEPDB1,FREEPDB2,FREEPDB3"));
     c.put("connector.class", FirstRecordConnectorIT.CONNECTOR_CLASS);
     c.put("tasks.max", "1");
     c.put("cdc.topic.prefix", PREFIX);
-    c.put("cdc.tables.include", "FREEPDB[12]\\." + schema + "\\..*");
+    c.put("cdc.tables.include", "FREEPDB[123]\\." + schema + "\\..*");
     c.put("cdc.poll.linger.ms", "100");
     c.put("cdc.kafka.bootstrap.servers", "kafka:19092");
     cluster.register(NAME, c);
@@ -93,11 +96,13 @@ class MultiPdbConnectorIT {
 
     String t1 = PREFIX + ".FREEPDB1." + schema + ".ITEMS";
     String t2 = PREFIX + ".FREEPDB2." + schema + ".ITEMS";
+    String t3 = PREFIX + ".FREEPDB3." + schema + ".ITEMS";
     String fresh = PREFIX + ".FREEPDB2." + schema + ".FRESH";
-    // changes in both PDBs, interleaved, after the snapshot SCN
+    // changes in all three PDBs, interleaved, after the snapshot SCN
     for (int i = 10; i < 15; i++) {
       sql(OracleTestDatabase.PDB1, "INSERT INTO items VALUES (" + i + ", 'FREEPDB1-" + i + "')");
       sql(OracleTestDatabase.PDB2, "INSERT INTO items VALUES (" + i + ", 'FREEPDB2-" + i + "')");
+      sql(OracleTestDatabase.PDB3, "INSERT INTO items VALUES (" + i + ", 'FREEPDB3-" + i + "')");
     }
     // SRC-SEL-4: a table created with rows in one PDB, then changed
     sql(
@@ -109,9 +114,9 @@ class MultiPdbConnectorIT {
     sql(OracleTestDatabase.PDB2, "INSERT INTO fresh VALUES (99, 'streamed')");
 
     Map<String, List<JsonNode>> byTopic = new HashMap<>();
-    try (KafkaConsumer<String, String> consumer = cluster.consumer("mpdb", t1, t2, fresh)) {
+    try (KafkaConsumer<String, String> consumer = cluster.consumer("mpdb", t1, t2, t3, fresh)) {
       for (ConsumerRecord<String, String> r :
-          ConnectCluster.consume(consumer, 20, Duration.ofMinutes(3), Duration.ofSeconds(10))) {
+          ConnectCluster.consume(consumer, 28, Duration.ofMinutes(3), Duration.ofSeconds(10))) {
         if (r.value() != null) {
           byTopic
               .computeIfAbsent(r.topic(), k -> new ArrayList<>())
@@ -121,7 +126,7 @@ class MultiPdbConnectorIT {
     }
     // a consumer keeping the latest record per key sees each PDB's own rows, whatever the
     // snapshot and streaming both delivered
-    for (String pdb : List.of("FREEPDB1", "FREEPDB2")) {
+    for (String pdb : List.of("FREEPDB1", "FREEPDB2", "FREEPDB3")) {
       List<JsonNode> rows = byTopic.get(PREFIX + "." + pdb + "." + schema + ".ITEMS");
       assertThat(rows)
           .as("every record on %s's topic comes from %s", pdb, pdb)

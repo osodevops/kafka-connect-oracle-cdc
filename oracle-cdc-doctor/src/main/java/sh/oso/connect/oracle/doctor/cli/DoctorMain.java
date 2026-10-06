@@ -391,7 +391,8 @@ public final class DoctorMain implements Callable<Integer>, AdminCommands.Rooted
         password = profile == Profile.LAB ? "cdc" : "<change-me>";
       }
       if (pdbs == null) {
-        pdbs = profile == Profile.LAB ? Arrays.asList("FREEPDB1", "FREEPDB2") : List.of();
+        pdbs =
+            profile == Profile.LAB ? Arrays.asList("FREEPDB1", "FREEPDB2", "FREEPDB3") : List.of();
       }
       String sql =
           sh.oso.connect.oracle.core.doctor.SetupSql.generate(
