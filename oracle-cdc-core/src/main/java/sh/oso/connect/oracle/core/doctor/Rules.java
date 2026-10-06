@@ -59,7 +59,8 @@ public final class Rules {
         keys(),
         archiveDestination(),
         roleAndOpenMode(),
-        version());
+        version(),
+        avroNames());
   }
 
   /** Every rule, in rule order: what {@code oracle-cdc-doctor check} runs by default. */
@@ -85,7 +86,8 @@ public final class Rules {
         exactlyOnce(),
         idleTimeout(),
         lagRecovery(),
-        pdbsOpen());
+        pdbsOpen(),
+        avroNames());
   }
 
   static Rule archivelog() {
@@ -296,6 +298,88 @@ public final class Rules {
           }
           return out;
         });
+  }
+
+  private static final java.util.regex.Pattern AVRO_NAME =
+      java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+
+  /**
+   * DOC-22 (ADR-0020): with an Avro converter set on the connector, names Avro refuses need {@code
+   * cdc.*.name.adjustment.mode}. A column name fails the task in the converter at the first record
+   * (blocking); an owner, table or prefix part passes the converter and a default registry, and
+   * only the consumer's Avro library refuses it (warning). A converter set only on the worker is
+   * not visible here.
+   */
+  static Rule avroNames() {
+    return rule(
+        "DOC-22",
+        ctx -> {
+          if (!avroConverter(ctx.property("value.converter", null))
+              && !avroConverter(ctx.property("key.converter", null))) {
+            return List.of();
+          }
+          boolean schemaNone =
+              "none".equalsIgnoreCase(ctx.property("cdc.schema.name.adjustment.mode", "none"));
+          boolean fieldNone =
+              "none".equalsIgnoreCase(ctx.property("cdc.field.name.adjustment.mode", "none"));
+          List<String> schemaNames = new ArrayList<>();
+          List<String> fieldNames = new ArrayList<>();
+          if (schemaNone) {
+            for (String part : ctx.property("cdc.topic.prefix", "").split("\\.")) {
+              if (!part.isEmpty() && !AVRO_NAME.matcher(part).matches()) {
+                schemaNames.add("cdc.topic.prefix part " + part);
+              }
+            }
+          }
+          for (CapturedTable t : ctx.tables()) {
+            if (schemaNone
+                && (!AVRO_NAME.matcher(t.owner()).matches()
+                    || !AVRO_NAME.matcher(t.name()).matches())) {
+              schemaNames.add(t.fqn());
+            }
+            if (fieldNone) {
+              for (CapturedTable.Column c : t.columns()) {
+                if (!AVRO_NAME.matcher(c.name()).matches()) {
+                  fieldNames.add(t.fqn() + "." + c.name());
+                }
+              }
+            }
+          }
+          List<Finding> out = new ArrayList<>();
+          if (!fieldNames.isEmpty()) {
+            out.add(
+                Finding.blocking(
+                    "DOC-22",
+                    "The connector's Avro converter refuses these column names, so the task fails"
+                        + " at their table's first record: "
+                        + first(fieldNames)
+                        + ". Set cdc.field.name.adjustment.mode=avro (or avro_unicode).",
+                    null));
+          }
+          if (!schemaNames.isEmpty()) {
+            out.add(
+                Finding.warning(
+                    "DOC-22",
+                    "These names are not valid Avro names, and with"
+                        + " cdc.schema.name.adjustment.mode=none their records reach Kafka with"
+                        + " schemas a consumer on Avro for Java 1.12 or later refuses: "
+                        + first(schemaNames)
+                        + ". Set cdc.schema.name.adjustment.mode=avro (or avro_unicode), or turn"
+                        + " on the registry's validity rule.",
+                    null));
+          }
+          return out;
+        });
+  }
+
+  private static boolean avroConverter(String className) {
+    return className != null && className.trim().endsWith("AvroConverter");
+  }
+
+  /** The first twenty names, and how many more. */
+  private static String first(List<String> names) {
+    String shown = String.join(", ", names.subList(0, Math.min(20, names.size())));
+    return names.size() > 20 ? shown + " and " + (names.size() - 20) + " more" : shown;
   }
 
   static Rule keys() {

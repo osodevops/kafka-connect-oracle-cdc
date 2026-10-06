@@ -125,6 +125,7 @@ public final class ConnectorValidator {
               cfg.tablesInclude(),
               cfg.tablesExclude(),
               cfg.keyMissing().name());
+      ctx.withConnectorProperties(cfg.originalsStrings()); // DOC-22 reads the converters
       Report doctor = new Doctor(Rules.fastMode()).run(ctx);
       List<Finding> keys = excludedKeys(cfg, c);
       if (keys.isEmpty()) {

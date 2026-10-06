@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.topology.ThreadInfo;
 
-/** The full-mode rules (PRD-05 DOC-8 to DOC-11, DOC-13, DOC-16 to DOC-21) on their fixtures. */
+/** The full-mode rules (PRD-05 DOC-8 to DOC-11, DOC-13, DOC-16 to DOC-22) on their fixtures. */
 class FullRulesTest {
 
   static final Instant NOW = Instant.parse("2026-10-05T12:00:00Z");
@@ -93,10 +93,10 @@ class FullRulesTest {
         .containsExactly(
             "DOC-1", "DOC-2", "DOC-3", "DOC-4", "DOC-5", "DOC-6", "DOC-7", "DOC-8", "DOC-9",
             "DOC-10", "DOC-11", "DOC-12", "DOC-13", "DOC-14", "DOC-15", "DOC-16", "DOC-17",
-            "DOC-18", "DOC-19", "DOC-20", "DOC-21");
+            "DOC-18", "DOC-19", "DOC-20", "DOC-21", "DOC-22");
     assertThat(r.findings()).extracting(Finding::severity).containsOnly(Severity.INFO);
     assertThat(r.exitCode()).isEqualTo(Report.EXIT_OK);
-    assertThat(Rules.fastMode()).hasSize(10);
+    assertThat(Rules.fastMode()).hasSize(11);
   }
 
   @Test
@@ -242,6 +242,39 @@ class FullRulesTest {
         .singleElement()
         .extracting(Finding::severity)
         .isEqualTo(Severity.INFO);
+  }
+
+  @Test
+  void namesAvroRefusesNeedAdjustmentUnderAnAvroConverter() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.tables.add(table("ORDERS", col("ID", "NUMBER")));
+    cat.tables.add(table("ORDER#ITEMS", col("ID", "NUMBER"), col("AMT$", "NUMBER")));
+    Map<String, String> avro =
+        Map.of(
+            "value.converter", "io.apicurio.registry.utils.converter.AvroConverter",
+            "cdc.topic.prefix", "oso-cdc");
+    List<Finding> f = run(Rules.avroNames(), ctx(cat, avro));
+    assertThat(f).hasSize(2);
+    assertThat(f.get(0).severity()).isEqualTo(Severity.BLOCKING);
+    assertThat(f.get(0).message())
+        .contains("FREEPDB1.APP.ORDER#ITEMS.AMT$")
+        .contains("cdc.field.name.adjustment.mode=avro");
+    assertThat(f.get(1).severity()).isEqualTo(Severity.WARNING);
+    assertThat(f.get(1).message())
+        .contains("cdc.topic.prefix part oso-cdc")
+        .contains("FREEPDB1.APP.ORDER#ITEMS")
+        .doesNotContain("APP.ORDERS,");
+    Map<String, String> adjusted = new java.util.HashMap<>(avro);
+    adjusted.put("cdc.schema.name.adjustment.mode", "avro");
+    adjusted.put("cdc.field.name.adjustment.mode", "avro_unicode");
+    assertThat(run(Rules.avroNames(), ctx(cat, adjusted))).isEmpty();
+    // a JSON converter, or none on the connector (the worker's is not visible): nothing to say
+    assertThat(run(Rules.avroNames(), ctx(cat, Map.of("cdc.topic.prefix", "oso-cdc")))).isEmpty();
+    assertThat(
+            run(
+                Rules.avroNames(),
+                ctx(cat, Map.of("value.converter", "org.apache.kafka.connect.json.JsonConverter"))))
+        .isEmpty();
   }
 
   @Test

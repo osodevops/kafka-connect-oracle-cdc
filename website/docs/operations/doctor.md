@@ -69,6 +69,7 @@ worker to validate the configuration.
 | DOC-19 | TCP keepalive idle time (`oracle.net.TCP_KEEPIDLE` in `cdc.database.connection.properties`) below the default idle timeouts of common load balancers | info | no |
 | DOC-20 | Whether the [lag case](../concepts/schema-and-ddl.md) can be recovered: `EXECUTE ON DBMS_LOGMNR_D`, the newest dictionary build flagged `DICTIONARY_BEGIN` and `DICTIONARY_END` in V$ARCHIVED_LOG, and every log from it on still present | info; warning when recovery is not possible | no |
 | DOC-21 | Every pluggable database of the CDB is open (`V$PDBS`) and has a saved state (`DBA_PDB_SAVED_STATES`) | warning or info | no |
+| DOC-22 | With an Avro converter set on the connector (`key.converter` or `value.converter`): captured names Avro refuses while `cdc.field.name.adjustment.mode` or `cdc.schema.name.adjustment.mode` is `none` | blocking (column names) or warning (owner, table or prefix) | yes |
 
 Notes on individual rules:
 
@@ -92,6 +93,12 @@ Notes on individual rules:
   log from that build on ([dictionary unavailable](runbooks/dictionary-unavailable.md)). With the
   privilege the connector writes a build at start when none exists and then on the
   `cdc.dictionary.build.*` schedule.
+- DOC-22: Avro names must match `[A-Za-z_][A-Za-z0-9_]*` in every part. A column name Avro
+  refuses fails the task in the converter at its table's first record, so it blocks. An owner,
+  table or topic prefix part Avro refuses passes the converter and a registry without a validity
+  rule, and a consumer on Avro for Java 1.12 or later then refuses the record, so it warns. Set the
+  [name adjustment modes](../reference/record-formats.md). A converter set only in the worker's
+  configuration is not visible to the doctor; the rule then says nothing.
 - DOC-21: LogMiner reads every container whose redo lies in the range it mines, captured or not,
   so a closed pluggable database makes mining wait with ORA-16331 until it opens (the connector
   retries, see [transient database errors](runbooks/transient-database.md)). A PDB without a
