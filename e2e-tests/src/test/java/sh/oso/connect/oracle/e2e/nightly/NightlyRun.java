@@ -203,6 +203,19 @@ final class NightlyRun {
       String prefix,
       Duration timeout)
       throws Exception {
+    return check(cluster, w, schema, spec, prefix, timeout, 0);
+  }
+
+  /** As above, comparing table state AS OF {@code stateScn} (0: the newest commit consumed). */
+  static CheckReport check(
+      ConnectCluster cluster,
+      Connection w,
+      String schema,
+      WorkloadSpec spec,
+      String prefix,
+      Duration timeout,
+      long stateScn)
+      throws Exception {
     List<String> tables = tables(spec);
     List<String> topics = tables.stream().map(t -> topic(prefix, schema, t)).toList();
     CorrectnessCheck check =
@@ -215,7 +228,7 @@ final class NightlyRun {
             spec.ledgerTable,
             timeout,
             Duration.ofSeconds(20));
-    return check.run();
+    return check.stateAt(stateScn).run();
   }
 
   /** Committed XIDs in a workload ledger whose transactions changed at least one row. */

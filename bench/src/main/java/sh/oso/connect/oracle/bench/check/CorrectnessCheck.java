@@ -51,6 +51,7 @@ public final class CorrectnessCheck {
   private final String ledgerTable;
   private final Duration timeout;
   private final Duration idle;
+  private long stateScn;
 
   public CorrectnessCheck(
       String bootstrapServers,
@@ -69,6 +70,17 @@ public final class CorrectnessCheck {
     this.ledgerTable = ledgerTable;
     this.timeout = timeout;
     this.idle = idle;
+  }
+
+  /**
+   * Compares the tables AS OF {@code scn} instead of the newest commit SCN consumed. Valid only
+   * when nothing was committed to the tables between that commit and {@code scn} (a quiesced
+   * workload), and useful when the newest commit is too close to an instance restart or a DDL for a
+   * flashback read (ORA-01466). An SCN below the newest commit consumed makes the check fail.
+   */
+  public CorrectnessCheck stateAt(long scn) {
+    this.stateScn = scn;
+    return this;
   }
 
   public CheckReport run() throws Exception {
@@ -150,12 +162,20 @@ public final class CorrectnessCheck {
       report.inconclusive("no change records were consumed, so there is no check SCN");
       return report;
     }
+    long at = m.maxCommitScn();
+    if (stateScn > 0) {
+      if (stateScn < at) {
+        report.fail("the state SCN " + stateScn + " is below the newest commit consumed, " + at);
+        return report;
+      }
+      at = stateScn;
+    }
     StateChecker checker = new StateChecker(db, owner);
     Map<String, Object> tablesOut = new LinkedHashMap<>();
     for (String table : tables) {
       Map<String, JsonNode> rows = m.tables().getOrDefault(owner + "." + table, Map.of());
       try {
-        StateChecker.TableDiff d = checker.compare(table, rows, m.maxCommitScn());
+        StateChecker.TableDiff d = checker.compare(table, rows, at);
         Map<String, Object> t = new LinkedHashMap<>();
         t.put("databaseRows", d.databaseRows);
         t.put("kafkaRows", d.kafkaRows);
@@ -181,7 +201,7 @@ public final class CorrectnessCheck {
         if (StateChecker.isSnapshotTooOld(e)) {
           report.inconclusive(
               "AS OF SCN "
-                  + m.maxCommitScn()
+                  + at
                   + " is no longer available (ORA-"
                   + e.getErrorCode()
                   + (e.getErrorCode() == 1466
@@ -193,7 +213,7 @@ public final class CorrectnessCheck {
         }
       }
     }
-    report.state().put("checkScn", m.maxCommitScn());
+    report.state().put("checkScn", at);
     report.state().put("tables", tablesOut);
     return report;
   }

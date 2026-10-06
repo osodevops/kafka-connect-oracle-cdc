@@ -119,9 +119,13 @@ class DatabaseRestartNightlyIT {
         long end = NightlyRun.scn(root);
         cluster.awaitRunning(NAME, Duration.ofMinutes(2));
         boolean caughtUp = NightlyRun.awaitResumePast(cluster, NAME, end, Duration.ofMinutes(8));
-        CheckReport ra = NightlyRun.check(cluster, w, schema, a, PREFIX, Duration.ofMinutes(6));
+        // both workloads have ended: the tables' state at the end SCN is their state at their last
+        // commit. Workload A's last commit is just before SHUTDOWN ABORT, which a flashback read
+        // cannot reach afterwards (ORA-01466), so the state is compared at the end SCN
+        CheckReport ra =
+            NightlyRun.check(cluster, w, schema, a, PREFIX, Duration.ofMinutes(6), end);
         CheckReport rbReport =
-            NightlyRun.check(cluster, w, schema, b, PREFIX, Duration.ofMinutes(6));
+            NightlyRun.check(cluster, w, schema, b, PREFIX, Duration.ofMinutes(6), end);
         List<JsonNode> ops = NightlyRun.ops(cluster, PREFIX);
         List<JsonNode> reconnects = NightlyRun.ofType(ops, "reconnected");
         List<JsonNode> released = NightlyRun.ofType(ops, "transaction-orphan-released");
