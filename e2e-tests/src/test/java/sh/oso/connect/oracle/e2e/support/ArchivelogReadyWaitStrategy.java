@@ -32,8 +32,8 @@ import org.testcontainers.containers.wait.strategy.LogMessageWaitStrategy;
  * Oracle accepts listener connections before the database is usable, and the gvenzl entrypoint
  * prints {@code DATABASE IS READY TO USE!} only after the first-start hooks have run. This strategy
  * waits for that line, then proves through JDBC, as the capture user, that the database is in the
- * state the suites assume: ARCHIVELOG, minimal supplemental logging, both PDBs open, and a LogMiner
- * session that can be started and ended.
+ * state the suites assume: ARCHIVELOG, minimal supplemental logging, the three PDBs open, and a
+ * LogMiner session that can be started and ended.
  */
 public final class ArchivelogReadyWaitStrategy extends AbstractWaitStrategy {
 
@@ -97,12 +97,12 @@ public final class ArchivelogReadyWaitStrategy extends AbstractWaitStrategy {
       try (ResultSet rs =
           st.executeQuery(
               "SELECT name FROM v$pdbs WHERE open_mode = 'READ WRITE' AND name IN ('FREEPDB1',"
-                  + " 'FREEPDB2')")) {
+                  + " 'FREEPDB2', 'FREEPDB3')")) {
         while (rs.next()) {
           open++;
         }
       }
-      require(open == 2, "only " + open + " of the two test PDBs are READ WRITE");
+      require(open == 3, "only " + open + " of the three test PDBs are READ WRITE");
       // A trivial LogMiner session over the newest archived log proves the LOGMINING grants.
       st.execute(
           "BEGIN  FOR r IN (SELECT name FROM (SELECT name FROM v$archived_log WHERE name IS NOT"

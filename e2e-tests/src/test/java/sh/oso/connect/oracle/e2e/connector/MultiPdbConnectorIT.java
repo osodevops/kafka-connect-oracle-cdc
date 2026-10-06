@@ -37,7 +37,7 @@ import sh.oso.connect.oracle.e2e.support.OracleTestDatabase;
 import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
 
 /**
- * ADR-0002 and SRC-SEL-4 through a real worker: one connector mines once at the root for two PDBs
+ * ADR-0002 and SRC-SEL-4 through a real worker: one connector mines once at the root for three PDBs
  * holding tables of the same name, snapshots both, routes every change to its PDB's topic, and
  * picks up a table created with rows in one PDB without a restart.
  */

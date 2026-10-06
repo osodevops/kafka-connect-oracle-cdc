@@ -46,7 +46,7 @@ import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
  * release is recorded in the evidence.
  *
  * <p>The container is shared by every suite in the JVM: the finally block makes sure the instance
- * is open again with both PDBs READ WRITE before the next suite runs.
+ * is open again with its three PDBs READ WRITE before the next suite runs.
  */
 @Tag("nightly")
 class DatabaseRestartNightlyIT {

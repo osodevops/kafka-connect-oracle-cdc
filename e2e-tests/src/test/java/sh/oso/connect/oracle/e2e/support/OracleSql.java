@@ -136,8 +136,8 @@ public final class OracleSql {
 
   /**
    * Waits until the capture user passes the image's readiness probe (ARCHIVELOG, supplemental
-   * logging, both PDBs READ WRITE, a LogMiner session) and the FREEPDB1 service accepts logons. One
-   * attempt every three seconds: a tight loop keeps the listener blocked (ORA-12516).
+   * logging, the three PDBs READ WRITE, a LogMiner session) and the FREEPDB1 service accepts
+   * logons. One attempt every three seconds: a tight loop keeps the listener blocked (ORA-12516).
    */
   public static void awaitOpen(OracleTestDatabase db, Duration timeout) throws Exception {
     long deadline = System.currentTimeMillis() + timeout.toMillis();

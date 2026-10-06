@@ -55,9 +55,9 @@ class PreconditionEngineIT {
   }
 
   @Test
-  void bothTestPdbsAreOpenReadWrite() throws SQLException {
+  void everyTestPdbIsOpenReadWrite() throws SQLException {
     assertThat(query("SELECT name || '=' || open_mode FROM v$pdbs WHERE con_id > 2 ORDER BY name"))
-        .containsExactly("FREEPDB1=READ WRITE", "FREEPDB2=READ WRITE");
+        .containsExactly("FREEPDB1=READ WRITE", "FREEPDB2=READ WRITE", "FREEPDB3=READ WRITE");
   }
 
   @Test
