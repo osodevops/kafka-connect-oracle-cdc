@@ -303,18 +303,32 @@ oom_kills() {
   $K get pods -l strimzi.io/name=connect-connect -o jsonpath='{range .items[*]}{.metadata.name} restarts={.status.containerStatuses[0].restartCount} last={.status.containerStatuses[0].lastState.terminated.reason}{"\n"}{end}'
 }
 case_oom() {
-  # The heap may grow past the container limit, so a large transaction makes the kernel kill the
-  # worker that buffers it (OOMKilled), not the JVM throw. The limits in connect.yaml come back
-  # afterwards and the whole transaction must reach Kafka once.
-  local rows=${OOM_ROWS:-400000} limit=${OOM_LIMIT:-640Mi} first
+  # A heap ceiling (-Xmx 1536m in connect.yaml) above the container limit: under load the JVM grows
+  # the heap past the limit and the kernel kills the worker (OOMKilled), the misconfiguration that
+  # kills Connect workers in practice. An idle worker needs about 800 MiB, so the limit must stay
+  # above that or no worker can start. The limits in connect.yaml come back whatever happens, and
+  # the whole transaction must reach Kafka once.
+  local rows=${OOM_ROWS:-400000} limit=${OOM_LIMIT:-1Gi} first rc=0
   log "case: OOMKill of the worker buffering a ${rows}-row transaction (memory limit ${limit})"
-  workload_sql "DECLARE n NUMBER; BEGIN SELECT COUNT(*) INTO n FROM user_tables WHERE table_name = 'EDGE_BIG'; IF n = 0 THEN EXECUTE IMMEDIATE 'CREATE TABLE edge_big (id NUMBER(12) PRIMARY KEY, pad VARCHAR2(400))'; END IF; END;
+  workload_sql "DECLARE n NUMBER; BEGIN SELECT COUNT(*) INTO n FROM user_tables WHERE table_name = 'EDGE_BIG'; IF n = 0 THEN EXECUTE IMMEDIATE 'CREATE TABLE edge_big (id NUMBER(12) PRIMARY KEY, pad VARCHAR2(400))'; EXECUTE IMMEDIATE 'ALTER TABLE edge_big ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS'; END IF; END;
 /" >/dev/null || { log "oom: could not create EDGE_BIG"; return 1; }
+  # a captured table without table-level supplemental logging fails validation (DOC-3), so every
+  # later config change on the connector would be refused
   # ids grow from run to run, so rows of an earlier run in the topic never count for this one
   first=$(workload_sql "SELECT NVL(MAX(id), 0) + 1 FROM edge_big;" | tr -d ' \t\r' | grep -E '^[0-9]+$' || true)
   [ -n "$first" ] || { log "oom: could not read EDGE_BIG"; return 1; }
   $K patch kafkaconnect connect --type=merge -p "{\"spec\":{\"resources\":{\"requests\":{\"memory\":\"512Mi\"},\"limits\":{\"memory\":\"$limit\"}}}}" >/dev/null
-  wait_connect_limit "$limit" || return 1
+  oom_under_limit "$rows" "$first" "$limit" || rc=1
+  # back to the values in connect.yaml, also after a failure above
+  $K patch kafkaconnect connect --type=merge -p '{"spec":{"resources":{"requests":{"memory":"1Gi"},"limits":{"memory":"2Gi"}}}}' >/dev/null
+  wait_connect_limit 2Gi || return 1
+  [ "$rc" = 0 ] || return 1
+  verify_platform && verify_data || return 1
+  verify_rows cdc.FREEPDB1.WORKLOAD.EDGE_BIG "$first" "$rows"
+}
+oom_under_limit() {
+  local rows=$1 first=$2 limit=$3
+  wait_connect_limit "$limit" || { log "oom: a worker cannot start under $limit: $(oom_kills | tr '\n' ' ')"; return 1; }
   wait_connector_running || true
   workload_begin
   log "oom: inserting ids $first to $((first + rows - 1)) in one transaction"
@@ -322,11 +336,6 @@ case_oom() {
 COMMIT;" >/dev/null || { log "oom: large transaction failed"; return 1; }
   sleep "${OOM_HOLD_SECONDS:-120}"
   log "oom: workers under the limit: $(oom_kills | tr '\n' ' ')"
-  # back to the values in connect.yaml
-  $K patch kafkaconnect connect --type=merge -p '{"spec":{"resources":{"requests":{"memory":"1Gi"},"limits":{"memory":"2Gi"}}}}' >/dev/null
-  wait_connect_limit 2Gi || return 1
-  verify_platform && verify_data || return 1
-  verify_rows cdc.FREEPDB1.WORKLOAD.EDGE_BIG "$first" "$rows"
 }
 # every id in [first, first + rows) must be in the topic exactly once (read_committed); the record
 # key holds the ID and is far smaller than the value
