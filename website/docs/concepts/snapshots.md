@@ -63,7 +63,7 @@ chunk is read again at half the size, down to 1,000 rows; after that the task st
 The `snapshot-chunk-done` and `snapshot-complete` events on the ops topic, and the `Snapshot*`
 metrics, show progress.
 
-## Limitations in this release
+## Current limitations
 
 - A table whose key columns change during its snapshot is read with the key it had at the start.
 - A keyless table with row movement enabled can have rows that move between ROWID ranges during the

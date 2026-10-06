@@ -20,7 +20,7 @@ ALTER TABLE app.orders ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;  -- per captured
 | none | blocking | Updates and deletes cannot be keyed; the doctor and the connector's validation refuse the configuration |
 
 With primary-key-only logging, a null field in a `before` image can mean either that the column was
-null or that it was not logged; the records do not mark a before image as partial in this release.
+null or that it was not logged; the records do not mark a before image as partial.
 Use ALL COLUMNS when consumers need complete before images.
 
 Enabling table-level logging on a busy table invalidates the cursors of statements that use it,

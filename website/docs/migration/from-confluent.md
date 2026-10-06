@@ -56,7 +56,7 @@ topic (corrupt redo stops the task), and buffering, validation and placement set
 Manual: the `output.*` record format settings, `key.template`, `oracle.date.mapping`, other
 `numeric.mapping` values, a non-default `numeric.default.scale`, `lob.topic.name.template`,
 `redo.log.row.poll.username.include`, a time zone other than UTC, `oracle.fan.events.enable=true`
-(RAC is not supported in this release), Kerberos and LDAP credentials, and any unknown property.
+(RAC is not supported yet), Kerberos and LDAP credentials, and any unknown property.
 
 Every report also says that the redo log topic stops receiving data at the cutover, so its
 consumers must move or retire. Exactly-once is checked against `--connect-url` as for

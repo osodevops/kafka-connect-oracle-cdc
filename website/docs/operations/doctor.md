@@ -76,14 +76,14 @@ Notes on individual rules:
 - DOC-7: snapshots read a keyless heap table in ROWID ranges, so a row that moves while a
   snapshot runs (ROW MOVEMENT) can be read twice or missed. With `cdc.key.missing=rowid` a moved
   row also changes its key.
-- DOC-8: XMLTYPE values are neither assembled from redo nor reselected in this release, so in
-  `inline` and `reselect` mode the records carry `cdc.unavailable.placeholder` for them.
+- DOC-8: XMLTYPE values are neither assembled from redo nor reselected yet, so in `inline` and
+  `reselect` mode the records carry `cdc.unavailable.placeholder` for them.
 - DOC-9 and DOC-10 read the archive destination the connector mines from.
 - DOC-10 measures how far back the oldest archived log still present reaches on every enabled
   thread. Until the catalog lists a deleted log, retention has not been exercised and the rule
   only reports what it needs.
-- DOC-13: this release is qualified for a single redo thread; RAC capture is planned for Phase 2,
-  and the connector does not subscribe to FAN events.
+- DOC-13: the connector is qualified for a single redo thread only. RAC capture is not available
+  yet, and the connector does not subscribe to FAN events.
 - DOC-19: the connector's connections use TCP keepalive. Without `oracle.net.TCP_KEEPIDLE` the
   operating system's idle time applies (two hours by default on Linux), which is longer than the
   idle timeout of an AWS Network Load Balancer (350 seconds) or an Azure Load Balancer (four

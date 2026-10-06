@@ -8,7 +8,7 @@ description: The Debezium-compatible change records the connector writes, field 
 The connector writes Debezium-compatible change records: the envelope with `before`, `after`,
 `source` and `op`, the same source schema name and the same semantic type names as Debezium's
 Oracle connector, so consumers and sink connectors written for that format read these records.
-This is the only format in this release (`cdc.output.format=debezium`). A format compatible with
+This is the only format available (`cdc.output.format=debezium`). A format compatible with
 Confluent's Oracle CDC Source connector is not built yet.
 
 How records are serialised (JSON, Avro, Protobuf) is up to the worker's `key.converter` and
@@ -289,7 +289,7 @@ A value is unavailable when the redo does not hold all of it:
 - a partial change to an existing large value through `DBMS_LOB.WRITE`, `WRITEAPPEND`, `ERASE` or
   `TRIM`;
 - a value larger than `cdc.lob.max.bytes` when `cdc.lob.oversize.action` is `placeholder`;
-- XMLTYPE columns, in this release.
+- XMLTYPE columns, which are not assembled from redo or reselected yet.
 
 A consumer keeps the previous value of a field that carries the placeholder. Values written by an
 INSERT or by a statement that replaces the whole value are always available in `inline` mode.

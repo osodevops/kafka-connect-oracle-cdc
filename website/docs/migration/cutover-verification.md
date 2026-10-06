@@ -112,7 +112,7 @@ uv run python verify_cutover.py --check-evidence cutover-evidence.json
 
 - Compaction removes history. On a compacted topic, choose a check SCN close to the present, or
   values overwritten after the check SCN are missing from the topic side.
-- Topics written with Avro or Protobuf converters, and Confluent's flat record format, are not
-  read in this release.
+- The tool reads only topics written with the JSON converter. Topics written with Avro or
+  Protobuf converters, and Confluent's flat record format, are not read yet.
 - Duplicates and ordering are not checked; a repeated change during a takeover overlap leaves the
   same state and passes.

@@ -19,7 +19,7 @@ time.
 
 - The Debezium connector uses the LogMiner adapter (`logminer` or `logminer_unbuffered`). The
   offsets of the XStream and OpenLogReplicator adapters carry no position the takeover can use.
-- The database is a single instance. RAC is not supported in this release.
+- The database is a single instance. RAC is not supported yet.
 - The archived logs from the Debezium resume SCN still exist.
 - The new connector gets a name of its own. It starts at `cdc.start.scn` only while it has no
   stored offset, and Kafka Connect keeps offsets per connector name.
@@ -79,7 +79,7 @@ and sleep sizes, buffer settings, the query filter mode), `heartbeat.action.quer
 never write to the database), the schema history settings (the connector keeps schema versions in
 its own topic), the signal table (signals come from a Kafka topic) and the flush table.
 
-Manual, because this release has no equivalent:
+Manual, because the connector has no equivalent or the translator cannot carry the value over:
 
 - `column.exclude.list`. Write the same columns in `cdc.columns.exclude` as regular expressions
   over `PDB.SCHEMA.TABLE.COLUMN` (`SCHEMA.TABLE.COLUMN` without a PDB); the name forms differ, so

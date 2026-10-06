@@ -6,7 +6,7 @@ description: The schema topic, DDL classification and recovery when redo predate
 # Schema and DDL
 
 Each captured table has numbered schema versions. The layout always comes from the data dictionary;
-DDL text is read only to decide what a statement did (PRD-03).
+DDL text is read only to decide what a statement did.
 
 ## DDL while the connector follows the redo
 
@@ -81,6 +81,6 @@ every `cdc.dictionary.build.interval.ms` (a day by default) after that. Without 
 `dictionary-build` event. Mining a range again reads all redo since the last build, so more frequent
 builds make the lag case cheaper.
 
-## Not yet in this release
+## Not available yet
 
 - Optional schema change events on a topic of their own.
