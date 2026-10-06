@@ -5,7 +5,7 @@ CONFIG ?= examples/connector-freepdb1.json
 NAME ?= oracle-cdc
 PROFILES ?=
 
-.PHONY: build plugin up down ps logs register status topics consume delete oracle-sql
+.PHONY: build plugin up down ps logs register status topics consume delete oracle-sql check soak
 
 build: ## package the connector without tests
 	cd $(REPO_ROOT) && mvn -q package -DskipTests -DskipE2E --batch-mode --no-transfer-progress
@@ -56,3 +56,21 @@ check: ## run the correctness oracle against the compose stack (after a bench wo
 	java -jar $(REPO_ROOT)/bench/target/bench-*-cli.jar check --bootstrap-servers localhost:9092 \
 	  --url jdbc:oracle:thin:@//localhost:1521/FREEPDB1 --user workload --password workload \
 	  --topic-prefix cdc --pdb FREEPDB1 --tables WL_T1,WL_T2,WL_T3 --out /tmp/oracle-cdc-evidence.json
+
+# Soak (testing strategy T3): the paced bench workload against the registered connector, the
+# correctness oracle every CHECK_EVERY hours and once at the end, evidence under SOAK_OUT. The table
+# topics must be empty, so start from a fresh stack: make down up register soak HOURS=1 CHECK_EVERY=0.25
+HOURS ?= 72
+CHECK_EVERY ?= 6
+SOAK_OUT ?= soak-out/$(shell date -u +%Y%m%dT%H%M%SZ)
+SOAK_HEAP ?= 12g
+BENCH_JAR = $(firstword $(wildcard $(REPO_ROOT)/bench/target/bench-*-cli.jar))
+
+soak: ## soak for HOURS (default 72), a check every CHECK_EVERY hours (default 6); keep the Mac awake
+	@test -n "$(BENCH_JAR)" || { echo "bench CLI jar missing; run make build"; exit 1; }
+	WORKLOAD_PASSWORD=workload java -Xmx$(SOAK_HEAP) -jar $(BENCH_JAR) soak \
+	  --url jdbc:oracle:thin:@//localhost:1521/FREEPDB1 --user workload --password-env WORKLOAD_PASSWORD \
+	  --hours $(HOURS) --check-every $(CHECK_EVERY) \
+	  --bootstrap-servers localhost:9092 --topic-prefix cdc --pdb FREEPDB1 --tables WL_T1,WL_T2,WL_T3 \
+	  --connect-url http://localhost:8083 --connector $(NAME) --metrics-url http://localhost:9404/metrics \
+	  --out $(SOAK_OUT)

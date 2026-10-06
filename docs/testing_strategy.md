@@ -16,6 +16,25 @@
 | T3 Soak and performance | Weekly and before release | 72 hours | Sustained workload, memory and latency tracking, comparison with Debezium on the same workload |
 | T4 Extended lab | Before release | Days | 19c and 21c EE, two-node RAC on Podman and Active Data Guard on the workstation or the AWS dev RAC host; RDS SE2 non-CDB (Phase 2) and CDB (Phase 3) in the AWS dev account; Autonomous Database on OCI Always Free (Phase 3). See `07_test_lab_and_budget.md` |
 
+### T3 soak harness
+
+`bench soak` (P1-30) runs T3 against any running connector; `make -C lab/local/compose soak` wires it
+to the compose lab (`HOURS`, default 72, and `CHECK_EVERY`, default 6; see the lab README). It refuses
+to start when the table topics already hold records, resets the workload tables, waits until the
+connector has passed the reset, then runs the paced spec `bench/src/main/resources/soak/default.json`
+open-ended. At every check point it pauses the workload until each session is parked, reads the
+database SCN, waits until the committed `resume_scn` is past it (the catch-up time; beyond
+`--catch-up-timeout`, default 30 minutes, the soak stops as LAG, a finding about lag rather than a
+correctness verdict), runs the correctness oracle of section 3 in-process, writes its evidence as
+`check-NNN.json` and resumes. The first FAIL stops the soak with its evidence kept; INCONCLUSIVE is
+recorded and the soak goes on; a final check runs after the workload stops. Every minute a sampler
+appends worker heap, `oracle_cdc_millis_behind_source`, `oracle_cdc_scn_lag`, `oracle_cdc_queue_depth`
+and the buffer gauges from the JMX exporter to `metrics.csv`; `summary.json` and `summary.md` give the
+duration, segments, verdicts, catch-up times, heap in the first and last hour and its maximum, and
+the lag maximum. Section 9 compares these summaries between releases; they stay internal (section
+7). The host must stay awake for the whole run: a workstation that sleeps freezes Docker and the soak
+with it, so the summary counts clock jumps of more than a minute as suspected host sleep.
+
 ## 2. Test database image
 
 - Base: `gvenzl/oci-oracle-free` faststart images, which are designed for tests and include `FREEPDB1` ([gvenzl/oci-oracle-free](https://github.com/gvenzl/oci-oracle-free)).
