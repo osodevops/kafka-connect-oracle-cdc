@@ -15,8 +15,12 @@ A database call failed in a way that means the connection or the instance is not
 JDBC driver reported the connection as recoverable or transient, an I/O error occurred, or Oracle
 returned one of ORA-00028, ORA-00031, ORA-03113, ORA-03114, ORA-03135, ORA-12170, ORA-12514,
 ORA-12516, ORA-12528, ORA-12537, ORA-12541, ORA-12543, ORA-01033, ORA-01034, ORA-01089, ORA-01090,
-ORA-01092, ORA-01109, ORA-17002, ORA-17008, ORA-17410, ORA-17800, ORA-25408 or ORA-04068, an
-ORA-00604 caused by one of these, or a code listed in `cdc.retry.extra.error.codes`.
+ORA-01092, ORA-01109, ORA-16331, ORA-17002, ORA-17008, ORA-17410, ORA-17800, ORA-25408 or ORA-04068,
+an ORA-00604 caused by one of these, or a code listed in `cdc.retry.extra.error.codes`.
+
+ORA-16331 ("container ... is not open") deserves a note: LogMiner reads every container whose redo
+lies in the range it mines, captured or not, so a closed pluggable database stops mining. It is
+expected for a few moments after a restart, before the PDBs open.
 
 The engine handles this without stopping: it discards the mining step in progress, reopens its
 database sessions with backoff (about a second at first, doubling up to 30 seconds, with jitter),
@@ -59,7 +63,14 @@ For an unclassified code, look it up with `oerr ora <number>` on the database ho
 ## Recover
 
 1. Restore the database, the listener or the network path. Check any load balancer or proxy
-   between the worker and the database for idle timeouts that drop connections.
+   between the worker and the database for idle timeouts that drop connections. For ORA-16331,
+   open the pluggable database the message names and keep it open across restarts:
+
+   ```sql
+   ALTER PLUGGABLE DATABASE FREEPDB2 OPEN;
+   ALTER PLUGGABLE DATABASE FREEPDB2 SAVE STATE;
+   ```
+
 2. Restart the failed task. It resumes from its last acknowledged position, so nothing is lost or
    repeated beyond what at-least-once delivery allows:
 

@@ -35,11 +35,15 @@ public final class OraErrorClassifier {
 
   private static final Pattern ORA = Pattern.compile("ORA-(\\d{5})");
 
-  /** Connection and instance availability failures: retry with backoff. */
+  /**
+   * Connection and instance availability failures: retry with backoff. ORA-16331: a pluggable
+   * database whose redo is in the mined range is not open, as in the moments after a restart before
+   * the PDBs open.
+   */
   static final Set<Integer> TRANSIENT =
       Set.of(
           28, 31, 3113, 3114, 3135, 12170, 12541, 12514, 12516, 12528, 12537, 12543, 1033, 1034,
-          1089, 1090, 1092, 1109, 17002, 17008, 17410, 17800, 25408, 4068);
+          1089, 1090, 1092, 1109, 16331, 17002, 17008, 17410, 17800, 25408, 4068);
 
   /**
    * Online log reuse or a log not yet visible: discard the step and mine the same range again.
@@ -150,7 +154,15 @@ public final class OraErrorClassifier {
     return switch (code) {
       case TRANSIENT_DATABASE ->
           new TransientDatabaseException(
-              what, "No action needed; the engine reconnects with backoff.", t);
+              what,
+              ora == 16331
+                  ? "No action needed while the pluggable databases open after a restart; the"
+                      + " engine retries with backoff. If it persists, open the PDB named in the"
+                      + " message (ALTER PLUGGABLE DATABASE name OPEN) and keep it open across"
+                      + " restarts with ALTER PLUGGABLE DATABASE name SAVE STATE: LogMiner reads"
+                      + " every container whose redo it mines."
+                  : "No action needed; the engine reconnects with backoff.",
+              t);
       case MINING_STEP_RETRY ->
           new MiningStepRetryException(
               what, "No action needed; the engine mines the same range again.", t);
