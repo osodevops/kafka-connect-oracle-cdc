@@ -14,7 +14,8 @@
 """Is the redo from the start SCN still there? (PRD-04 s4: refuse when an archived log is gone.)
 
 For every redo thread the log that contains the start SCN, and every later log up to the current
-online log, must be available: an online log, or an archived log not deleted and with status A.
+online log, must be available: an online log, or an archived log not deleted, with status A, and
+that LogMiner can open.
 """
 
 from __future__ import annotations
@@ -105,8 +106,8 @@ def check_coverage(start_scn: int, logs: list[LogFile]) -> RedoCoverage:
         if missing:
             problem = (
                 f"Thread {thread}: the logs with sequence {ranges(missing)} are no longer"
-                f" available (deleted, or never archived to a readable destination); the"
-                f" connector needs every log from sequence {first} on."
+                f" available (deleted, removed outside RMAN, or never archived to a readable"
+                f" destination); the connector needs every log from sequence {first} on."
             )
         out.append(ThreadCoverage(thread, first, last, missing, problem))
     return RedoCoverage(start_scn, out)

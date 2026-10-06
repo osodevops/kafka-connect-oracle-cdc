@@ -52,7 +52,12 @@ public final class OracleConnectionSpec {
     Properties p = new Properties();
     // TCP keepalive so idle load balancers do not drop the mining connection (CORE-CONN-3)
     p.setProperty("oracle.net.keepAlive", "true");
-    p.setProperty("oracle.jdbc.ReadTimeout", "0");
+    // CORE-CONN-3: a connection the network drops silently fails one minute after the longest
+    // legitimate wait (a mining query, cancelled at its own timeout), as a recoverable error the
+    // engine reconnects from, instead of hanging until TCP gives up
+    p.setProperty(
+        "oracle.jdbc.ReadTimeout",
+        Long.toString(config.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS) + 60_000L));
     p.setProperty("oracle.net.CONNECT_TIMEOUT", "30000");
     String wallet = config.getString(CoreConfig.DATABASE_WALLET_LOCATION);
     if (wallet != null && !wallet.isBlank()) {

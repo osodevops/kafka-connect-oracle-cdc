@@ -52,8 +52,10 @@ java -jar oracle-cdc-doctor-cli.jar admin offsets set --connect-url http://conne
 Sets the SCN the connector resumes mining from, through Kafka Connect's offsets API (KIP-875):
 
 1. It refuses an SCN above the database's current SCN, and an SCN whose redo is not all present:
-   a log the catalog marks deleted (CDC-2002) or a missing sequence (CDC-2001) between the SCN and
-   now. For tables whose redo is gone, use `resnapshot`.
+   a log the catalog marks deleted (CDC-2002), a missing sequence (CDC-2001), or a listed archived
+   log that LogMiner cannot open, such as a file removed outside RMAN (CDC-2002), between the SCN
+   and now. Every log is added to a LogMiner session as the task would add it; the session is
+   never started. For tables whose redo is gone, use `resnapshot`.
 2. Moving the position forward skips every change committed in between, so it is refused unless
    `--allow-skip` is given. Moving it back is always allowed: transactions already delivered are
    recognised by the stored last commit and not delivered again.

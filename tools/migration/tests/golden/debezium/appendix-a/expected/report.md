@@ -8,7 +8,7 @@
 | Exactly-once check | enabled: the worker accepted exactly.once.support=required |
 | Exit code | 2, success with manual follow-ups |
 
-48 source properties: 18 mapped, 10 mapped with a change, 18 dropped and 2 needing manual action. 7 follow-ups.
+48 source properties: 18 mapped, 11 mapped with a change, 17 dropped and 2 needing manual action. 7 follow-ups.
 
 ## Follow-ups
 
@@ -71,7 +71,7 @@
 | `log.mining.username.include.list` | `APPUSER` | manual |   | There is no user include filter in this release; only `cdc.users.exclude`. List the users to leave out instead. |
 | `rac.nodes` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
 | `schema.exclude.list` | `INVENTORY_TMP` | mapped-with-change | `cdc.tables.exclude` = `ORCLPDB1\.INVENTORY\.ORDERS_ARCHIVE,ORCLPDB1\.INVENTORY_TMP\..+` | Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB). |
-| `schema.history.internal.kafka.bootstrap.servers` | `kafka:9092` | dropped |   | Schema history is replaced by the connector's schema topic, created on start. |
+| `schema.history.internal.kafka.bootstrap.servers` | `kafka:9092` | mapped-with-change | `cdc.kafka.bootstrap.servers` = `kafka:9092` | The connector's internal topics (schema versions, ops events, signals, transaction journal) use the brokers the schema history used. |
 | `schema.history.internal.kafka.topic` | `schema-changes.inventory` | dropped |   | Schema history is replaced by the connector's schema topic, created on start. |
 | `schema.include.list` | `INVENTORY,SALES` | mapped-with-change | `cdc.tables.include` = `ORCLPDB1\.(?=(?:INVENTORY\|SALES)\.)INVENTORY\.CUSTOMERS,ORCLPDB1\.(?=(?:INVENTORY\|SALES)\.)INVENTORY\.ORDERS,ORCLPDB1\.(?=(?:INVENTORY\|SALES)\.)SALES\.INVOICES` | Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB). |
 | `signal.data.collection` | `ORCLPDB1.C##DBZUSER.DEBEZIUM_SIGNAL` | dropped |   | The signal table is replaced by the signal topic. |

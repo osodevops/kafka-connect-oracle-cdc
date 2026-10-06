@@ -13,7 +13,7 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | `cdc.mining.target.latency.ms` | long | `2000` | medium | Latency goal for the adaptive mining window. The only tuning knob: window size follows from it. |
 | `cdc.mining.max.logs.per.step` | int | `8` | low | Upper bound on redo logs mined in one step while catching up. |
 | `cdc.mining.fetch.size` | int | `10000` | low | JDBC fetch size for V$LOGMNR_CONTENTS. |
-| `cdc.mining.query.timeout.ms` | long | `600000` | low | Per-step timeout. On expiry the step is discarded, the session restarted and the window halved; it never fails the task by itself. |
+| `cdc.mining.query.timeout.ms` | long | `600000` | low | Per-step timeout. On expiry the step is discarded, the session restarted and the window halved; it never fails the task by itself. A socket read on any database connection times out one minute after this, so a connection the network drops silently is reopened rather than waited on. |
 | `cdc.mining.session.max.age.ms` | long | `3600000` | low | The LogMiner session is restarted at this age to release PGA. |
 | `cdc.mining.decode.threads` | int | `0` | low | Decode threads; 0 means the number of cores minus one, at most 8. |
 | `cdc.mining.inlist.max` | int | `1000` | low | Most captured object ids in one IN list of the mining query; more ids are split across several IN lists. Oracle allows at most 1000 entries in one list, and the task fails at start with a larger value. |

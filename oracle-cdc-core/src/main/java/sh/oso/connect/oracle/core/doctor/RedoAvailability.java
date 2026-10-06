@@ -37,6 +37,24 @@ public final class RedoAvailability {
   /** Missing redo: the error code the engine would stop with and its message. */
   public record Gap(String code, String message) {}
 
+  /**
+   * Checks that listed logs can actually be read, for files removed outside RMAN that the catalog
+   * still lists; throws with the ORA code of the first unreadable one.
+   */
+  public interface LogProbe {
+    void readable(List<RedoLog> logs) throws SQLException;
+
+    LogProbe NONE = logs -> {};
+  }
+
+  private LogProbe probe = LogProbe.NONE;
+
+  /** Also reads every listed log through {@code probe} (oracle-cdc-admin does, before a change). */
+  public RedoAvailability withProbe(LogProbe probe) {
+    this.probe = probe;
+    return this;
+  }
+
   private final CatalogSource catalog;
   private final CaptureMode mode;
   private final int destId;
@@ -53,11 +71,23 @@ public final class RedoAvailability {
   public Gap check(long scn) throws SQLException {
     long end =
         mode == CaptureMode.ONLINE ? catalog.currentScn() : inventory.archiveOnlySafeEnd(scn);
+    List<RedoLog> logs;
     try {
-      inventory.forRange(scn, Math.max(scn, end));
-      return null;
+      logs = inventory.forRange(scn, Math.max(scn, end)).logs();
     } catch (OracleCdcPurgedException | OracleCdcGapException e) {
       return new Gap(e.code().code(), e.getMessage());
+    }
+    try {
+      probe.readable(logs);
+      return null;
+    } catch (SQLException e) {
+      sh.oso.connect.oracle.core.errors.OracleCdcException typed =
+          new sh.oso.connect.oracle.core.errors.OraErrorClassifier()
+              .toException(e, "reading the redo from SCN " + scn);
+      if (typed instanceof OracleCdcPurgedException) {
+        return new Gap(typed.code().code(), e.getMessage());
+      }
+      throw e;
     }
   }
 

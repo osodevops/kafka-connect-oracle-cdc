@@ -349,6 +349,7 @@ public final class JdbcEngineFactory implements EngineFactory {
               () -> {
                 try (Connection c = connections.open(ConnectionRole.METADATA);
                     java.sql.Statement s = c.createStatement()) {
+                  c.setNetworkTimeout(Runnable::run, 0); // a build may run for minutes
                   s.execute(
                       "BEGIN DBMS_LOGMNR_D.BUILD(OPTIONS => DBMS_LOGMNR_D.STORE_IN_REDO_LOGS);"
                           + " END;");

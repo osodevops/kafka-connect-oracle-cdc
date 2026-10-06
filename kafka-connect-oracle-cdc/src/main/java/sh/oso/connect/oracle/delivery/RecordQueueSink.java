@@ -78,13 +78,19 @@ public final class RecordQueueSink
   private long lastQueuedAt;
   private long lastHeartbeatAt;
   private Position lastEmittedCommit;
-  private long heartbeatsSent;
-  private long opsEvents;
-  private long journalChunks;
-  private long journalTombstones;
-  private long dlqRecords;
-  private long lastCommitTimestamp = -1;
-  private long millisBehindSource = -1;
+  // updated under the sink's lock, read without it: a JMX reader never waits behind a full queue
+  private final java.util.concurrent.atomic.AtomicLong heartbeatsSent =
+      new java.util.concurrent.atomic.AtomicLong();
+  private final java.util.concurrent.atomic.AtomicLong opsEvents =
+      new java.util.concurrent.atomic.AtomicLong();
+  private final java.util.concurrent.atomic.AtomicLong journalChunks =
+      new java.util.concurrent.atomic.AtomicLong();
+  private final java.util.concurrent.atomic.AtomicLong journalTombstones =
+      new java.util.concurrent.atomic.AtomicLong();
+  private final java.util.concurrent.atomic.AtomicLong dlqRecords =
+      new java.util.concurrent.atomic.AtomicLong();
+  private volatile long lastCommitTimestamp = -1;
+  private volatile long millisBehindSource = -1;
 
   public RecordQueueSink(
       DebeziumEnvelope envelope,
@@ -125,7 +131,7 @@ public final class RecordQueueSink
     long now = clock.getAsLong();
     Position at = lastEmittedCommit.withResume(lastResumeCandidate);
     put(ops.record(OpsEvent.of(type, now, at.resumeScn(), details), at));
-    opsEvents++;
+    opsEvents.incrementAndGet();
   }
 
   /** The position every record queued so far allows: the quiet-heartbeat rule. */
@@ -141,7 +147,7 @@ public final class RecordQueueSink
   @Override
   public synchronized void chunk(sh.oso.connect.oracle.core.buffer.JournalChunk c) {
     put(journal.chunk(c, safePosition()));
-    journalChunks++;
+    journalChunks.incrementAndGet();
   }
 
   @Override
@@ -154,13 +160,13 @@ public final class RecordQueueSink
                   key, ref.chunk(), ref.generation()),
               safePosition()));
     }
-    journalTombstones += chunks.size();
+    journalTombstones.addAndGet(chunks.size());
   }
 
   /** Tombstones for stale chunks found at start (ADR-0003: unacknowledged or re-mined writes). */
   public synchronized void tombstone(sh.oso.connect.oracle.journal.JournalRecords.ChunkKey k) {
     put(journal.tombstone(k, safePosition()));
-    journalTombstones++;
+    journalTombstones.incrementAndGet();
   }
 
   /**
@@ -204,7 +210,7 @@ public final class RecordQueueSink
     lastEmittedCommit = lastEmittedCommit.withReleased(released);
     if (dlq != null) {
       put(dlq.discarded(t, age, safePosition(), clock.getAsLong()));
-      dlqRecords++;
+      dlqRecords.incrementAndGet();
     }
     ops(
         OpsEvent.Type.TRANSACTION_DISCARDED,
@@ -319,7 +325,7 @@ public final class RecordQueueSink
       synchronized (this) {
         Position at = safePosition();
         put(dlq.decodeError(dml, cause, at.schemaEpoch(), at, clock.getAsLong()));
-        dlqRecords++;
+        dlqRecords.incrementAndGet();
       }
     }
     ops(
@@ -341,7 +347,7 @@ public final class RecordQueueSink
     if (dlq != null) {
       synchronized (this) {
         put(dlq.unsupported(u, safePosition(), clock.getAsLong()));
-        dlqRecords++;
+        dlqRecords.incrementAndGet();
       }
     }
     ops(
@@ -482,7 +488,7 @@ public final class RecordQueueSink
         }
         snapshotProgress = after;
         carrySnapshot();
-        snapshotRows += rows.size();
+        snapshotRows.addAndGet(rows.size());
         ops(
             OpsEvent.Type.SNAPSHOT_CHUNK_DONE,
             "table",
@@ -514,10 +520,11 @@ public final class RecordQueueSink
     lastEmittedCommit = lastEmittedCommit.withSnapshot(block);
   }
 
-  private long snapshotRows;
+  private final java.util.concurrent.atomic.AtomicLong snapshotRows =
+      new java.util.concurrent.atomic.AtomicLong();
 
-  public synchronized long snapshotRows() {
-    return snapshotRows;
+  public long snapshotRows() {
+    return snapshotRows.get();
   }
 
   @Override
@@ -677,7 +684,7 @@ public final class RecordQueueSink
     long now = clock.getAsLong();
     put(heartbeats.record(position, minedTo, reason, now));
     lastHeartbeatAt = now;
-    heartbeatsSent++;
+    heartbeatsSent.incrementAndGet();
   }
 
   /** Drains up to {@code max} records, waiting up to {@code lingerMs} for the first. */
@@ -718,33 +725,33 @@ public final class RecordQueueSink
     return lastResumeCandidate;
   }
 
-  public synchronized long heartbeatsSent() {
-    return heartbeatsSent;
+  public long heartbeatsSent() {
+    return heartbeatsSent.get();
   }
 
-  public synchronized long opsEvents() {
-    return opsEvents;
+  public long opsEvents() {
+    return opsEvents.get();
   }
 
-  public synchronized long journalChunks() {
-    return journalChunks;
+  public long journalChunks() {
+    return journalChunks.get();
   }
 
-  public synchronized long journalTombstones() {
-    return journalTombstones;
+  public long journalTombstones() {
+    return journalTombstones.get();
   }
 
   @Override
-  public synchronized long lastCommitTimestampMillis() {
+  public long lastCommitTimestampMillis() {
     return lastCommitTimestamp;
   }
 
   @Override
-  public synchronized long millisBehindSource() {
+  public long millisBehindSource() {
     return millisBehindSource;
   }
 
-  public synchronized long dlqRecords() {
-    return dlqRecords;
+  public long dlqRecords() {
+    return dlqRecords.get();
   }
 }

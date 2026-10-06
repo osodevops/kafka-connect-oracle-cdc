@@ -15,6 +15,7 @@
     "cdc.database.user": "c##dbzuser",
     "cdc.decimal.mode": "precise",
     "cdc.heartbeat.interval.ms": "10000",
+    "cdc.kafka.bootstrap.servers": "kafka:9092",
     "cdc.key.missing": "none",
     "cdc.lob.mode": "inline",
     "cdc.on.decode.error": "dlq",

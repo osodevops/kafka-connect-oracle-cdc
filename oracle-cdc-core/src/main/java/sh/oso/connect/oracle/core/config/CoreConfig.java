@@ -531,7 +531,9 @@ public class CoreConfig extends AbstractConfig {
         Range.atLeast(10000L),
         Importance.LOW,
         "Per-step timeout. On expiry the step is discarded, the session restarted and the window"
-            + " halved; it never fails the task by itself.",
+            + " halved; it never fails the task by itself. A socket read on any database"
+            + " connection times out one minute after this, so a connection the network drops"
+            + " silently is reopened rather than waited on.",
         GROUP_MINING,
         ++o,
         Width.SHORT,

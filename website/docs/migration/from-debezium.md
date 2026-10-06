@@ -143,7 +143,10 @@ The tool:
    `--db-user`) and checks that the SCN is neither ahead of the database nor older than its
    RESETLOGS SCN, that the database is in ARCHIVELOG mode, and that for every redo thread the log
    holding the start SCN and every later log are still available, online or archived and not
-   deleted. If any is gone it exits 1 and writes nothing.
+   deleted. Each archived log is also added to a LogMiner session, which is never started, so a
+   file removed outside RMAN that the catalog still lists is found before the new connector
+   would stop on it. If any is gone it exits 1 and writes nothing. The database user needs the
+   same LogMiner privileges as the connector's user; with the connector's own user that holds.
 4. Checks, through the Connect REST API, that the new connector has no stored offset; with one it
    would ignore `cdc.start.scn`.
 5. Writes the translated configuration with `cdc.start.scn` set to the start SCN and

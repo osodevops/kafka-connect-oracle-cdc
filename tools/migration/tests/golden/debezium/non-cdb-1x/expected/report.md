@@ -8,7 +8,7 @@
 | Exactly-once check | not checked: no --connect-url given |
 | Exit code | 2, success with manual follow-ups |
 
-20 source properties: 8 mapped, 10 mapped with a change, 2 dropped and 0 needing manual action. 4 follow-ups.
+20 source properties: 8 mapped, 11 mapped with a change, 1 dropped and 0 needing manual action. 4 follow-ups.
 
 ## Follow-ups
 
@@ -33,7 +33,7 @@
 |---|---|---|---|---|
 | `connector.class` | `io.debezium.connector.oracle.OracleConnector` | mapped-with-change | `connector.class` = `sh.oso.connect.oracle.OracleCdcSourceConnector` | Replaced by the OSO CDC Connector class. |
 | `database.dbname` | `LEGACY` | mapped | `cdc.database.service` = `LEGACY` | Debezium connects with this name as the service name; in a CDB it names the root. |
-| `database.history.kafka.bootstrap.servers` | `kafka:9092` | dropped |   | Schema history is replaced by the connector's schema topic, created on start. |
+| `database.history.kafka.bootstrap.servers` | `kafka:9092` | mapped-with-change | `cdc.kafka.bootstrap.servers` = `kafka:9092` | The connector's internal topics (schema versions, ops events, signals, transaction journal) use the brokers the schema history used. |
 | `database.history.kafka.topic` | `legacy.history` | dropped |   | Schema history is replaced by the connector's schema topic, created on start. |
 | `database.hostname` | `legacy-db` | mapped | `cdc.database.host` = `legacy-db` |  |
 | `database.password` | `${file:/etc/kafka/oracle.properties:password}` | mapped | `cdc.database.password` = `${file:/etc/kafka/oracle.properties:password}` |  |

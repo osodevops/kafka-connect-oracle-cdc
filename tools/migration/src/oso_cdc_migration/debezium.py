@@ -373,6 +373,15 @@ def schema_changes(ctx: Context, key: str, value: str) -> Outcome:
 
 
 def history(ctx: Context, key: str, value: str) -> Outcome:
+    if key.endswith(".kafka.bootstrap.servers") and value.strip():
+        # the same brokers carry the connector's own internal topics (schema, ops, signals,
+        # transaction journal), which need broker access to exist
+        ctx.set("cdc.kafka.bootstrap.servers", value.strip(), key)
+        return (
+            Classification.MAPPED_WITH_CHANGE,
+            "The connector's internal topics (schema versions, ops events, signals, transaction"
+            " journal) use the brokers the schema history used.",
+        )
     if ctx.once("history"):
         ctx.follow_up(
             "The schema history topic is no longer needed: the connector keeps table schema"

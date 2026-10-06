@@ -30,6 +30,14 @@ public interface Database extends AutoCloseable {
 
   RedoSampler sampler(Duration timeout);
 
+  /**
+   * Reads listed redo logs by adding them to a LogMiner session, so a file removed outside RMAN is
+   * found before an offset changes; none by default.
+   */
+  default sh.oso.connect.oracle.core.doctor.RedoAvailability.LogProbe logProbe() {
+    return sh.oso.connect.oracle.core.doctor.RedoAvailability.LogProbe.NONE;
+  }
+
   /** How long ago the SCN was, from SCN_TO_TIMESTAMP, or null when the database no longer knows. */
   Duration scnAge(long scn) throws SQLException;
 

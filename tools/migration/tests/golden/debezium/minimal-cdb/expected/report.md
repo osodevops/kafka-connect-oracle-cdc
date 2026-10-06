@@ -8,7 +8,7 @@
 | Exactly-once check | enabled: the worker accepted exactly.once.support=required |
 | Exit code | 2, success with manual follow-ups |
 
-17 source properties: 11 mapped, 3 mapped with a change, 3 dropped and 0 needing manual action. 2 follow-ups.
+17 source properties: 11 mapped, 4 mapped with a change, 2 dropped and 0 needing manual action. 2 follow-ups.
 
 ## Follow-ups
 
@@ -45,7 +45,7 @@
 | `include.schema.changes` | `false` | dropped |   | Off in the source as well. |
 | `key.converter` | `io.confluent.connect.avro.AvroConverter` | mapped | `key.converter` = `io.confluent.connect.avro.AvroConverter` | Kafka Connect framework property, copied unchanged. |
 | `key.converter.schema.registry.url` | `http://schema-registry:8081` | mapped | `key.converter.schema.registry.url` = `http://schema-registry:8081` | Kafka Connect framework property, copied unchanged. |
-| `schema.history.internal.kafka.bootstrap.servers` | `kafka-1:9092,kafka-2:9092` | dropped |   | Schema history is replaced by the connector's schema topic, created on start. |
+| `schema.history.internal.kafka.bootstrap.servers` | `kafka-1:9092,kafka-2:9092` | mapped-with-change | `cdc.kafka.bootstrap.servers` = `kafka-1:9092,kafka-2:9092` | The connector's internal topics (schema versions, ops events, signals, transaction journal) use the brokers the schema history used. |
 | `schema.history.internal.kafka.topic` | `orders.schema-history` | dropped |   | Schema history is replaced by the connector's schema topic, created on start. |
 | `table.include.list` | `APP.ORDERS,APP.ORDER_LINES` | mapped-with-change | `cdc.tables.include` = `ORCLPDB1\.APP.ORDERS,ORCLPDB1\.APP.ORDER_LINES` | Rewritten into `cdc.tables.include` or `cdc.tables.exclude` as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB). |
 | `tasks.max` | `1` | mapped | `tasks.max` = `1` |  |

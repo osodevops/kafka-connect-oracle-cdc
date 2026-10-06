@@ -7,8 +7,8 @@
   "exit_code": 2,
   "summary": {
     "mapped": 11,
-    "mapped-with-change": 3,
-    "dropped": 3,
+    "mapped-with-change": 4,
+    "dropped": 2,
     "manual": 0
   },
   "exactly_once": {
@@ -174,9 +174,11 @@
     {
       "key": "schema.history.internal.kafka.bootstrap.servers",
       "value": "kafka-1:9092,kafka-2:9092",
-      "classification": "dropped",
-      "targets": {},
-      "note": "Schema history is replaced by the connector's schema topic, created on start."
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.kafka.bootstrap.servers": "kafka-1:9092,kafka-2:9092"
+      },
+      "note": "The connector's internal topics (schema versions, ops events, signals, transaction journal) use the brokers the schema history used."
     },
     {
       "key": "schema.history.internal.kafka.topic",
@@ -243,6 +245,7 @@
     "cdc.database.service": "ORCLCDB",
     "cdc.database.user": "c##dbzuser",
     "cdc.decimal.mode": "precise",
+    "cdc.kafka.bootstrap.servers": "kafka-1:9092,kafka-2:9092",
     "cdc.key.missing": "none",
     "cdc.lob.mode": "skip",
     "cdc.output.format": "debezium",

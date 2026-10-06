@@ -100,19 +100,25 @@ class OracleTakeoverDatabase:
         out: list[LogFile] = []
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT thread#, sequence#, first_change#, next_change#, deleted, status"
+                "SELECT thread#, sequence#, first_change#, next_change#, deleted, status, name"
                 " FROM v$archived_log WHERE resetlogs_change# = :r AND next_change# > :s",
                 r=resetlogs_scn,
                 s=start_scn,
             )
-            for thread, seq, first, nxt, deleted, status in cur:
+            rows = list(cur)
+            copies: dict[tuple[int, int], list[str]] = {}
+            for thread, seq, _first, _nxt, deleted, status, name in rows:
+                if deleted == "NO" and status == "A" and name:
+                    copies.setdefault((int(thread), int(seq)), []).append(name)
+            unreadable = unreadable_logs(cur, copies)
+            for thread, seq, first, nxt, deleted, status, name in rows:
                 out.append(
                     LogFile(
                         int(thread),
                         int(seq),
                         int(first),
                         int(nxt),
-                        deleted == "NO" and status == "A",
+                        deleted == "NO" and status == "A" and name not in unreadable,
                     )
                 )
             # one row per thread for the earliest log recorded at all, so a start SCN older
@@ -133,6 +139,50 @@ class OracleTakeoverDatabase:
                 end = OPEN_LOG_END if nxt is None else int(nxt)  # the current log is open-ended
                 out.append(LogFile(int(thread), int(seq), int(first), end, True, True))
         return out
+
+
+# the codes the connector classifies as purged redo (CDC-2002), plus the file-status error a
+# missing file raises underneath them on some platforms
+UNREADABLE_LOG = {1284, 308, 1285, 16226, 27037}
+
+
+def unreadable_logs(cur: Any, copies: dict[tuple[int, int], list[str]]) -> set[str]:
+    """The archived logs LogMiner cannot open although the catalog lists them.
+
+    A file removed outside RMAN stays listed in V$ARCHIVED_LOG. Adding it to a LogMiner session is
+    what the connector does when it mines, so the takeover finds the gap the same way and refuses
+    before the new connector would stop on it (CDC-2002). For each log the copies are tried in
+    turn until one opens; the session is never started. Any other error stops the check, because
+    a probe that could not run proves nothing.
+    """
+    bad: set[str] = set()
+    added = False
+    try:
+        for names in copies.values():
+            for name in names:
+                option = "DBMS_LOGMNR.ADDFILE" if added else "DBMS_LOGMNR.NEW"
+                try:
+                    cur.execute(
+                        "BEGIN DBMS_LOGMNR.ADD_LOGFILE(LOGFILENAME => :n, OPTIONS => "
+                        + option
+                        + "); END;",
+                        n=name,
+                    )
+                except Exception as e:  # the driver's DatabaseError
+                    if error_code(e) not in UNREADABLE_LOG:
+                        raise ToolError(
+                            f"Cannot check that archived log {name} is readable: {e}. The user"
+                            " needs EXECUTE on DBMS_LOGMNR and the LOGMINING privilege, as the"
+                            " connector's user has."
+                        ) from None
+                    bad.add(name)
+                    continue
+                added = True
+                break
+    finally:
+        if added:
+            cur.execute("BEGIN DBMS_LOGMNR.END_LOGMNR; END;")
+    return bad
 
 
 SNAPSHOT_TOO_OLD = {1555, 8181, 1466}

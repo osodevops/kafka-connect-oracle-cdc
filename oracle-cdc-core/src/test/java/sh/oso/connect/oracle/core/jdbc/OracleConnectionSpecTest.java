@@ -38,6 +38,9 @@ class OracleConnectionSpecTest {
             config(Map.of(CoreConfig.DATABASE_HOST, "db", CoreConfig.DATABASE_SERVICE, "FREE")));
     assertThat(s.url()).isEqualTo("jdbc:oracle:thin:@//db:1521/FREE");
     assertThat(s.toDriverProperties().getProperty("oracle.net.keepAlive")).isEqualTo("true");
+    assertThat(s.toDriverProperties().getProperty("oracle.jdbc.ReadTimeout"))
+        .as("the default mining query timeout plus a minute")
+        .isEqualTo("660000");
     assertThat(s.toDriverProperties().getProperty("user")).isEqualTo("C##CDC");
     assertThat(s.toDriverProperties().getProperty("password")).isEqualTo("secret");
   }

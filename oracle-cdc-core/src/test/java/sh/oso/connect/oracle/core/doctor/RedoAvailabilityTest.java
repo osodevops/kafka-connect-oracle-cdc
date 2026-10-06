@@ -16,7 +16,11 @@
 package sh.oso.connect.oracle.core.doctor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.config.CoreConfig.CaptureMode;
 import sh.oso.connect.oracle.core.testkit.FakeCatalog;
@@ -65,6 +69,43 @@ class RedoAvailabilityTest {
     c.markDeleted(1, 16);
     assertThat(a.check(1500).code()).isEqualTo("CDC-2002");
     assertThat(a.firstAvailableFrom(1500)).isEqualTo(1700);
+  }
+
+  @Test
+  void aListedLogThatCannotBeOpenedIsAGap() throws Exception {
+    RedoAvailability a =
+        new RedoAvailability(catalog(), CaptureMode.ONLINE, 1)
+            .withProbe(
+                logs -> {
+                  throw new SQLException(
+                      "ORA-01284: file /arch/1_12.arc cannot be opened", "72000", 1284);
+                });
+    RedoAvailability.Gap gap = a.check(1050);
+    assertThat(gap.code()).isEqualTo("CDC-2002");
+    assertThat(gap.message()).contains("/arch/1_12.arc");
+  }
+
+  @Test
+  void aProbeFailureThatIsNotAMissingLogIsRethrown() {
+    RedoAvailability a =
+        new RedoAvailability(catalog(), CaptureMode.ONLINE, 1)
+            .withProbe(
+                logs -> {
+                  throw new SQLException("ORA-01031: insufficient privileges", "42000", 1031);
+                });
+    assertThatThrownBy(() -> a.check(1050))
+        .isInstanceOf(SQLException.class)
+        .hasMessageContaining("ORA-01031");
+  }
+
+  @Test
+  void theProbeSeesEveryLogFromTheScn() throws Exception {
+    List<Integer> seen = new ArrayList<>();
+    RedoAvailability a =
+        new RedoAvailability(catalog(), CaptureMode.ONLINE, 1)
+            .withProbe(logs -> logs.forEach(l -> seen.add((int) l.sequence())));
+    assertThat(a.check(1250)).isNull();
+    assertThat(seen).startsWith(12).contains(19);
   }
 
   @Test

@@ -34,7 +34,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
@@ -308,18 +307,13 @@ class AdminOffsetsConnectorIT {
   }
 
   /**
-   * The request as written for PRD-05: an SCN inside an archived log moved aside (as an rm outside
-   * RMAN does) is refused. Today it is not: {@code offsets set} checks the redo with the engine's
-   * catalog checks ({@code RedoAvailability}, documented in operations/admin.md as "a log the
-   * catalog marks deleted or a missing sequence"), and V$ARCHIVED_LOG still lists such a file as
-   * available (reference/mining-errors.md). The offset would be accepted and the task would then
-   * stop with CDC-2002 when LogMiner cannot add the file, so nothing is lost, but the refusal comes
-   * late. Enable this once the admin check probes the files (LogSetProbe.probeReadable).
+   * PRD-05: an SCN inside an archived log moved aside (as an rm outside RMAN does) is refused.
+   * V$ARCHIVED_LOG still lists such a file as available (reference/mining-errors.md), so {@code
+   * offsets set} adds every log from the SCN to a LogMiner session, as the task would, and refuses
+   * the one that cannot be opened.
    */
   @Test
   @Order(3)
-  @Disabled(
-      "offsets set checks V$ARCHIVED_LOG only; a log moved aside is still listed (see javadoc)")
   void anScnInAnArchivedLogMovedAsideIsRefused() throws Exception {
     Path cfg = Cli.hostConfig(dir.resolve("admin-hidden.json"), NAME, config, db);
     long scn;
@@ -363,7 +357,7 @@ class AdminOffsetsConnectorIT {
               "--reason",
               "should be refused");
       assertThat(r.exit()).as(r.toString()).isEqualTo(1);
-      assertThat(r.err()).contains("Refused: the redo from SCN " + scn);
+      assertThat(r.err()).contains("Refused: the redo from SCN " + scn).contains(path);
     } finally {
       OracleSql.restoreHiddenLogs(db);
     }

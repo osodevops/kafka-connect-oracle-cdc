@@ -205,7 +205,8 @@ public final class AdminSession implements AutoCloseable {
   }
 
   public RedoAvailability redo() throws SQLException {
-    return new RedoAvailability(db().catalog(), config.core().captureMode(), archiveDestId());
+    return new RedoAvailability(db().catalog(), config.core().captureMode(), archiveDestId())
+        .withProbe(db().logProbe());
   }
 
   /** The connected database's identity; refuses a position from another database. */

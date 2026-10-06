@@ -53,6 +53,19 @@ public final class JdbcDatabase implements Database {
   }
 
   @Override
+  public sh.oso.connect.oracle.core.doctor.RedoAvailability.LogProbe logProbe() {
+    return logs -> {
+      sh.oso.connect.oracle.core.mining.JdbcLogMinerSession session =
+          new sh.oso.connect.oracle.core.mining.JdbcLogMinerSession(c, 1, Duration.ofMinutes(1));
+      try {
+        session.setLogs(logs); // names the first file LogMiner cannot open, with its ORA code
+      } finally {
+        session.end();
+      }
+    };
+  }
+
+  @Override
   public DoctorCatalog catalog() {
     return new JdbcDoctorCatalog(c);
   }

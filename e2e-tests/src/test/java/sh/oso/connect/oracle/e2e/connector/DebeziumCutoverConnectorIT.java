@@ -42,7 +42,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
@@ -434,16 +433,13 @@ class DebeziumCutoverConnectorIT {
   }
 
   /**
-   * The negative case as written for PRD-04: the archived log holding the start SCN is moved aside
-   * (as an rm outside RMAN does). Today takeover_scn.py reads availability from V$ARCHIVED_LOG
-   * (DELETED and STATUS, documented in redo.py), which still lists such a file as available
-   * (reference/mining-errors.md), so the takeover is not refused; the new connector would stop with
-   * CDC-2002 when LogMiner cannot add the file, so nothing is lost, but the refusal comes late.
-   * Enable this once the tool checks the files themselves.
+   * The negative case for PRD-04: the archived log holding the start SCN is moved aside (as an rm
+   * outside RMAN does). V$ARCHIVED_LOG still lists such a file as available
+   * (reference/mining-errors.md), so takeover_scn.py adds each log to a LogMiner session, as the
+   * new connector would, and refuses.
    */
   @Test
   @Order(4)
-  @Disabled("takeover_scn.py checks V$ARCHIVED_LOG only; a log moved aside is still listed")
   void aStartScnInAnArchivedLogMovedAsideIsRefused() throws Exception {
     long scn;
     String path;
@@ -490,6 +486,7 @@ class DebeziumCutoverConnectorIT {
               "ORACLE_PASSWORD",
               "--json");
       assertThat(r.exit()).as(r.toString()).isEqualTo(1);
+      assertThat(r.out()).as(r.toString()).contains("removed outside RMAN");
     } finally {
       OracleSql.restoreHiddenLogs(db);
     }
