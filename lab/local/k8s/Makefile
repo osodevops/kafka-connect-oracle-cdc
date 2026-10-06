@@ -85,7 +85,8 @@ chaos-kill-worker: ## SIGKILL one Connect worker (no grace period)
 	$(KUBECTL) wait kafkaconnect/connect --for=condition=Ready --timeout=300s
 
 chaos-rollout: ## Strimzi-driven rolling update of the Connect cluster
-	$(KUBECTL) annotate kafkaconnect connect strimzi.io/manual-rolling-update=true --overwrite
+	@# Strimzi reads the annotation on the StrimziPodSet (or a pod), never on the KafkaConnect
+	$(KUBECTL) annotate strimzipodset connect-connect strimzi.io/manual-rolling-update=true --overwrite
 	sleep 10; $(KUBECTL) wait kafkaconnect/connect --for=condition=Ready --timeout=600s
 
 chaos-oracle-restart: ## delete the database pod gracefully; it must come back from the PVC with ARCHIVELOG intact

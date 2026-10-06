@@ -73,7 +73,7 @@ How `edge-cases.sh` induces each case (all eleven are in the default list):
 | Case | Fault | Extra check |
 |---|---|---|
 | `kill_worker` | SIGKILL of one Connect pod | |
-| `rolling_update` | Strimzi manual rolling update, one worker at a time | |
+| `rolling_update` | Strimzi manual rolling update (the annotation on the `StrimziPodSet`), one worker at a time | every Connect pod must be replaced, or the case fails |
 | `rollout_restart` | every Connect pod deleted at once with its grace period, the restart a drain or a script does outside Strimzi (a `StrimziPodSet` has no `kubectl rollout restart`) | |
 | `rebalance` | SIGKILL of the worker that owns the task | |
 | `broker_restart` | the single broker pod killed, so Kafka is wholly down for a while | |
@@ -82,7 +82,7 @@ How `edge-cases.sh` induces each case (all eleven are in the default list):
 | `config_update` | `cdc.poll.linger.ms` toggled on the `KafkaConnector` | the worker's REST API must show the new value |
 | `operator_restart_during_change` | the connector paused, the operator pod killed, the connector resumed | |
 | `oom` | the Connect memory limit lowered to `OOM_LIMIT` (default 640Mi, heap unchanged) while one transaction inserts `OOM_ROWS` (default 400,000) rows into `WORKLOAD.EDGE_BIG`; the limits in `connect.yaml` come back afterwards | every row of the transaction in its topic exactly once; the worker restarts and their reasons are logged |
-| `offsets_list` | the Strimzi `connector-offsets=list` annotation | a fresh config map with the offsets |
+| `offsets_list` | the Strimzi `connector-offsets=list` annotation, with `spec.listOffsets` naming the config map | a fresh config map holding the offset of the `cdc` partition |
 
 The lab's default CNI does not enforce `NetworkPolicy`, so `partition` uses `iptables` on the
 minikube node instead of `chaos/deny-connect-to-oracle.yaml` (which `make chaos-partition` still

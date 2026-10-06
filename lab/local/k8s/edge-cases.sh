@@ -13,11 +13,24 @@ CONNECTOR=oracle-cdc
 log() { printf '%s %s\n' "$(date +%T)" "$*"; }
 
 wait_connect_ready() { $K wait kafkaconnect/connect --for=condition=Ready --timeout=600s >/dev/null; }
+connector_states() {
+  s=$($K get kafkaconnector "$CONNECTOR" -o jsonpath='{.status.connectorStatus.connector.state}' 2>/dev/null || true)
+  t=$($K get kafkaconnector "$CONNECTOR" -o jsonpath='{.status.connectorStatus.tasks[0].state}' 2>/dev/null || true)
+}
 wait_connector_running() {
-  for _ in $(seq 1 90); do
-    s=$($K get kafkaconnector "$CONNECTOR" -o jsonpath='{.status.connectorStatus.connector.state}' 2>/dev/null || true)
-    t=$($K get kafkaconnector "$CONNECTOR" -o jsonpath='{.status.connectorStatus.tasks[0].state}' 2>/dev/null || true)
+  local restarted=""
+  for i in $(seq 1 90); do
+    connector_states
     [ "$s" = RUNNING ] && [ "$t" = RUNNING ] && return 0
+    # After a full broker outage a worker that is shutting down can write UNASSIGNED for the
+    # connector with an older generation after the new owner wrote RUNNING, and Connect keeps the
+    # stale value while the connector runs. Restart the connector instance once (never the task)
+    # so the status is written again; the data check still decides the case.
+    if [ -z "$restarted" ] && [ "$i" -ge 12 ] && [ "$s" = UNASSIGNED ] && [ "$t" = RUNNING ]; then
+      log "connector status UNASSIGNED with the task RUNNING: restarting the connector instance once"
+      connect_rest "/connectors/$CONNECTOR/restart" -X POST >/dev/null || true
+      restarted=1
+    fi
     sleep 5
   done
   log "connector not RUNNING: connector=$s task=$t"; $K get kafkaconnector "$CONNECTOR" -o yaml | tail -40; return 1
@@ -26,6 +39,7 @@ wait_oracle_ready() {
   $K rollout status statefulset/oracle --timeout=900s >/dev/null
   $K exec oracle-0 -- bash -c "echo \"SELECT log_mode FROM v\\\$database;\" | sqlplus -s c##cdc/cdc@//localhost:1521/FREE" | grep -q ARCHIVELOG
 }
+connect_rest() { local path=$1; shift; $K exec connect-connect-0 -- curl -s "$@" "http://localhost:8083$path"; }
 verify_platform() { wait_connect_ready && wait_connector_running && wait_oracle_ready && log "verify: platform recovered"; }
 # Data verification: a seeded workload runs on the host against the Oracle pod (port-forward) while
 # each case is induced; afterwards every committed transaction in the bench ledger must be in Kafka.
@@ -142,13 +156,29 @@ case_kill_worker() {
   workload_begin
   pod=$($K get pod -l strimzi.io/name=connect-connect -o jsonpath='{.items[0].metadata.name}')
   $K delete pod "$pod" --grace-period=0 --force >/dev/null
-  verify_platform; verify_data
+  verify_platform && verify_data
+}
+connect_pod_uids() { $K get pod -l strimzi.io/name=connect-connect -o jsonpath='{.items[*].metadata.uid}'; }
+# the case only counts when every Connect pod that was running before it has been replaced
+wait_rolled() {
+  local before=$1 now uid left
+  for _ in $(seq 1 120); do
+    now=" $(connect_pod_uids) "; left=0
+    for uid in $before; do case "$now" in *" $uid "*) left=$((left + 1)) ;; esac; done
+    if [ "$left" = 0 ]; then log "rolled: every Connect pod replaced"; return 0; fi
+    sleep 5
+  done
+  log "roll did not happen: $left Connect pods were never replaced"; return 1
 }
 case_rolling_update() {
   log "case: Strimzi manual rolling update of Connect"
   workload_begin
-  $K annotate kafkaconnect connect strimzi.io/manual-rolling-update=true --overwrite >/dev/null
-  sleep 15; verify_platform; verify_data
+  local before
+  before=$(connect_pod_uids)
+  # Strimzi reads this annotation on the StrimziPodSet or a pod; on the KafkaConnect it is ignored
+  $K annotate strimzipodset connect-connect strimzi.io/manual-rolling-update=true --overwrite >/dev/null
+  wait_rolled "$before" || return 1
+  verify_platform && verify_data
 }
 case_rollout_restart() {
   # Strimzi manages Connect pods through a StrimziPodSet, which kubectl rollout restart does not
@@ -157,7 +187,7 @@ case_rollout_restart() {
   log "case: every Connect pod deleted at once, gracefully (a restart outside the operator)"
   workload_begin
   $K delete pod -l strimzi.io/name=connect-connect --wait=false >/dev/null
-  sleep 15; verify_platform; verify_data
+  sleep 15; verify_platform && verify_data
 }
 case_rebalance() {
   log "case: task rebalance by deleting the worker that owns the task"
@@ -168,14 +198,25 @@ case_rebalance() {
   [ -n "$pod" ] || pod=$($K get pod -l strimzi.io/name=connect-connect -o jsonpath="{.items[?(@.status.podIP==\"$owner\")].metadata.name}")
   [ -n "$pod" ] || pod=$($K get pod -l strimzi.io/name=connect-connect -o jsonpath='{.items[0].metadata.name}')
   $K delete pod "$pod" --grace-period=0 --force >/dev/null
-  verify_platform; verify_data
+  verify_platform && verify_data
 }
 case_broker_restart() {
   log "case: broker pod restart (single node: full outage and recovery)"
   workload_begin
+  local before now=""
+  before=$($K get pod lab-dual-0 -o jsonpath='{.metadata.uid}')
   $K delete pod lab-dual-0 --grace-period=0 --force >/dev/null
+  # the Kafka resource stays Ready for a while after its only broker dies; wait for the new pod
+  for _ in $(seq 1 120); do
+    now=$($K get pod lab-dual-0 -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
+    [ -n "$now" ] && [ "$now" != "$before" ] && break
+    sleep 2
+  done
+  [ -n "$now" ] && [ "$now" != "$before" ] || { log "broker pod was not replaced"; return 1; }
+  $K wait pod/lab-dual-0 --for=condition=Ready --timeout=600s >/dev/null
   $K wait kafka/lab --for=condition=Ready --timeout=600s >/dev/null
-  verify_platform; verify_data
+  log "broker replaced and Ready"
+  verify_platform && verify_data
 }
 case_oracle_restart() {
   log "case: Oracle pod deleted; must return from the PVC"
@@ -183,7 +224,7 @@ case_oracle_restart() {
   WORKLOAD_MAY_FAIL=1
   # never --force a StatefulSet pod: the old instance may still hold the volume when the new one starts
   $K delete pod oracle-0 --grace-period=120 >/dev/null
-  verify_platform; verify_data
+  verify_platform && verify_data
 }
 # The lab's default CNI does not enforce NetworkPolicy, so the partition drops packets between the
 # Connect pods and the Oracle pod in the node's FORWARD chain. Packets vanish without a reset, the
@@ -216,9 +257,8 @@ case_partition() {
   sleep "${PARTITION_SECONDS:-90}"
   heal_partition
   log "partition healed"
-  verify_platform; verify_data
+  verify_platform && verify_data
 }
-connect_rest() { $K exec connect-connect-0 -- curl -s "http://localhost:8083$1"; }
 case_config_update() {
   log "case: connector config update through the KafkaConnector resource"
   workload_begin
@@ -235,7 +275,7 @@ case_config_update() {
   done
   if [ "$applied" != "$want" ]; then log "config update: Connect still runs cdc.poll.linger.ms=$applied, wanted $want"; return 1; fi
   log "config update: Connect runs cdc.poll.linger.ms=$want (was ${was:-unset})"
-  verify_platform; verify_data
+  verify_platform && verify_data
 }
 case_operator_restart_during_change() {
   log "case: operator restarted while a connector change is pending"
@@ -244,7 +284,7 @@ case_operator_restart_during_change() {
   $K delete pod -l name=strimzi-cluster-operator --grace-period=0 --force >/dev/null
   $K wait --for=condition=Available deployment/strimzi-cluster-operator --timeout=300s >/dev/null
   $K patch kafkaconnector "$CONNECTOR" --type=merge -p '{"spec":{"state":"running"}}' >/dev/null
-  verify_platform; verify_data
+  verify_platform && verify_data
 }
 workload_sql() {
   $K exec oracle-0 -- bash -c "printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nWHENEVER SQLERROR EXIT 1\n%s\n' \"$1\" | sqlplus -s workload/workload@//localhost:1521/FREEPDB1"
@@ -271,7 +311,7 @@ case_oom() {
   workload_sql "DECLARE n NUMBER; BEGIN SELECT COUNT(*) INTO n FROM user_tables WHERE table_name = 'EDGE_BIG'; IF n = 0 THEN EXECUTE IMMEDIATE 'CREATE TABLE edge_big (id NUMBER(12) PRIMARY KEY, pad VARCHAR2(400))'; END IF; END;
 /" >/dev/null || { log "oom: could not create EDGE_BIG"; return 1; }
   # ids grow from run to run, so rows of an earlier run in the topic never count for this one
-  first=$(workload_sql "SELECT NVL(MAX(id), 0) + 1 FROM edge_big;" | tr -d ' \r' | grep -E '^[0-9]+$' || true)
+  first=$(workload_sql "SELECT NVL(MAX(id), 0) + 1 FROM edge_big;" | tr -d ' \t\r' | grep -E '^[0-9]+$' || true)
   [ -n "$first" ] || { log "oom: could not read EDGE_BIG"; return 1; }
   $K patch kafkaconnect connect --type=merge -p "{\"spec\":{\"resources\":{\"requests\":{\"memory\":\"512Mi\"},\"limits\":{\"memory\":\"$limit\"}}}}" >/dev/null
   wait_connect_limit "$limit" || return 1
@@ -285,7 +325,7 @@ COMMIT;" >/dev/null || { log "oom: large transaction failed"; return 1; }
   # back to the values in connect.yaml
   $K patch kafkaconnect connect --type=merge -p '{"spec":{"resources":{"requests":{"memory":"1Gi"},"limits":{"memory":"2Gi"}}}}' >/dev/null
   wait_connect_limit 2Gi || return 1
-  verify_platform; verify_data || return 1
+  verify_platform && verify_data || return 1
   verify_rows cdc.FREEPDB1.WORKLOAD.EDGE_BIG "$first" "$rows"
 }
 # every id in [first, first + rows) must be in the topic exactly once (read_committed); the record
@@ -322,12 +362,15 @@ case_offsets_list() {
   workload_begin
   # a config map left by an earlier run would satisfy the wait below without a new listing
   $K delete configmap oracle-cdc-offsets --ignore-not-found >/dev/null
-  $K annotate kafkaconnector "$CONNECTOR" strimzi.io/connector-offsets=list strimzi.io/connector-offsets-configmap=oracle-cdc-offsets --overwrite >/dev/null
+  # Strimzi takes the target config map from spec.listOffsets (connector.yaml sets it as well)
+  $K patch kafkaconnector "$CONNECTOR" --type=merge -p '{"spec":{"listOffsets":{"toConfigMap":{"name":"oracle-cdc-offsets"}}}}' >/dev/null
+  $K annotate kafkaconnector "$CONNECTOR" strimzi.io/connector-offsets=list --overwrite >/dev/null
   local data=""
   for _ in $(seq 1 30); do data=$($K get configmap oracle-cdc-offsets -o jsonpath='{.data}' 2>/dev/null || true); [ -n "$data" ] && break; sleep 2; done
   if [ -z "$data" ]; then log "offsets list: no config map written"; return 1; fi
+  case "$data" in *'"server'*cdc*) ;; *) log "offsets list: the config map holds no offset for the cdc partition"; return 1 ;; esac
   log "offsets list: $data"
-  verify_platform; verify_data
+  verify_platform && verify_data
 }
 
 ALL=(kill_worker rolling_update rollout_restart rebalance broker_restart oracle_restart partition config_update

@@ -12,6 +12,10 @@ spec:
   autoRestart:
     enabled: true
     maxRestarts: 5
+  # where the strimzi.io/connector-offsets=list annotation writes the offsets
+  listOffsets:
+    toConfigMap:
+      name: oracle-cdc-offsets
   config:
     cdc.database.host: oracle
     cdc.database.port: "1521"
