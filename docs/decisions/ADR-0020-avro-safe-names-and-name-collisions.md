@@ -79,3 +79,17 @@ encoding, and back to equal schemas and records in both modes, while `none` is r
 
 PRD-03 SCH-4: names adjusted per `cdc.schema.name.adjustment.mode` and
 `cdc.field.name.adjustment.mode` (ADR-0020). PRD-01 section 5: the two keys.
+
+## Amendment, 6 October 2026: what a worker does with names left unadjusted
+
+`AvroConverterConnectorIT` ran a worker with Apicurio Registry's `AvroConverter` (3.3.3) and the
+modes at `none`. A `#` in a column name fails the task in the converter, as the Context says. A
+`#` only in the table name does not: the converter does not validate a record's namespace, and the
+registry stores the schema because it has no validity rule by default, so the record is written
+and the consumer's Avro library refuses it ("Namespace part ... is invalid") when it reads the
+schema. Avro for Java 1.12 and later refuses such a schema; 1.11 reads it. So for table and owner
+names, and a topic prefix with `-`, an unadjusted name is not always a visible failure at the
+connector. Users with names outside `[A-Za-z_][A-Za-z0-9_]*` must set the adjustment modes, or turn
+on the registry's validity rule (Apicurio: `apicurio.rules.global.validity=FULL`), which then
+refuses the schema and fails the task. The record formats page says so. A doctor finding for
+unadjusted names under an Avro converter is future work.
