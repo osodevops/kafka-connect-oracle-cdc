@@ -66,6 +66,7 @@ class LagCaseEngineTest {
   final List<CommittedTransaction> committed = new ArrayList<>();
   final List<TableSchema> changes = new ArrayList<>();
   final List<Set<TableId>> replays = new ArrayList<>();
+  final List<MiningEvent.Dml> toDlq = new ArrayList<>();
   final InMemorySchemaStore store = new InMemorySchemaStore();
   TableSchema dictionary = DdlEngineTest.schema("ID", "EXTRA"); // NAME dropped, EXTRA added
   Instant lastDdl;
@@ -146,6 +147,36 @@ class LagCaseEngineTest {
   }
 
   @Test
+  void aRowNamingAColumnAnInexactVersionLacksStopsWithCdc6001EvenWithTheDlq() throws Exception {
+    // an ADD of NOTE and a DROP of NAME, both before the connector reached the ADD: the version
+    // read at the ADD already shows the DROP (inexact), and a row written between the two names
+    // NAME. Its layout is not known, so this is the lag case's stop, never a decode error the DLQ
+    // could take
+    store.save(DdlEngineTest.schema("ID", "NAME"));
+    dictionary = DdlEngineTest.schema("ID", "NOTE");
+    lastDdl = Instant.parse("2026-10-05T10:00:00Z"); // SCN times unknown here: counted as ahead
+    TxKey d1 = fake.tx(1, 1, 1);
+    TxKey a = fake.tx(1, 1, 2);
+    TxKey d2 = fake.tx(1, 1, 3);
+    fake.start(d1, "APP").ddl(d1, T, 100, "alter table app.ddlt add (note varchar2(10))");
+    fake.commit(d1)
+        .start(a, "APP")
+        .dmlWithRowId(
+            a, Operation.INSERT, T, DdlEngineTest.insert(1, "NAME", "one", "NOTE", "n"), "R1")
+        .commit(a);
+    fake.start(d2, "APP").ddl(d2, T, 100, "alter table app.ddlt drop column name").commit(d2);
+    CaptureEngine e = engine(DecodeErrorAction.DLQ);
+    assertThatThrownBy(() -> run(e))
+        .isInstanceOf(DictionaryUnavailableException.class)
+        .hasMessageContaining("CDC-6001")
+        .hasMessageContaining("NAME")
+        .hasMessageContaining("dictionary-unavailable");
+    assertThat(changes).extracting(TableSchema::exact).containsExactly(false);
+    assertThat(committed).isEmpty();
+    assertThat(toDlq).as("not routed to the DLQ").isEmpty();
+  }
+
+  @Test
   void lobRowsAndUndoRowsAreNotLagRows() {
     TxKey a = fake.tx(1, 1, 1);
     fake.start(a, "APP")
@@ -190,6 +221,10 @@ class LagCaseEngineTest {
   }
 
   private CaptureEngine engine() {
+    return engine(DecodeErrorAction.FAIL);
+  }
+
+  private CaptureEngine engine(DecodeErrorAction onDecodeError) {
     FakeCatalog catalog = new FakeCatalog().archivedRun(1, 1, 20, 1000, 100);
     long safeEnd = fake.nextScn() + 1;
     EventSink recording =
@@ -207,6 +242,12 @@ class LagCaseEngineTest {
           @Override
           public void dictionaryReplayed(long from, long to, Set<TableId> tables) {
             replays.add(tables);
+          }
+
+          @Override
+          public void decodeFailed(
+              MiningEvent.Dml d, sh.oso.connect.oracle.core.errors.DecodeException ex) {
+            toDlq.add(d);
           }
         };
     DictionaryReader dict =
@@ -247,7 +288,7 @@ class LagCaseEngineTest {
                 Duration.ofHours(1),
                 Duration.ofMillis(10),
                 3,
-                DecodeErrorAction.FAIL),
+                onDecodeError),
             new OraErrorClassifier(),
             Set.of("APP"),
             () -> Set.of("APP"),

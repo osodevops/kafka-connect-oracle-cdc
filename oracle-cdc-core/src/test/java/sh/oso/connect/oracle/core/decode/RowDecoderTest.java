@@ -169,4 +169,31 @@ class RowDecoderTest {
         .isInstanceOf(DecodeException.class)
         .hasMessageContaining("OPERATION_CODE");
   }
+
+  @Test
+  void aColumnAnInexactVersionLacksIsTheLagCaseStopNotADecodeError() {
+    // ADR-0016: an inexact version was read after a further DDL, so a column it lacks may have
+    // existed when the row was written; the layout there is not known (CDC-6001)
+    TableSchema inexact = schema(true).withVersion(2, 400).withExact(false);
+    String names = "insert into \"APP\".\"ORDERS\"(\"ID\",\"NAME\",\"NOTE\") values ('1','a','n')";
+    assertThatThrownBy(() -> RowDecoder.decode(dml(Operation.INSERT, names, 0), inexact))
+        .isInstanceOf(sh.oso.connect.oracle.core.errors.DictionaryUnavailableException.class)
+        .hasMessageContaining("CDC-6001")
+        .hasMessageContaining("NOTE")
+        .hasMessageContaining("version 2")
+        .hasMessageContaining("SCN 500");
+    assertThatThrownBy(() -> RowDecoder.decode(dml(Operation.INSERT, names, 0), schema(true)))
+        .as("an exact version: the row does not fit the layout of its moment")
+        .isInstanceOf(DecodeException.class)
+        .hasMessageContaining("NOTE");
+    RowChange known =
+        RowDecoder.decode(
+            dml(
+                Operation.INSERT,
+                "insert into \"APP\".\"ORDERS\"(\"ID\",\"NAME\") values ('1','a')",
+                0),
+            inexact);
+    assertThat(known.after()).containsEntry("NAME", "a");
+    assertThat(known.schemaVersion()).isEqualTo(2);
+  }
 }

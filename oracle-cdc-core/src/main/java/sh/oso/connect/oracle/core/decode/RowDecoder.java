@@ -18,6 +18,7 @@ package sh.oso.connect.oracle.core.decode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import sh.oso.connect.oracle.core.errors.DecodeException;
+import sh.oso.connect.oracle.core.errors.DictionaryUnavailableException;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
@@ -28,8 +29,11 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
 /**
  * Turns a DML event plus the table schema into a {@link RowChange} (CORE-DEC-2 to CORE-DEC-4). An
  * unknown column or an undecodable literal is a {@link DecodeException}; STATUS 2 or 3 rows are
- * refused before parsing. The before image of an UPDATE or DELETE is partial when the WHERE clause
- * does not cover every column, which is what primary-key-only supplemental logging produces.
+ * refused before parsing. A column an inexact version lacks is the lag case's stop instead ({@link
+ * DictionaryUnavailableException}, ADR-0016): the version was read after a further DDL, so the
+ * table's layout when the row was written is not known. The before image of an UPDATE or DELETE is
+ * partial when the WHERE clause does not cover every column, which is what primary-key-only
+ * supplemental logging produces.
  *
  * <p>Columns a {@link ColumnFilter} excludes (SRC-SEL-2) are dropped as soon as the parser has
  * named them, before their literals are converted: their values never reach a {@link RowChange},
@@ -70,8 +74,8 @@ public final class RowDecoder {
           "Report the row; the connector stops rather than guess.");
     }
     Map<String, ColumnSpec> columns = schema.columnsByName();
-    Map<String, Object> set = values(p.set(), columns, schema, excluded);
-    Map<String, Object> where = values(p.where(), columns, schema, excluded);
+    Map<String, Object> set = values(p.set(), columns, schema, excluded, dml);
+    Map<String, Object> where = values(p.where(), columns, schema, excluded, dml);
     Map<String, Object> before;
     Map<String, Object> after;
     boolean partial;
@@ -159,6 +163,9 @@ public final class RowDecoder {
     }
     Map<String, ColumnSpec> columns = schema.columnsByName();
     ColumnSpec col = columns.get(r.column());
+    if (col == null && !schema.exact()) {
+      throw layoutUnknown(r.column(), schema, dml);
+    }
     if (col == null || !col.type().isLob()) {
       throw new DecodeException(
           "LOB row at "
@@ -207,7 +214,7 @@ public final class RowDecoder {
         schema.table(),
         col.name(),
         binary,
-        values(r.where(), columns, schema, excluded),
+        values(r.where(), columns, schema, excluded, dml),
         edits,
         dml.rowId(),
         dml.id(),
@@ -256,10 +263,14 @@ public final class RowDecoder {
       Iterable<ColumnValue> cvs,
       Map<String, ColumnSpec> columns,
       TableSchema schema,
-      ColumnFilter excluded) {
+      ColumnFilter excluded,
+      MiningEvent.Dml dml) {
     Map<String, Object> out = new LinkedHashMap<>();
     for (ColumnValue cv : cvs) {
       ColumnSpec col = columns.get(cv.column());
+      if (col == null && !schema.exact()) {
+        throw layoutUnknown(cv.column(), schema, dml);
+      }
       if (col == null) {
         throw new DecodeException(
             "SQL_REDO names column "
@@ -283,6 +294,27 @@ public final class RowDecoder {
       }
     }
     return ordered;
+  }
+
+  /**
+   * ADR-0016: the row names a column that an inexact version (read after a further DDL) lacks, so
+   * the column may have existed when the row was written and the layout there is not known. The
+   * same stop as a replayed row that needs an inexact version, never a decode error the DLQ takes.
+   */
+  private static DictionaryUnavailableException layoutUnknown(
+      String column, TableSchema schema, MiningEvent.Dml dml) {
+    return new DictionaryUnavailableException(
+        "The row of "
+            + schema.table().fqn()
+            + " at SCN "
+            + dml.scn()
+            + " names column "
+            + column
+            + ", which version "
+            + schema.version()
+            + " does not have, and that version was read after a further DDL had already changed"
+            + " the table, so the table's layout when the row was written is not known.",
+        sh.oso.connect.oracle.core.schema.SchemaRegistry.LAYOUT_UNKNOWN_ACTION);
   }
 
   /** Whether a DML operation on this schema can ever yield a full before image. */
