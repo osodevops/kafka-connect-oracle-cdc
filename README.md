@@ -3,24 +3,37 @@
 Open-source (Apache-2.0) change data capture source connector for Apache Kafka Connect that
 reads Oracle Database redo through LogMiner.
 
-**Status: pre-release, under active development.** Nothing here is production ready yet. The
-product requirements live in [`docs/`](docs/README_index.md).
+**Status: no release yet, under active development.** Everything listed below is in the code on
+`main` and covered by its test suites; build it from source to try it. The user documentation is at
+[kafkacdcconnector.com](https://kafkacdcconnector.com) (sources in [`website/`](website/)); the
+product requirements and design decisions are in [`docs/`](docs/README_index.md).
 
-## What it will do
+## What it does
 
-- **No silent loss.** One capture path, typed stop conditions, offsets that only encode what was
-  delivered, and every known Debezium Oracle data-loss issue as a regression test.
-- **Durable transaction journal.** Long-running transactions are journaled to a compacted Kafka
-  topic, so the restart position is never pinned to the oldest open transaction.
-- **Bounded memory.** In-heap buffer with automatic spill to local disk, sized by one property.
-- **SCN-anchored chunked snapshots.** Short flashback reads per chunk, resumable, read-only,
-  running alongside streaming.
-- **Exactly-once delivery** aligned to Oracle transaction boundaries (Kafka Connect KIP-618).
+- **No silent loss.** One capture path; any condition the engine does not understand, such as a
+  missing archived log or a row it cannot decode, stops the task with a typed error code and a
+  runbook; offsets only encode what Kafka Connect acknowledged; Debezium Oracle data-loss issues
+  are reproduced as regression tests.
+- **Long transactions without pinned offsets.** A transaction buffer that spills to local disk past
+  a heap budget, and a transaction journal on a compacted Kafka topic, so a long transaction does
+  not hold the restart position back.
+- **Exactly-once delivery** with Kafka transactions at Oracle commit boundaries (Kafka Connect
+  KIP-618).
+- **SCN-anchored chunked snapshots** that resume after a restart and run alongside streaming, and
+  snapshots on demand through a signal topic, with no writes to the source database.
+- **Schema versions and DDL**, including rows written before a later DDL, decoded with a
+  dictionary from the redo.
 - **Multi-PDB capture** from one LogMiner session.
-- **Operability built in.** `oracle-cdc-doctor` preflight and redo profiler, one latency target
-  instead of tuning knobs, offsets managed through the Connect REST API, Grafana dashboard.
-- **Drop-in migration** from Confluent Oracle CDC Source and Debezium Oracle, with cutover
-  verification.
+- **Debezium-compatible records**, column exclusion, and Avro-safe schema and field names.
+- **Operability built in.** `oracle-cdc-doctor` (preflight checks, setup script, redo profile,
+  sizing, lag explanation), `oracle-cdc-admin` (offsets, resnapshot, open transactions, journal
+  inspection), task metrics with a Grafana dashboard and Prometheus alerts, and a runbook per
+  error code.
+- **Migration tools** from Debezium Oracle and Confluent Oracle CDC Source: configuration
+  translation, a takeover SCN, and cutover verification.
+
+Not available yet: Oracle RAC, Amazon RDS for Oracle, Autonomous Database, capture from a standby,
+and a record format compatible with Confluent's Oracle CDC Source.
 
 ## Building
 
@@ -30,7 +43,9 @@ mvn clean package -DskipTests   # plugin ZIP in kafka-connect-oracle-cdc/target
 ```
 
 Docker-backed tests against Oracle Database Free live in `e2e-tests`; see `CLAUDE.md` for the
-commands and `docs/testing_strategy.md` for the tiers.
+commands and `docs/testing_strategy.md` for the tiers. To run the connector on a laptop with
+Oracle Database Free, Kafka and Kafka Connect in Docker, use the Compose lab
+(`make -C lab/local/compose up register`, see [`lab/local/compose`](lab/local/compose/README.md)).
 
 ## Support
 
