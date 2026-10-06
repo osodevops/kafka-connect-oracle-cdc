@@ -376,8 +376,10 @@ public class SpillStore implements AutoCloseable {
 
   /**
    * The surviving changes of a spilled transaction, read from the file on demand. Sequential {@code
-   * get(i)} is O(1) amortised; a backward jump re-reads from the start. The size is known from the
-   * resolve pass, so callers that iterate by index behave exactly as with a heap list.
+   * get(i)} is O(1) amortised, and asking for the change just read again returns it without going
+   * back (the sink and the envelope both read event i); any other backward jump re-reads from the
+   * start. The size is known from the resolve pass, so callers that iterate by index behave exactly
+   * as with a heap list.
    */
   final class SpilledChanges extends AbstractList<RowChange> implements CommittedTransaction.Lazy {
     private final SpillFile file;
@@ -386,6 +388,9 @@ public class SpillStore implements AutoCloseable {
     private final int size;
     private FrameReader reader;
     private int nextLogical; // logical index of the next survivor the reader will deliver
+    private int opens;
+    private int lastIndex = -1;
+    private RowChange last;
 
     SpilledChanges(SpillFile file, BitSet removed, BitSet downgraded, int size) {
       this.file = file;
@@ -404,6 +409,9 @@ public class SpillStore implements AutoCloseable {
       if (index < 0 || index >= size) {
         throw new IndexOutOfBoundsException(index);
       }
+      if (index == lastIndex) {
+        return last;
+      }
       try {
         if (reader == null || index < nextLogical) {
           rewind();
@@ -421,7 +429,9 @@ public class SpillStore implements AutoCloseable {
           int logical = nextLogical++;
           if (logical == index) {
             RowChange c = RowChangeCodec.decode(reader.payload);
-            return downgraded.get(f) ? TransactionEntry.inert(c) : c;
+            last = downgraded.get(f) ? TransactionEntry.inert(c) : c;
+            lastIndex = index;
+            return last;
           }
         }
       } catch (IOException e) {
@@ -442,6 +452,12 @@ public class SpillStore implements AutoCloseable {
       }
       reader = new FrameReader(openForRead(file.path), file.path);
       nextLogical = 0;
+      opens++;
+    }
+
+    /** How many times the file was opened for reading: once for a reader that never goes back. */
+    int opens() {
+      return opens;
     }
 
     /** Closes the reader; the buffer deletes the file when the transaction is released. */

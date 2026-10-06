@@ -81,6 +81,26 @@ class SpillStoreTest {
   }
 
   @Test
+  void readingEachChangeTwiceInOrderOpensTheFileOnce(@TempDir Path dir) throws Exception {
+    // the sink reads event i and the envelope reads it again: a rewind there made emitting a
+    // spilled transaction quadratic in its size (five million rows never finished)
+    try (SpillStore store = new SpillStore(dir, 1 << 24)) {
+      SpillStore.SpillFile f = store.create(TX);
+      for (int i = 0; i < 5000; i++) {
+        f.append(change(i, "row" + i));
+      }
+      List<RowChange> list = f.resolve().changes();
+      for (int i = 0; i < list.size(); i++) {
+        RowChange first = list.get(i);
+        assertThat(list.get(i)).isSameAs(first);
+        assertThat(first.after().get("ID")).isEqualTo(BigDecimal.valueOf(i));
+      }
+      assertThat(((SpillStore.SpilledChanges) list).opens()).isEqualTo(1);
+      f.delete();
+    }
+  }
+
+  @Test
   void undoFramesRemoveTheLatestEarlierChangeWithTheSameRowId(@TempDir Path dir) throws Exception {
     try (SpillStore store = new SpillStore(dir, 1 << 20)) {
       SpillStore.SpillFile f = store.create(TX);
