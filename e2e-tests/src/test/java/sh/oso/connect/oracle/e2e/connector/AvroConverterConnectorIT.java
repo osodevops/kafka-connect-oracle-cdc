@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import io.apicurio.registry.serde.avro.AvroKafkaDeserializer;
 import java.math.BigDecimal;
 import java.net.URI;
@@ -522,39 +521,33 @@ class AvroConverterConnectorIT {
 
   @Test
   void withoutAdjustmentAvroRefusesTheNamesVisibly() throws Exception {
-    String fieldConnector = "avro-none-field";
     String tableConnector = "avro-none-table";
-    cluster.register(
-        fieldConnector, config("none_field", "FREEPDB1\\." + schema + "\\.ORDER#", "none"));
+    // a column name Avro refuses, with an Avro converter on the connector: the connector's own
+    // validation refuses the configuration (DOC-22, blocking). Before DOC-22 the converter failed
+    // the task at the table's first record with a SchemaParseException, before anything of the
+    // table was written; with the converter set only on the worker that is still what happens
+    assertThatThrownBy(
+            () ->
+                cluster.register(
+                    "avro-none-field",
+                    config("none_field", "FREEPDB1\\." + schema + "\\.ORDER#", "none")))
+        .hasMessageContaining("HTTP 400")
+        .hasMessageContaining("DOC-22")
+        .hasMessageContaining("ORDER#.ID#")
+        .hasMessageContaining("cdc.field.name.adjustment.mode=avro");
     cluster.register(
         tableConnector, config("none_table", "FREEPDB1\\." + schema + "\\.ITEM#", "none"));
     AvroKafkaDeserializer<Object> keys = deserializer(true);
     AvroKafkaDeserializer<Object> values = deserializer(false);
     try {
-      cluster.awaitRunning(fieldConnector, Duration.ofMinutes(2));
       cluster.awaitRunning(tableConnector, Duration.ofMinutes(2));
-      cluster.awaitOffsets(fieldConnector, Duration.ofSeconds(90));
       cluster.awaitOffsets(tableConnector, Duration.ofSeconds(90));
       try (Connection w = db.connect(OracleTestDatabase.PDB1, schema, schema)) {
         w.setAutoCommit(false);
         try (Statement s = w.createStatement()) {
-          s.execute("INSERT INTO \"ORDER#\" VALUES (1, 'one')");
           s.execute("INSERT INTO \"ITEM#\" VALUES (1, 'one')");
         }
         w.commit();
-      }
-
-      // a column name Avro refuses: the converter fails the task at the table's first record,
-      // before anything of the table is written
-      JsonNode failed = cluster.awaitTaskState(fieldConnector, "FAILED", Duration.ofMinutes(3));
-      String trace = failed.path("tasks").get(0).path("trace").asText();
-      assertThat(trace).contains("SchemaParseException").contains("ID#");
-      String fieldTopic = "none_field.FREEPDB1." + schema + ".ORDER_";
-      try (KafkaConsumer<byte[], byte[]> c =
-          cluster.byteConsumer("none-field-reader", fieldTopic)) {
-        assertThat(ConnectCluster.consume(c, 0, Duration.ofSeconds(15), Duration.ofSeconds(5)))
-            .as("records of %s after the task failed", fieldTopic)
-            .isEmpty();
       }
 
       // a table name Avro refuses, with valid field names: Avro builds the schema without checking
@@ -582,7 +575,6 @@ class AvroConverterConnectorIT {
     } finally {
       keys.close();
       values.close();
-      cluster.delete(fieldConnector);
       cluster.delete(tableConnector);
     }
   }
