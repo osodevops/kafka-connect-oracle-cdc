@@ -221,16 +221,16 @@ class ReconnectEngineIT {
         }
       }
       WorkloadResult r = workload.get();
-      if (kills == 0) {
-        // on a native x86 host the workload can finish before the first kill; kill once now so
-        // the engine still has to reconnect before it has mined through the workload
-        killed.add(killCaptureSessions(sys));
-        kills++;
-      }
       // mine to a fixed SCN taken after the generator finished: the live safe end keeps moving
       // on an idle database, so a loop against it would never end
       OracleSql.archiveLogCurrent(db);
       long endScn = LogMinerHelper.currentScn(conns.meta);
+      if (kills == 0) {
+        // one mining step can outlast the workload on a fast host, so no kill landed in the loop:
+        // kill once now, after the end SCN is read, so the engine has to reconnect to mine on
+        killed.add(killCaptureSessions(sys));
+        kills++;
+      }
       long deadline = System.currentTimeMillis() + Duration.ofMinutes(3).toMillis();
       while (engine.cursor().scn() < endScn && System.currentTimeMillis() < deadline) {
         if (engine.runOnce() == CaptureEngine.Progress.IDLE) {
