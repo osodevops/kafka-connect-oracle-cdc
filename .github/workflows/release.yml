@@ -14,7 +14,8 @@ name: Release
 # T3 soak and T4 qualification stay a maintainer sign-off before the release pull request is merged;
 # add required reviewers to the `release` environment to record that sign-off on every release.
 #
-# Secrets (check them with verify-release-secrets.yml): CENTRAL_USERNAME, CENTRAL_TOKEN,
+# Secrets (check them with verify-release-secrets.yml): CENTRAL_USERNAME, CENTRAL_TOKEN (or the
+# organisation's OSSRH_USERNAME and OSSRH_TOKEN, which hold Central Portal tokens),
 # MAVEN_GPG_PRIVATE_KEY, MAVEN_GPG_PASSPHRASE. GHCR uses GITHUB_TOKEN. DOCKERHUB_USERNAME and
 # DOCKERHUB_TOKEN are optional and only avoid anonymous pull limits in the T1 jobs.
 #
@@ -236,8 +237,8 @@ jobs:
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
       - name: Sign and deploy (waits until Central has published)
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME || secrets.OSSRH_USERNAME }}
+          CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN || secrets.OSSRH_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: mvn clean deploy -Prelease -DskipTests -DskipE2E --batch-mode --no-transfer-progress
       - name: Stage the release files from this build
