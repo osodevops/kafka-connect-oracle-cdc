@@ -8,6 +8,7 @@
   "packages": {
     ".": {
       "package-name": "kafka-connect-oracle-cdc",
+      "initial-version": "0.1.0",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {"type": "pom", "path": "oracle-cdc-core/pom.xml"},

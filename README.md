@@ -3,8 +3,9 @@
 Open-source (Apache-2.0) change data capture source connector for Apache Kafka Connect that
 reads Oracle Database redo through LogMiner.
 
-**Status: no release yet, under active development.** Everything listed below is in the code on
-`main` and covered by its test suites; build it from source to try it. The user documentation is at
+**Status: preview.** Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
+instance; the 19c and 21c qualification and a 72-hour soak come before 1.0. Everything listed below
+is in the code on `main` and covered by its test suites. The user documentation is at
 [kafkacdcconnector.com](https://kafkacdcconnector.com) (sources in [`website/`](website/)); the
 product requirements and design decisions are in [`docs/`](docs/README_index.md).
 
