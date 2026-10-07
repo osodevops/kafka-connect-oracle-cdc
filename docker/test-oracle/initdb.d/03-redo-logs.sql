@@ -26,14 +26,21 @@ BEGIN
   END LOOP;
 
   FOR rec IN (SELECT group# FROM v$log WHERE bytes <> 50 * 1024 * 1024 ORDER BY group#) LOOP
-    FOR attempt IN 1 .. 30 LOOP
+    -- in ARCHIVELOG mode a group can be dropped only once it is inactive and archived (ORA-00350
+    -- otherwise); on a slow host the archiver lags the switch, so wait for it instead of switching
+    FOR attempt IN 1 .. 120 LOOP
       DECLARE
-        l_status VARCHAR2(16);
+        l_status   VARCHAR2(16);
+        l_archived VARCHAR2(3);
       BEGIN
-        SELECT status INTO l_status FROM v$log WHERE group# = rec.group#;
-        EXIT WHEN l_status IN ('INACTIVE', 'UNUSED');
-        EXECUTE IMMEDIATE 'ALTER SYSTEM SWITCH LOGFILE';
-        EXECUTE IMMEDIATE 'ALTER SYSTEM CHECKPOINT';
+        SELECT status, archived INTO l_status, l_archived FROM v$log WHERE group# = rec.group#;
+        EXIT WHEN l_status = 'UNUSED' OR (l_status = 'INACTIVE' AND l_archived = 'YES');
+        IF l_status IN ('CURRENT', 'ACTIVE') THEN
+          EXECUTE IMMEDIATE 'ALTER SYSTEM SWITCH LOGFILE';
+          EXECUTE IMMEDIATE 'ALTER SYSTEM CHECKPOINT';
+        ELSE
+          DBMS_SESSION.SLEEP(1);
+        END IF;
       END;
     END LOOP;
     EXECUTE IMMEDIATE 'ALTER DATABASE DROP LOGFILE GROUP ' || rec.group#;
