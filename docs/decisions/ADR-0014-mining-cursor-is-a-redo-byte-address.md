@@ -51,3 +51,22 @@ thread (CORE-POS-4) and is unchanged in scope.
 ## Amendments
 
 PRD-00 CORE-MINE-4 and CORE-POS-1 to CORE-POS-3 as noted in the PRD.
+
+### 7 October 2026: rows with an all-zero RS_ID
+
+On a GitHub runner LogMiner returned the ROLLBACK row of a rolled-back transaction with RS_ID
+`0x000000.00000000.0000`, after the transaction's undo row with a real address. That value names no
+redo record. Compared as an address it sorts before every real one, so the cursor's
+`RS_ID > ?` bound dropped such a row in every step after the first (the transaction then waited for
+the orphan check), and as the only new row of a first step it became the cursor, after which the
+next step read the log again from its start.
+
+An all-zero RS_ID is therefore no redo byte address: `RedoRecordId.hasRba()` is false for it, and a
+comparison where only one side has an address is by SCN, then SSN. The address form of the query
+also returns all-zero rows from the SCN of the last applied record on, so the bound never hides
+them; such a row is never the cursor, and it may come back in a later step. Only rows that are safe
+to apply again are expected without an address: START, COMMIT, ROLLBACK and the counted-and-ignored
+operations. A COMMIT or ROLLBACK for a transaction no longer in the buffer is a no-op, and a COMMIT
+for one the orphan check released stops the task as before. An all-zero RS_ID on a data row, a DDL
+or an unsupported row stops the task with CDC-3002 (`CORRUPTION`), because it cannot be placed in
+redo order. `ZeroRedoAddressRowsTest` (tag `zero-rs-id`) holds the three cases.

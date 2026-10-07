@@ -1,6 +1,6 @@
 ---
 title: "CDC-3002 Corruption detected"
-description: "Runbook for CDC-3002 CORRUPTION: LogMiner reported missing redo, a spill file failed its integrity check, or the stored offset cannot be read."
+description: "Runbook for CDC-3002 CORRUPTION: LogMiner reported missing redo or returned a data row without a redo address, a spill file failed its integrity check, or the stored offset cannot be read."
 slug: /runbooks/corruption
 ---
 
@@ -10,12 +10,17 @@ slug: /runbooks/corruption
 
 ## What the connector observed
 
-Data the connector was about to rely on failed an integrity check. The message says which of three
-places it was:
+Data the connector was about to rely on failed an integrity check. The message says which of these
+it was:
 
 - **Redo.** LogMiner returned a `MISSING_SCN` row in the range being mined: it found a hole in the
   redo it was given. The message reads "LogMiner reported MISSING_SCN at ..." with the redo
   position.
+- **A data row without a redo address.** LogMiner returned a change, a DDL or an unsupported row
+  with the all-zero RS_ID `0x000000.00000000.0000`, which names no place in the redo. The connector
+  orders rows by redo address, so it cannot tell whether such a row was already applied. LogMiner
+  has been seen to return a ROLLBACK row this way, which the connector handles; a data row has not
+  been seen. The message reads "LogMiner returned ... with an all-zero RS_ID".
 - **A spill file.** An open transaction spilled to disk under `cdc.buffer.spill.dir` could not be
   read back intact: a frame failed its CRC32 check, the file ended early, or reading it failed. The
   message names the file.
@@ -62,6 +67,10 @@ curl -s "$CONNECT/connectors/$NAME/offsets"
   offset past it as a deliberate skip
   ([moving the offset by hand](../../concepts/offsets-and-recovery.md#reading-and-moving-the-offset-by-hand))
   and reload the captured tables with a [`snapshot` signal](../signals.md).
+- **A data row without a redo address.** Restart the task: it mines the step again from its last
+  position, and LogMiner may return the row with its address. If the stop repeats, report it in a
+  GitHub issue with the SCN from the message and the Oracle release update, and do not move the
+  offset past the SCN.
 - **A spill file.** Fix the volume, or point `cdc.buffer.spill.dir` at a healthy one, and restart
   the task. Spill files are not durable state: the task re-mines open transactions from its
   position and removes old spill files when it starts, so nothing is lost.
