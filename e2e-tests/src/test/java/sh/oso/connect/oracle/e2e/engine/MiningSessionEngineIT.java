@@ -146,9 +146,12 @@ class MiningSessionEngineIT {
                 });
       }
 
-      // redo order
+      // redo order; a failure names both events, so a row LogMiner returns with an unusual
+      // address (an all-zero RS_ID was seen once on a CI runner) is identified
       for (int i = 1; i < events.size(); i++) {
-        assertThat(events.get(i).id()).isGreaterThanOrEqualTo(events.get(i - 1).id());
+        assertThat(events.get(i).id())
+            .as("event %d %s after %s", i, events.get(i), events.get(i - 1))
+            .isGreaterThanOrEqualTo(events.get(i - 1).id());
       }
       List<MiningEvent.Dml> dml =
           events.stream()

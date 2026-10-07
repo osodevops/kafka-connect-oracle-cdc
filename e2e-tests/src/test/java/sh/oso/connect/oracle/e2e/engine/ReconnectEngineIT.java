@@ -207,11 +207,12 @@ class ReconnectEngineIT {
                   throw new IllegalStateException(e);
                 }
               });
-      long killAt = System.currentTimeMillis() + 3000;
+      long killAt = System.currentTimeMillis() + 1000;
       int kills = 0;
+      List<Integer> killed = new ArrayList<>();
       while (!workload.isDone()) {
         if (kills < 2 && System.currentTimeMillis() > killAt) {
-          killCaptureSessions(sys);
+          killed.add(killCaptureSessions(sys));
           kills++;
           killAt = System.currentTimeMillis() + 3000;
         }
@@ -220,6 +221,12 @@ class ReconnectEngineIT {
         }
       }
       WorkloadResult r = workload.get();
+      if (kills == 0) {
+        // on a native x86 host the workload can finish before the first kill; kill once now so
+        // the engine still has to reconnect before it has mined through the workload
+        killed.add(killCaptureSessions(sys));
+        kills++;
+      }
       // mine to a fixed SCN taken after the generator finished: the live safe end keeps moving
       // on an idle database, so a loop against it would never end
       OracleSql.archiveLogCurrent(db);
@@ -234,6 +241,14 @@ class ReconnectEngineIT {
           .as("mined through the workload")
           .isGreaterThanOrEqualTo(endScn);
 
+      System.out.println(
+          "reconnect: kills="
+              + kills
+              + " sessions killed per kill="
+              + killed
+              + " reconnects="
+              + engine.metrics().reconnects.get());
+      assertThat(killed).as("each kill ended at least one capture session").allMatch(n -> n > 0);
       assertThat(engine.metrics().reconnects.get())
           .as("at least one reconnect happened")
           .isPositive();
@@ -269,8 +284,8 @@ class ReconnectEngineIT {
         DictionaryMode.ONLINE_CATALOG);
   }
 
-  /** Kills every capture-user session except the one doing the killing. */
-  private static void killCaptureSessions(Connection sys) throws SQLException {
+  /** Kills every capture-user session; returns how many kills Oracle accepted. */
+  private static int killCaptureSessions(Connection sys) throws SQLException {
     List<String> victims = new ArrayList<>();
     try (Statement s = sys.createStatement();
         ResultSet rs =
@@ -282,12 +297,16 @@ class ReconnectEngineIT {
         victims.add(rs.getLong(1) + "," + rs.getLong(2));
       }
     }
+    int killed = 0;
     for (String v : victims) {
       try (Statement s = sys.createStatement()) {
         s.execute("ALTER SYSTEM KILL SESSION '" + v + "' IMMEDIATE");
-      } catch (SQLException ignore) {
-        // already gone
+        killed++;
+      } catch (SQLException e) {
+        // already gone (ORA-00030), or the kill was refused: report it rather than hide it
+        System.out.println("reconnect: kill " + v + " failed: ORA-" + e.getErrorCode());
       }
     }
+    return killed;
   }
 }
