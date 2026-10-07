@@ -30,7 +30,7 @@ jobs:
           cache: maven
 
       - name: Build, quality gates and unit tests
-        run: mvn clean verify -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw clean verify -DskipE2E --batch-mode --no-transfer-progress
 
       - name: Upload connector plugin ZIP
         if: matrix.java == '17'
@@ -62,7 +62,7 @@ jobs:
       - name: Build must fail when a GPL artefact is added
         run: |
           set +e
-          mvn -q -pl bench -am -Plicense-selftest validate --batch-mode --no-transfer-progress
+          ./mvnw -q -pl bench -am -Plicense-selftest validate --batch-mode --no-transfer-progress
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then
@@ -118,9 +118,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build modules without tests
-        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
       - name: Oracle-only integration tests
-        run: mvn -pl e2e-tests verify -De2e.groups=engine --batch-mode --no-transfer-progress
+        run: ./mvnw -pl e2e-tests verify -De2e.groups=engine --batch-mode --no-transfer-progress
       - name: Upload failsafe reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -158,9 +158,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: tools/migration/uv.lock
       - name: Build modules without tests
-        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
       - name: Oracle, Kafka and Connect worker integration tests
-        run: mvn -pl e2e-tests verify -De2e.groups=connector --batch-mode --no-transfer-progress
+        run: ./mvnw -pl e2e-tests verify -De2e.groups=connector --batch-mode --no-transfer-progress
       - name: Upload failsafe reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -107,7 +107,7 @@ jobs:
           distribution: temurin
           cache: maven
       - name: Quality gates, unit tests, Hub manifest and plugin ZIP layout
-        run: mvn clean verify -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw clean verify -DskipE2E --batch-mode --no-transfer-progress
 
   gate-t1:
     name: gate T1 ${{ matrix.tier }}
@@ -136,9 +136,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Build modules without tests
-        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
       - name: T1 ${{ matrix.tier }} tier
-        run: mvn -pl e2e-tests verify -De2e.groups=${{ matrix.tier }} --batch-mode --no-transfer-progress
+        run: ./mvnw -pl e2e-tests verify -De2e.groups=${{ matrix.tier }} --batch-mode --no-transfer-progress
       - name: Upload failsafe reports and evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -240,7 +240,7 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME || secrets.OSSRH_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN || secrets.OSSRH_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-        run: mvn clean deploy -Prelease -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw clean deploy -Prelease -DskipTests -DskipE2E --batch-mode --no-transfer-progress
       - name: Stage the release files from this build
         run: |
           set -euo pipefail

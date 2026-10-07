@@ -39,7 +39,7 @@ jobs:
 
       - name: Build Java
         if: matrix.language == 'java'
-        run: mvn -B clean package -DskipTests -DskipE2E --no-transfer-progress
+        run: ./mvnw -B clean package -DskipTests -DskipE2E --no-transfer-progress
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3

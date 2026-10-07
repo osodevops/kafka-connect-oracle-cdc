@@ -109,12 +109,12 @@ jobs:
 
       - name: Build modules without tests
         if: steps.tier.outputs.count != '0'
-        run: mvn -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
 
       - name: Run the ${{ matrix.label }} tier
         if: steps.tier.outputs.count != '0'
         run: >-
-          mvn -pl e2e-tests verify
+          ./mvnw -pl e2e-tests verify
           -De2e.groups=${{ matrix.tier }}
           -Doracle.image.tag=${{ matrix.oracle }}
           -Dnightly.kills=${{ inputs.kills || '25' }}

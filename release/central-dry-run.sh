@@ -106,7 +106,7 @@ echo "Central Portal stub listening at ${STUB_URL}"
 
 (
   cd "${SRC}"
-  mvn -B --no-transfer-progress -s "${WORK}/settings.xml" clean deploy -Prelease -DskipTests \
+  ./mvnw -B --no-transfer-progress -s "${WORK}/settings.xml" clean deploy -Prelease -DskipTests \
     -DskipE2E -Dmaven.install.skip=true -DcentralBaseUrl="${STUB_URL}" \
     "${SIGN_ARG}" "$@"
 )
