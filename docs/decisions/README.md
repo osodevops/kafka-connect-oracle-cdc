@@ -27,6 +27,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0019 | A first start mines the transactions already open whole | Accepted |
 | 0020 | Avro-safe names are opt-in, and name collisions stop the task | Accepted |
 | 0021 | Closed pluggable databases are a transient wait and a doctor finding | Accepted |
+| 0022 | Rows with a partial XID belong to the open transaction of their undo slot | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 
