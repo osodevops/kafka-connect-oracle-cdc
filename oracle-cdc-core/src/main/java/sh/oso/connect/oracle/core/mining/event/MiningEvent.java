@@ -34,6 +34,16 @@ public sealed interface MiningEvent {
     return id().scn();
   }
 
+  /** The transaction the row belongs to, or null for rows that name none. */
+  default TxKey txOrNull() {
+    return null;
+  }
+
+  /** The same row attributed to {@code tx}; rows that name no transaction are returned as is. */
+  default MiningEvent withTx(TxKey tx) {
+    return this;
+  }
+
   /** START row: a transaction began. Zero XIDs never create buffer entries (CORE-TX-1). */
   record TxStart(
       TxKey tx,
@@ -44,7 +54,17 @@ public sealed interface MiningEvent {
       long sessionNo,
       long serialNo,
       Instant timestamp)
-      implements MiningEvent {}
+      implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
+
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new TxStart(t, id, thread, username, clientId, sessionNo, serialNo, timestamp);
+    }
+  }
 
   /** A row change on a captured object; {@code undo} marks a ROLLBACK=1 row (CORE-TX-2). */
   record Dml(
@@ -64,12 +84,43 @@ public sealed interface MiningEvent {
       String info,
       String username,
       Instant timestamp)
-      implements MiningEvent {}
+      implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
 
-  record Commit(TxKey tx, RedoRecordId id, int thread, Instant timestamp) implements MiningEvent {}
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new Dml(
+          t, id, thread, op, table, dataObj, dataObjd, dataObjv, rowId, sqlRedo, sqlUndo, undo,
+          status, info, username, timestamp);
+    }
+  }
 
-  record Rollback(TxKey tx, RedoRecordId id, int thread, Instant timestamp)
-      implements MiningEvent {}
+  record Commit(TxKey tx, RedoRecordId id, int thread, Instant timestamp) implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
+
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new Commit(t, id, thread, timestamp);
+    }
+  }
+
+  record Rollback(TxKey tx, RedoRecordId id, int thread, Instant timestamp) implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
+
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new Rollback(t, id, thread, timestamp);
+    }
+  }
 
   /** DDL by a captured owner; {@code objectName} may be null when the segment no longer exists. */
   record Ddl(
@@ -86,7 +137,30 @@ public sealed interface MiningEvent {
       int status,
       String info,
       Instant timestamp)
-      implements MiningEvent {}
+      implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
+
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new Ddl(
+          t,
+          id,
+          thread,
+          pdb,
+          owner,
+          objectName,
+          dataObj,
+          dataObjv,
+          sql,
+          username,
+          status,
+          info,
+          timestamp);
+    }
+  }
 
   /** OPERATION UNSUPPORTED (255) for a captured object: a stop or DLQ condition (CORE-MINE-10). */
   record Unsupported(
@@ -97,13 +171,33 @@ public sealed interface MiningEvent {
       int status,
       String info,
       String sqlRedo)
-      implements MiningEvent {}
+      implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
+
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new Unsupported(t, id, table, dataObj, status, info, sqlRedo);
+    }
+  }
 
   /** MISSING_SCN: LogMiner found a hole in the redo it was given; always a stop (CORE-MINE-10). */
   record MissingScn(RedoRecordId id, int thread, String info) implements MiningEvent {}
 
   /** Any other operation code that reached the client; counted and ignored. */
-  record Other(TxKey tx, RedoRecordId id, Operation op, String operation) implements MiningEvent {}
+  record Other(TxKey tx, RedoRecordId id, Operation op, String operation) implements MiningEvent {
+    @Override
+    public TxKey txOrNull() {
+      return tx;
+    }
+
+    @Override
+    public MiningEvent withTx(TxKey t) {
+      return new Other(t, id, op, operation);
+    }
+  }
 
   /** Fake-only: the boundary between two logs, used by scheduler tests. */
   record LogBoundary(RedoRecordId id, int thread, long sequence) implements MiningEvent {}

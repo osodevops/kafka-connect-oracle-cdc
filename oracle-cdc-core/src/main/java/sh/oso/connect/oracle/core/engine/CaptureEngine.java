@@ -89,6 +89,7 @@ public final class CaptureEngine {
   private final SessionRecycler recycler;
   private final IdRefresher idRefresher;
   private final Position start;
+  private final PartialXidResolver partialXids = new PartialXidResolver();
   private FirstStartScope firstStart;
   private final EngineMetrics metrics = new EngineMetrics();
   private final LobAssembler lobs;
@@ -422,9 +423,15 @@ public final class CaptureEngine {
    * the online catalog. Rows of the lag tables decode with the version valid at their SCN ({@link
    * SchemaRegistry#at}), and a DDL inside the step adds its version before the rows after it.
    */
-  /** ADR-0019: a step below the first-start floor keeps only transactions open at the start. */
+  /**
+   * Rows with a partial XID go to the transaction open in their undo slot first; then, by ADR-0019,
+   * a step below the first-start floor keeps only transactions open at the start.
+   */
   private StepOutcome scoped(StepOutcome outcome) {
-    return firstStart == null ? outcome : firstStart.filter(outcome);
+    StepOutcome resolved =
+        partialXids.resolve(
+            outcome, buffer.open().stream().map(TransactionBuffer.OpenTransaction::key).toList());
+    return firstStart == null ? resolved : firstStart.filter(resolved);
   }
 
   /** Nothing to mine yet: journaling, age and orphan checks, and the idle position. */

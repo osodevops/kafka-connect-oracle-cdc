@@ -32,6 +32,17 @@ public record Xid(long usn, long slot, long sqn) implements Comparable<Xid> {
     return new Xid(Long.parseLong(p[0]), Long.parseLong(p[1]), Long.parseLong(p[2]));
   }
 
+  /**
+   * The XIDSQN LogMiner gives some rows written by a rollback (the ROLLBACK row, undo rows of a
+   * rollback to a savepoint) instead of the real one; seen on GitHub runners, 7 October 2026.
+   */
+  public static final long PARTIAL_SQN = 0xFFFFFFFFL;
+
+  /** True when the sequence is {@link #PARTIAL_SQN}: only the undo segment and slot are known. */
+  public boolean partialSqn() {
+    return sqn == PARTIAL_SQN;
+  }
+
   /** All-zero XIDs appear on START rows of some internal operations and never own changes. */
   public boolean isZero() {
     return usn == 0 && slot == 0 && sqn == 0;
