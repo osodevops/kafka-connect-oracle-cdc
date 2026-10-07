@@ -91,7 +91,15 @@ public final class ReferenceDoc {
     return body.toString();
   }
 
-  /** Compares with the committed copy, or rewrites it when {@code -Dreference.update=true}. */
+  /** The image the committed references were recorded on; another image only writes its copy. */
+  static final String REFERENCE_IMAGE = "23.26.3-slim-faststart";
+
+  /**
+   * Compares with the committed copy, or rewrites it when {@code -Dreference.update=true}. The
+   * committed references are facts of {@link #REFERENCE_IMAGE}; on another image (the nightly
+   * matrix runs 23.9 too, whose image has no RMAN) the generated copy is written for inspection and
+   * not compared.
+   */
   public void assertUpToDate() throws IOException {
     Path repoRoot = Path.of(System.getProperty("repo.root", "..")).toAbsolutePath().normalize();
     Path committed =
@@ -100,6 +108,12 @@ public final class ReferenceDoc {
     Files.createDirectories(generated.getParent());
     String content = render();
     Files.writeString(generated, content, StandardCharsets.UTF_8);
+    String image = System.getProperty("oracle.image.tag", REFERENCE_IMAGE);
+    if (!REFERENCE_IMAGE.equals(image)) {
+      System.out.println(
+          "reference " + name + " generated on " + image + " at " + generated + " (not compared)");
+      return;
+    }
     if (Boolean.getBoolean("reference.update")) {
       Files.createDirectories(committed.getParent());
       Files.writeString(committed, content, StandardCharsets.UTF_8);

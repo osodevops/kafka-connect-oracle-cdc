@@ -183,8 +183,18 @@ class MiningSessionEngineIT {
         }
       }
       assertThat(committed).contains(dml.get(0).tx(), dml.get(5).tx());
-      assertThat(rolledBack).contains(dml.get(3).tx());
-      assertThat(dml.get(4).tx()).isEqualTo(dml.get(3).tx());
+      // LogMiner may give the ROLLBACK row and the undo row the sequence 0xFFFFFFFF (seen on
+      // GitHub runners); the engine pairs those with the transaction open in the same undo slot
+      TxKey rolledBackTx = dml.get(3).tx();
+      TxKey partial =
+          new TxKey(
+              rolledBackTx.srcConId(),
+              new sh.oso.connect.oracle.core.model.Xid(
+                  rolledBackTx.xid().usn(),
+                  rolledBackTx.xid().slot(),
+                  sh.oso.connect.oracle.core.model.Xid.PARTIAL_SQN));
+      assertThat(rolledBack).containsAnyOf(rolledBackTx, partial);
+      assertThat(dml.get(4).tx()).isIn(rolledBackTx, partial);
       assertThat(startUsers).doesNotContain(excluded);
       assertThat(events)
           .filteredOn(e -> e instanceof MiningEvent.Ddl)
