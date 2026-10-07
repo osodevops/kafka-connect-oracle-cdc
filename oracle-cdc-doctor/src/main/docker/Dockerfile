@@ -12,7 +12,7 @@
 # The image carries no Oracle Database software; the Oracle JDBC driver inside the jar is
 # redistributed under its Free Use Terms and Conditions.
 # Dependabot (docker ecosystem) keeps this base current.
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:25-jre
 
 ARG VERSION
 ARG REVISION=unknown
