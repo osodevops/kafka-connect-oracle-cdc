@@ -51,6 +51,26 @@ public final class StepRunner {
       while (c.next()) {
         rows++;
         MiningEvent e = c.event();
+        if (e.id().zeroRsId()) {
+          // no redo byte address: the query returns these rows from the last applied SCN on, so
+          // one may come back in a later step; only rows that are safe to apply again are expected
+          if (!(e instanceof MiningEvent.TxStart
+              || e instanceof MiningEvent.Commit
+              || e instanceof MiningEvent.Rollback
+              || e instanceof MiningEvent.Other)) {
+            throw new OracleCdcCorruptionException(
+                "LogMiner returned "
+                    + e.getClass().getSimpleName()
+                    + " at SCN "
+                    + e.id().scn()
+                    + " with an all-zero RS_ID; a data row without a redo byte address cannot be"
+                    + " placed in redo order, so it could be applied twice or not at all.",
+                "Report it in a GitHub issue with the SCN and the Oracle release update. Restarting"
+                    + " the task mines the step again from its last position.");
+          }
+          staged.add(e); // never the cursor: it names no place in the log
+          continue;
+        }
         if (from.alreadyApplied(e.id())) {
           continue;
         }

@@ -65,6 +65,18 @@ class ModelTest {
   }
 
   @Test
+  void anAllZeroRsIdIsNoRedoByteAddressAndOrdersByScn() {
+    // the ROLLBACK row LogMiner returned on a GitHub runner, after its transaction's undo row
+    RedoRecordId undo = new RedoRecordId(2310015, " 0x00001a.00000057.00a0 ", 0);
+    RedoRecordId rollback = new RedoRecordId(2310016, " 0x000000.00000000.0000 ", 0);
+    assertThat(rollback.zeroRsId()).isTrue();
+    assertThat(rollback.hasRba()).isFalse();
+    assertThat(undo.zeroRsId()).isFalse();
+    assertThat(rollback).isGreaterThan(undo);
+    assertThat(new RedoRecordId(2310014, " 0x000000.00000000.0000 ", 0)).isLessThan(undo);
+  }
+
+  @Test
   void tableIdFqnDependsOnPdb() {
     assertThat(new TableId("FREEPDB1", "APP", "ORDERS").fqn()).isEqualTo("FREEPDB1.APP.ORDERS");
     assertThat(new TableId(null, "APP", "ORDERS").fqn()).isEqualTo("APP.ORDERS");

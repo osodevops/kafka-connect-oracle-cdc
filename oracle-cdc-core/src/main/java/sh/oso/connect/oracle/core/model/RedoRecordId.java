@@ -22,15 +22,26 @@ package sh.oso.connect.oracle.core.model;
  */
 public record RedoRecordId(long scn, String rsId, long ssn) implements Comparable<RedoRecordId> {
 
+  /**
+   * The all-zero RS_ID LogMiner gives some rows (a ROLLBACK row on a GitHub runner, 7 October
+   * 2026). It names no redo record, so it is no redo byte address.
+   */
+  static final String ZERO_RS_ID = "0x000000.00000000.0000";
+
   public RedoRecordId {}
 
   /**
    * Redo order within a thread: the redo byte address (RS_ID, then SSN) first, because the log is
    * append-only in that order while SCNs can arrive out of order when a private redo strand is
-   * bound late (ADR-0014). Ids without an RS_ID fall back to SCN order.
+   * bound late (ADR-0014). Ids without an RS_ID fall back to SCN order, and so does any comparison
+   * where only one side has a redo byte address (an all-zero RS_ID is none).
    */
   @Override
   public int compareTo(RedoRecordId o) {
+    if (hasRba() != o.hasRba()) {
+      int c = Long.compare(scn, o.scn);
+      return c == 0 ? Long.compare(ssn, o.ssn) : c;
+    }
     if (rsId != null && o.rsId != null) {
       int c = rsId.trim().compareTo(o.rsId.trim());
       if (c == 0) {
@@ -41,9 +52,14 @@ public record RedoRecordId(long scn, String rsId, long ssn) implements Comparabl
     return Long.compare(scn, o.scn);
   }
 
-  /** True when this record carries a redo byte address. */
+  /** True when this record carries a redo byte address; an all-zero RS_ID is none. */
   public boolean hasRba() {
-    return rsId != null && !rsId.isBlank();
+    return rsId != null && !rsId.isBlank() && !zeroRsId();
+  }
+
+  /** True when LogMiner gave this record the all-zero RS_ID. */
+  public boolean zeroRsId() {
+    return rsId != null && rsId.trim().equals(ZERO_RS_ID);
   }
 
   @Override

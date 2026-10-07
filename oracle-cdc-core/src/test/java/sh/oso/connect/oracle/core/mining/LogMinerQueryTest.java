@@ -26,6 +26,16 @@ import org.junit.jupiter.api.Test;
 class LogMinerQueryTest {
 
   @Test
+  void theAddressFormReturnsAllZeroRsIdRowsFromTheLastAppliedScn() {
+    String sql = LogMinerQuery.sql(MiningFilter.of(3, Set.of(1001L), Set.of("APP")), true, false);
+    assertThat(sql)
+        .contains(
+            " WHERE (RS_ID > ? OR (RS_ID = ? AND SSN > ?) OR (TRIM(RS_ID) ="
+                + " '0x000000.00000000.0000' AND SCN >= ?)) AND SCN < ? AND (");
+    assertThat(sql.chars().filter(ch -> ch == '?').count()).isEqualTo(5);
+  }
+
+  @Test
   void threeBranchesAreAlwaysPresent() {
     String sql = LogMinerQuery.sql(MiningFilter.of(3, Set.of(1001L, 1002L), Set.of("APP")));
     assertThat(sql)

@@ -74,11 +74,25 @@ public final class FakeLogMiner implements EventSource {
   }
 
   private Long lateScn;
+  private boolean zeroRsId;
 
   private RedoRecordId id() {
     long scn = lateScn != null ? lateScn : nextScn++;
     lateScn = null;
+    if (zeroRsId) {
+      zeroRsId = false;
+      return new RedoRecordId(scn, " 0x000000.00000000.0000 ", 0);
+    }
     return new RedoRecordId(scn, String.format(" 0x%06x.%08x.%04x ", 1, rba++, 0), 0);
+  }
+
+  /**
+   * The next event carries an all-zero RS_ID, which is no redo byte address: LogMiner returned the
+   * ROLLBACK row of a rolled-back transaction that way on a GitHub runner (7 October 2026).
+   */
+  public FakeLogMiner zeroRsId() {
+    this.zeroRsId = true;
+    return this;
   }
 
   /**
@@ -310,7 +324,15 @@ public final class FakeLogMiner implements EventSource {
           MiningEvent e = events.get(i);
           // with a redo byte address the log is read in append order whatever the SCN; without
           // one the fake behaves like an SCN window
-          if (from.hasRba() ? from.alreadyApplied(e.id()) : e.scn() < from.scn()) {
+          // an all-zero RS_ID is no address: the query returns those rows by SCN from the last
+          // applied record on
+          boolean skip =
+              from.hasRba()
+                  ? e.id().zeroRsId()
+                      ? e.scn() < from.lastApplied().scn()
+                      : from.alreadyApplied(e.id())
+                  : e.scn() < from.scn();
+          if (skip) {
             continue;
           }
           if (e.scn() >= endScn) {
