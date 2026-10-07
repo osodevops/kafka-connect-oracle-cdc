@@ -1,10 +1,10 @@
 # Implementation handover: OSO CDC Connector for Oracle Database
 
-**Written:** 5 October 2026, for whoever (person or model) continues the build.
+**Written:** 5 October 2026, updated 7 October 2026, for whoever (person or model) continues the build.
 **Read first:** `CLAUDE.md` (rules), this file, then `docs/decisions/` and the PRDs under `docs/prd/`.
 **Working rules that override everything else:** no silent data loss; LogMiner only; offsets only encode
-what Kafka Connect acknowledged; every data-loss bug gets a regression test before its fix; commit
-locally only, never push; conventional commits with `git commit -s` and the trailer
+what Kafka Connect acknowledged; every data-loss bug gets a regression test before its fix; push,
+merge release PRs or change repository settings only when Sion asks; conventional commits with `git commit -s` and the trailer
 `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>` (keep the trailer form the repository has
 used so far); never weaken a failing regression test.
 
@@ -64,9 +64,25 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 | `2c0c35d` to `ae819aa` | Docs audit: the site describes what is built (no release or phase wording, no missing-feature claims for the redo profiler, sizing and admin CLI), validation refusals and DOC-21 and DOC-22 where users meet them, a credentials and sensitive data page, the status table, README and CONTRIBUTING | site build |
 | `24cd481`, `0a1a3d4`, `88b5d7c` | DOC-22 passes over columns `cdc.columns.exclude` drops; config, metric and setup text without internal references (regenerated references); the Strimzi lab's `versions.env` is tracked (the root `*.env` rule hid it) | gate; generated-docs drift check |
 | `557c3b8`, `33dd5d5`, `ccce841`, `749acda` | Strimzi edge cases: every case induces its fault and checks that it happened (pods replaced, partition in force, config read back from the worker, at least one OOMKilled worker, a fresh offsets config map), fails when the platform does not recover, and restores what it changed; the lab Connect workers spill to a disk-backed volume under `/mnt` | all eleven cases on `cdc-lab` (see P1-31 below) |
+| `5f58461`, `093e30d`, `733954b`, `a78c531` | First CI on GitHub: the test image drops a redo group only once archived (ORA-00350 on a runner); every workflow and the Central dry run use `./mvnw` pinned to Maven 3.9.16 (the runner image of 4 October 2026 ships 3.10.0, under which central-publishing 0.11.0 bundles stray local-repository files); release secrets fall back to the organisation's `OSSRH_*`; release-please starts at 0.1.0 | CI on GitHub: builds on Java 17 and 21, both tiers, Central dry run |
+| `0f26f7b`, `3a041fc`, `2aaba0a`, `70b8b76` | An all-zero RS_ID is no redo byte address (ADR-0014 amendment): LogMiner returned a ROLLBACK row that way on a runner; such rows are fetched from the last applied SCN, never become the cursor, and a data row without an address stops with CDC-3002. `ZeroRedoAddressRowsTest` (tag `zero-rs-id`) failed on all three cases before the fix. The redo-order and reconnect suites say what they saw when they fail | gate, engine 54, connector 28 locally; CI green on GitHub |
+| `ad5b638` | Release 0.1.0 (release-please PR merged; tag and GitHub release `v0.1.0`) | see "Release 0.1.0" below |
 
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
+
+### Release 0.1.0 (7 October 2026)
+
+`main` is on GitHub (`osodevops/kafka-connect-oracle-cdc`), private by Sion's choice: `docs/` holds
+the strategy, research and budget papers, and making the repository public needs a decision on
+them first (history keeps them). The release workflow's T2 gate needs a green nightly run with
+evidence, and none had run on GitHub, so the first release run published nothing; a nightly run was
+started by hand. Once it is green, re-run the failed jobs of the release run for `v0.1.0`. The
+signing key and the Central Portal token are organisation secrets (`MAVEN_GPG_*`, `OSSRH_*`), shared
+with this repository; `verify-release-secrets.yml` passed. The `release` environment exists without
+required reviewers, which a private repository on this plan cannot have. The nightly schedule runs
+every night on hosted runners and uses the organisation's Actions minutes. Dependabot's PRs for
+Kafka 4.3 as the compile baseline and Java 25 in the doctor image need a decision, not a merge.
 
 ### In flight, not committed
 
@@ -615,7 +631,8 @@ real worker where Kafka matters, docs regenerated, runbook per new error code.
 
 ## 6. Open points and decisions that belong to the user
 
-- Pushing to GitHub and enabling CI, the DCO app and the domain registration.
+- Making the repository public (and what happens to `docs/` first), the DCO app, the domain
+  registration (kafkacdcconnector.com was unregistered on 7 October 2026) and GitHub Pages.
 - The 1b/1c scope cut flagged in the plan: EOS and signal snapshots could move to 1.1 if time is short.
 - Oracle legal view on lab use and OPN pricing before 1.0 GA.
 - Tearing down the running labs (compose stack and minikube `cdc-lab`) is theirs to decide.
