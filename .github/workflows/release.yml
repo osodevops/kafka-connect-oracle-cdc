@@ -288,12 +288,16 @@ jobs:
         working-directory: dist
         run: sha256sum -- * > SHA256SUMS
       - name: Provenance attestation for the plugin ZIP and the CLI
+        # attestations need a public repository on this plan; skipped while it is private
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             dist/osodevops-kafka-connect-oracle-cdc-*.zip
             dist/oracle-cdc-doctor-*-cli.jar
       - name: SBOM attestation for the plugin ZIP
+        # attestations need a public repository on this plan; skipped while it is private
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest-sbom@v2
         with:
           subject-path: dist/osodevops-kafka-connect-oracle-cdc-${{ inputs.version }}.zip
@@ -369,6 +373,8 @@ jobs:
           sbom: true
           provenance: mode=max
       - name: Provenance attestation for the image
+        # attestations need a public repository on this plan; skipped while it is private
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ env.IMAGE }}

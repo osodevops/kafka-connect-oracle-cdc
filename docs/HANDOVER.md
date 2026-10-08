@@ -71,18 +71,32 @@ decisions in `docs/decisions/` (ADR-0001 to ADR-0014), and the test tiers in `do
 "Full gate" means `mvn clean verify -DskipE2E` on JDK 17: Spotless, SpotBugs, JaCoCo 80 per cent on
 `oracle-cdc-core`, licence allowlist, every `*Test`, and the generated-docs drift check.
 
-### Release 0.1.0 (7 October 2026)
+### Release 0.1.1 (8 October 2026): on Maven Central
 
-`main` is on GitHub (`osodevops/kafka-connect-oracle-cdc`), private by Sion's choice: `docs/` holds
-the strategy, research and budget papers, and making the repository public needs a decision on
-them first (history keeps them). The release workflow's T2 gate needs a green nightly run with
-evidence, and none had run on GitHub, so the first release run published nothing; a nightly run was
-started by hand. Once it is green, re-run the failed jobs of the release run for `v0.1.0`. The
-signing key and the Central Portal token are organisation secrets (`MAVEN_GPG_*`, `OSSRH_*`), shared
-with this repository; `verify-release-secrets.yml` passed. The `release` environment exists without
-required reviewers, which a private repository on this plan cannot have. The nightly schedule runs
-every night on hosted runners and uses the organisation's Actions minutes. Dependabot's PRs for
-Kafka 4.3 as the compile baseline and Java 25 in the doctor image need a decision, not a merge.
+`sh.oso:oracle-cdc-core`, `kafka-connect-oracle-cdc`, `oracle-cdc-doctor` and the parent POM
+0.1.1 are on Maven Central, signed with Sion's key (`4DFF44C64752501D`) through the organisation's
+`OSSRH_*` Central Portal token. Every release gate passed on the tag (builds on Java 17 and 21,
+both T1 tiers, the Central dry run, and the nightly run 37721462110, green on both images). The
+plugin ZIP, the doctor CLI, the SPDX SBOM and `SHA256SUMS` are on the GitHub release (attached by
+hand from the run's `release-files` artifact because the attestation steps failed); the doctor
+image is on GHCR. Attestations need a public repository on this plan, so `release.yml` now skips
+them while the repository is private.
+
+0.1.0 was tagged before the partial-XID fixes and never published; 0.1.1 is the first release on
+Central. The repository is private by Sion's choice (`docs/` holds strategy, research and budget
+papers, and history keeps them), so the POMs link to a repository outsiders cannot open, and a
+Connect user needs the plugin ZIP from the private GitHub release. Making the repository public,
+GitHub Pages for the docs and the domain are Sion's decisions. The release gate's T3 soak and T4
+qualification have not run; 0.1.x is a preview tested on Oracle Database Free 23ai and 26ai.
+
+What the first runs on GitHub found (native x86 runners, faster than the emulated database on the
+workstation): an all-zero RS_ID on a ROLLBACK row (ADR-0014 amendment), the partial XID 0xFFFFFFFF
+on undo rows and on a ROLLBACK row that can close a rollback to a savepoint (ADR-0022 and its
+amendment), a redo-group race in the test image, Maven 3.10 on the runner image breaking the
+Central bundle (the wrapper pins 3.9.16), and timing assumptions in two suites. Locally the
+broker restart suite can wait 20 minutes for Connect to restart the task when the minikube labs
+load the machine; it now waits up to 25 minutes and prints the LogMiner rows of any missing
+transaction.
 
 ### In flight, not committed
 
