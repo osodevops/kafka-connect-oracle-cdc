@@ -9,7 +9,8 @@ reads Oracle Database redo through LogMiner.
 the plugin ZIP. Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
 instance; the 19c and 21c qualification and a 72-hour soak come before 1.0. Everything listed below
 is in that release and covered by its test suites. The user documentation is at
-[kafkacdcconnector.com](https://kafkacdcconnector.com) (sources in [`website/`](website/)); the
+[osodevops.github.io/kafka-connect-oracle-cdc](https://osodevops.github.io/kafka-connect-oracle-cdc/)
+(sources in [`website/`](website/)); the
 product requirements and design decisions are in [`docs/`](docs/README_index.md).
 
 ## What it does

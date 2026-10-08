@@ -83,10 +83,14 @@ image is on GHCR. Attestations need a public repository on this plan, so `releas
 them while the repository is private.
 
 0.1.0 was tagged before the partial-XID fixes and never published; 0.1.1 is the first release on
-Central. The repository is private by Sion's choice (`docs/` holds strategy, research and budget
-papers, and history keeps them), so the POMs link to a repository outsiders cannot open, and a
-Connect user needs the plugin ZIP from the private GitHub release. Making the repository public,
-GitHub Pages for the docs and the domain are Sion's decisions. The release gate's T3 soak and T4
+Central. On 8 October 2026 the repository went public with `docs/` as it is (Sion's decision, as
+for the Salesforce connector), and the documentation site is on GitHub Pages at
+https://osodevops.github.io/kafka-connect-oracle-cdc/ through the repository variables `DOCS_URL`
+and `DOCS_BASE_URL`. When kafkacdcconnector.com is registered and points at GitHub Pages: set it as
+the Pages custom domain, delete those two variables, run `docs-deploy.yml`, and point the README
+back at the domain (`llms.txt` already uses it). The `oracle-cdc-doctor` package on GHCR is still
+private; its visibility is changed in the package settings, which have no API. The release
+environment now requires Sion's review, and attestations run again now the repository is public. The release gate's T3 soak and T4
 qualification have not run; 0.1.x is a preview tested on Oracle Database Free 23ai and 26ai.
 
 What the first runs on GitHub found (native x86 runners, faster than the emulated database on the
