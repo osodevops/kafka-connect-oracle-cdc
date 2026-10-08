@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.sql.Connection;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Tag;
@@ -29,6 +30,8 @@ import sh.oso.connect.oracle.bench.workload.WorkloadResult;
 import sh.oso.connect.oracle.bench.workload.WorkloadSpec;
 import sh.oso.connect.oracle.e2e.support.ConnectCluster;
 import sh.oso.connect.oracle.e2e.support.Evidence;
+import sh.oso.connect.oracle.e2e.support.LogMinerHelper;
+import sh.oso.connect.oracle.e2e.support.OracleSql;
 import sh.oso.connect.oracle.e2e.support.OracleTestDatabase;
 import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
 
@@ -94,6 +97,7 @@ class BrokerRestartNightlyIT {
       cluster.awaitRunning(NAME, Duration.ofMinutes(3));
       cluster.awaitOffsets(NAME, Duration.ofSeconds(90));
 
+      long workloadStart = NightlyRun.scn(root);
       CompletableFuture<WorkloadResult> run = NightlyRun.start(g);
       Thread.sleep(10_000);
       ev.fault("broker-restart", "stop", "graceful");
@@ -109,7 +113,10 @@ class BrokerRestartNightlyIT {
       long end = NightlyRun.scn(root);
       ev.param("workloadResult", ConnectCluster.json(r.toJson()));
       NightlyRun.supervise(cluster, NAME, Duration.ofSeconds(10), ev, restarts, 3);
-      boolean caughtUp = NightlyRun.awaitResumePast(cluster, NAME, end, Duration.ofMinutes(6));
+      // after the broker returns, Connect can take many minutes to restart the task on a loaded
+      // host (18 to 20 minutes seen locally on 8 October 2026); the oracle only means something
+      // once the task has caught up
+      boolean caughtUp = NightlyRun.awaitResumePast(cluster, NAME, end, Duration.ofMinutes(25));
       NightlyRun.supervise(cluster, NAME, Duration.ofSeconds(2), ev, restarts, 3);
 
       CheckReport report =
@@ -131,6 +138,12 @@ class BrokerRestartNightlyIT {
               + report.invariants().get("transactionsWithDuplicateEvents")
               + " verdict="
               + report.verdict());
+      assertThat(caughtUp)
+          .as("the restarted task caught up with the workload within 25 minutes")
+          .isTrue();
+      if (report.verdict() != CheckReport.Verdict.PASS) {
+        explainMissing(root, report, workloadStart, end);
+      }
       assertThat(report.verdict()).as(report.toJson()).isEqualTo(CheckReport.Verdict.PASS);
       if (eos) {
         assertThat(report.invariants().get("transactionsWithDuplicateEvents"))
@@ -143,6 +156,107 @@ class BrokerRestartNightlyIT {
     } finally {
       ev.write();
       SchemaFixtures.drop(db, OracleTestDatabase.PDB1, schema);
+    }
+  }
+
+  /**
+   * Prints the LogMiner rows of each transaction the oracle reports missing, with every row of the
+   * same undo slot that carries the partial XID sequence, so a failed run says how the connector
+   * could have lost it.
+   */
+  private void explainMissing(Connection root, CheckReport report, long fromScn, long toScn) {
+    Object examples = report.transactions().get("missingExamples");
+    if (!(examples instanceof List<?> xids) || xids.isEmpty()) {
+      return;
+    }
+    try {
+      OracleSql.archiveLogCurrent(db);
+      LogMinerHelper.start(root, fromScn, toScn);
+      try {
+        for (Object o : xids) {
+          sh.oso.connect.oracle.core.model.Xid x =
+              sh.oso.connect.oracle.core.model.Xid.parse(o.toString());
+          List<Map<String, String>> rows =
+              LogMinerHelper.rows(
+                  root,
+                  "XIDUSN = "
+                      + x.usn()
+                      + " AND XIDSLT = "
+                      + x.slot()
+                      + " AND XIDSQN IN ("
+                      + x.sqn()
+                      + ", "
+                      + sh.oso.connect.oracle.core.model.Xid.PARTIAL_SQN
+                      + ") AND SCN BETWEEN "
+                      + fromScn
+                      + " AND "
+                      + toScn);
+          System.out.println("missing " + x + ": " + rows.size() + " LogMiner rows in its slot");
+          rows.stream()
+              .filter(r -> "COMMIT".equals(r.get("OPERATION")))
+              .findFirst()
+              .ifPresent(
+                  commit -> {
+                    long at = Long.parseLong(commit.get("SCN"));
+                    try {
+                      for (Map<String, String> c :
+                          LogMinerHelper.rows(
+                              root,
+                              "OPERATION_CODE = 7 AND SCN BETWEEN "
+                                  + (at - 30)
+                                  + " AND "
+                                  + (at + 30))) {
+                        System.out.println(
+                            "  commit near "
+                                + x
+                                + " | scn="
+                                + c.get("SCN")
+                                + " rs_id="
+                                + c.get("RS_ID")
+                                + " ssn="
+                                + c.get("SSN")
+                                + " xid="
+                                + c.get("XIDUSN")
+                                + "."
+                                + c.get("XIDSLT")
+                                + "."
+                                + c.get("XIDSQN")
+                                + " thread="
+                                + c.get("THREAD#"));
+                      }
+                    } catch (java.sql.SQLException e) {
+                      System.out.println("  commits near " + x + " unavailable: " + e);
+                    }
+                  });
+          for (Map<String, String> r : rows.subList(0, Math.min(rows.size(), 200))) {
+            System.out.println(
+                "  missing "
+                    + x
+                    + " | scn="
+                    + r.get("SCN")
+                    + " rs_id="
+                    + r.get("RS_ID")
+                    + " ssn="
+                    + r.get("SSN")
+                    + " op="
+                    + r.get("OPERATION")
+                    + " xidsqn="
+                    + r.get("XIDSQN")
+                    + " rollback="
+                    + r.get("ROLLBACK")
+                    + " seg="
+                    + r.get("SEG_NAME")
+                    + " row_id="
+                    + r.get("ROW_ID")
+                    + " status="
+                    + r.get("STATUS"));
+          }
+        }
+      } finally {
+        LogMinerHelper.end(root);
+      }
+    } catch (Exception e) {
+      System.out.println("missing transactions could not be explained: " + e);
     }
   }
 }
