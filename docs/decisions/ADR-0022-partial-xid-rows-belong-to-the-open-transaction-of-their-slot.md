@@ -52,3 +52,26 @@ showed the undo row of that insert with the partial XID too.
 ## PRD edits
 
 PRD-00 CORE-TX-2 gains a sentence naming this ADR.
+
+## Amendments
+
+### 8 October 2026: a ROLLBACK row with the partial XID may close a rollback to a savepoint
+
+The next nightly run, and local broker restart runs, lost one committed transaction each without
+other damage. The resolver had paired a ROLLBACK row with the partial XID with the open transaction
+of its slot and discarded that transaction, whose COMMIT then found nothing to emit. For the lost
+transaction 3.3.710, mined live from the online log, LogMiner had given the undo rows of its
+rollback to a savepoint the partial XID and written a ROLLBACK row, with the partial XID and no redo
+byte address, at the end of them; the transaction then wrote its ledger row and committed. Mined
+again from the archived log, its undo rows carried the full XID and there was no ROLLBACK row.
+
+A ROLLBACK row with the partial XID therefore does not end a transaction by itself. The resolver
+passes it on as a counted row (`PARTIAL_ROLLBACK`) for the open transaction of its slot, and the
+engine discards that transaction only when every buffered change of it has been undone, which is
+what the undo rows of a full rollback leave; otherwise the transaction carries on. A transaction
+that did roll back with a change still buffered (an undo row that matched nothing) waits for the
+orphan check, which releases only transactions the database no longer has open. A spilled
+transaction resolves its undo rows at commit and is left alone.
+`RollbackRowsWithAPartialXidTest.aPartialXidRollbackAfterASavepointUndoDoesNotEndTheTransaction`
+failed before the change.
+

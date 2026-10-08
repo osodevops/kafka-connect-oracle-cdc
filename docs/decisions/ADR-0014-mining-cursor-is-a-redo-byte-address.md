@@ -63,8 +63,11 @@ next step read the log again from its start.
 
 An all-zero RS_ID is therefore no redo byte address: `RedoRecordId.hasRba()` is false for it, and a
 comparison where only one side has an address is by SCN, then SSN. The address form of the query
-also returns all-zero rows from the SCN of the last applied record on, so the bound never hides
-them; such a row is never the cursor, and it may come back in a later step. Only rows that are safe
+also returns all-zero rows by SCN within the step's own range, so the bound never hides them and no
+step returns one that a step before it returned; such a row is never the cursor. (The first form of
+this fix returned them from the last applied SCN on, so one could come back in a later step; with
+the partial XID of ADR-0022 a ROLLBACK row returned again could pair with the next transaction of
+its undo slot. Changed on 8 October 2026.) Only rows that are safe
 to apply again are expected without an address: START, COMMIT, ROLLBACK and the counted-and-ignored
 operations. A COMMIT or ROLLBACK for a transaction no longer in the buffer is a no-op, and a COMMIT
 for one the orphan check released stops the task as before. An all-zero RS_ID on a data row, a DDL
