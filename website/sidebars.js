@@ -97,6 +97,11 @@ const sidebars = {
         'migration/cutover-verification',
       ],
     },
+    {
+      type: 'category',
+      label: 'Development',
+      items: ['development/building', 'development/local-testing', 'development/releasing'],
+    },
     'comparison/index',
     {
       type: 'category',

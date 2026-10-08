@@ -12,7 +12,8 @@ configuration). The Oracle JDBC driver (`ojdbc11`) is bundled under Oracle's Fre
 Conditions, reproduced in `doc/licenses/`. Jars the Connect worker provides itself, such as the
 Connect API and the Kafka clients, are not bundled.
 
-No release has been published yet. Each release will attach to its GitHub release page:
+Releases are on the [GitHub release page](https://github.com/osodevops/kafka-connect-oracle-cdc/releases);
+the current one is 0.1.1. Each release attaches:
 
 | File | Contents |
 |---|---|
@@ -21,21 +22,28 @@ No release has been published yet. Each release will attach to its GitHub releas
 | `oracle-cdc-doctor-<version>-cli.jar` | The preflight checker as a single jar |
 | `SHA256SUMS` | SHA-256 checksums of the files above |
 
-The jars are also published to Maven Central under the group `sh.oso`, signed. Every release file
-carries a build provenance attestation, so you can check that it was built from this repository
-by the release workflow:
+Download the ZIP and check it against the release's checksums:
 
 ```bash
+VERSION=0.1.1
+BASE=https://github.com/osodevops/kafka-connect-oracle-cdc/releases/download/v$VERSION
+curl -fsSLO "$BASE/osodevops-kafka-connect-oracle-cdc-$VERSION.zip"
+curl -fsSLO "$BASE/SHA256SUMS"
 sha256sum --check --ignore-missing SHA256SUMS
-gh attestation verify osodevops-kafka-connect-oracle-cdc-<version>.zip --repo osodevops/kafka-connect-oracle-cdc
 ```
 
-Until the first release, build the ZIP from source with JDK 17 or 21 and Maven 3.9:
+The jars are also on [Maven Central](https://central.sonatype.com/namespace/sh.oso) under the group
+`sh.oso` (`oracle-cdc-core`, `kafka-connect-oracle-cdc` and `oracle-cdc-doctor`), signed with the
+OSO release key. A Connect worker needs the ZIP rather than the jars, because the ZIP carries the
+dependencies and the Oracle JDBC driver.
+
+To build the ZIP from source instead, use JDK 17 or 21; the repository's Maven wrapper fetches
+Maven itself (see [building from source](../development/building.md)):
 
 ```bash
 git clone https://github.com/osodevops/kafka-connect-oracle-cdc.git
 cd kafka-connect-oracle-cdc
-mvn -q package -DskipTests -DskipE2E
+./mvnw -q package -DskipTests -DskipE2E
 ls kafka-connect-oracle-cdc/target/*-kafka-connect-plugin.zip
 ```
 

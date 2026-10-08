@@ -162,15 +162,13 @@ time, needs metrics the task does not publish yet.
 
 ## Container image
 
-From the first release, each release also publishes the CLI as a container image,
-`ghcr.io/osodevops/oracle-cdc-doctor:<version>`, for amd64 and arm64, with an SBOM and a build
-provenance attestation. No release has been published yet. The image runs as an unprivileged
-user with `/work` as its working directory and contains no Oracle Database software, so mount the
-directory that holds the connector configuration:
+Each release also publishes the CLI as a container image, `ghcr.io/osodevops/oracle-cdc-doctor`,
+tagged with the version and `latest`, for amd64 and arm64, with an SBOM and build provenance in the
+image. The image runs as an unprivileged user with `/work` as its working directory and contains no
+Oracle Database software, so mount the directory that holds the connector configuration:
 
 ```bash
-docker run --rm -v "$PWD:/work" ghcr.io/osodevops/oracle-cdc-doctor:<version> check --config connector.json
-gh attestation verify oci://ghcr.io/osodevops/oracle-cdc-doctor:<version> --repo osodevops/kafka-connect-oracle-cdc
+docker run --rm -v "$PWD:/work" ghcr.io/osodevops/oracle-cdc-doctor:0.1.1 check --config connector.json
 ```
 
 Add `--network host` when the database listens only on the host's loopback address. Exit codes

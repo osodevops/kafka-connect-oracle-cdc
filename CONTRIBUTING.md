@@ -4,11 +4,12 @@ Thank you for helping build the OSO CDC Connector for Oracle Database.
 
 ## Getting started
 
-- JDK 17 or 21, Maven 3.9 or later, Docker for the `e2e-tests` module.
-- `mvn clean verify -DskipE2E` runs every quality gate and unit test without Docker.
-- `mvn -pl e2e-tests verify -De2e.groups=engine` runs the Oracle Database Free suites, and
+- JDK 17 or 21 and Docker for the `e2e-tests` module. The Maven wrapper (`./mvnw`) fetches
+  Maven 3.9.16, the version CI uses.
+- `./mvnw clean verify -DskipE2E` runs every quality gate and unit test without Docker.
+- `./mvnw -pl e2e-tests verify -De2e.groups=engine` runs the Oracle Database Free suites, and
   `-De2e.groups=connector` the suites with Kafka and a Connect worker as well.
-- `mvn spotless:apply` formats Java and POM files before you commit.
+- `./mvnw spotless:apply` formats Java and POM files before you commit.
 
 ## Pull requests
 
@@ -20,7 +21,7 @@ Thank you for helping build the OSO CDC Connector for Oracle Database.
    release-please.
 4. Sign off every commit (`git commit -s`) to certify the Developer Certificate of Origin
    (https://developercertificate.org).
-5. Run `mvn clean verify` locally.
+5. Run `./mvnw clean verify` locally.
 6. Update documentation under `website/docs/` where behaviour changes; the configuration reference
    is generated, do not hand-edit it.
 
@@ -52,9 +53,9 @@ to a local stand-in for the Central Portal and checks the bundle; everything it 
   release pull request (`docs/testing_strategy.md`, section 9).
 - A release publishes the signed artefacts to Maven Central under the group `sh.oso`; attaches the
   plugin ZIP (`osodevops-kafka-connect-oracle-cdc-<version>.zip`), the `oracle-cdc-doctor` CLI jar,
-  an SPDX SBOM and `SHA256SUMS` to the GitHub release, with build provenance attestations; and
-  pushes `ghcr.io/osodevops/oracle-cdc-doctor:<version>` for amd64 and arm64 with an SBOM and
-  provenance.
+  an SPDX SBOM and `SHA256SUMS` to the GitHub release (with build provenance attestations when the
+  repository is public); and pushes `ghcr.io/osodevops/oracle-cdc-doctor:<version>` for amd64 and
+  arm64 with an SBOM and provenance.
 - Maintainers check the publishing secrets with the manual `verify-release-secrets.yml` workflow
   before the first release and after rotating any of them.
 

@@ -15,10 +15,12 @@ silently.
 
 ## Status
 
-The connector is under active development and has not made a release yet. Everything this site
-describes as available is in the code on the main branch and covered by its test suites; you can
-build and run it today (see [getting started](getting-started/index.md)). Nothing on this site is
-a benchmark claim.
+The current release is 0.1.1, on [Maven Central](https://central.sonatype.com/namespace/sh.oso)
+and the [GitHub release page](https://github.com/osodevops/kafka-connect-oracle-cdc/releases). It
+is a preview: releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
+instance, and the 19c and 21c qualification and a 72-hour soak come before 1.0. Everything this
+site describes as available is in that release and covered by its test suites (see
+[getting started](getting-started/index.md)). Nothing on this site is a benchmark claim.
 
 | Capability | Status |
 |---|---|

@@ -5,8 +5,8 @@ description: What the connector stores between runs, how each store is versioned
 
 # Upgrade guide
 
-There is no release yet, so there is no upgrade path between releases to describe. This page says
-how the connector's stored state is versioned, which is what makes upgrades and one-step downgrades
+0.1.1 is the first release, so no upgrade between releases has been needed yet. This page says how
+the connector's stored state is versioned, which is what makes upgrades and one-step downgrades
 safe, and how to replace the plugin on a running worker.
 
 ## What the connector stores

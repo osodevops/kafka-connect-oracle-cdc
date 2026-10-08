@@ -3,9 +3,12 @@
 Open-source (Apache-2.0) change data capture source connector for Apache Kafka Connect that
 reads Oracle Database redo through LogMiner.
 
-**Status: preview.** Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
+**Status: preview.** The current release is 0.1.1, on
+[Maven Central](https://central.sonatype.com/namespace/sh.oso) (group `sh.oso`) and the
+[GitHub releases](https://github.com/osodevops/kafka-connect-oracle-cdc/releases) page, which carries
+the plugin ZIP. Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
 instance; the 19c and 21c qualification and a 72-hour soak come before 1.0. Everything listed below
-is in the code on `main` and covered by its test suites. The user documentation is at
+is in that release and covered by its test suites. The user documentation is at
 [kafkacdcconnector.com](https://kafkacdcconnector.com) (sources in [`website/`](website/)); the
 product requirements and design decisions are in [`docs/`](docs/README_index.md).
 
@@ -39,8 +42,8 @@ and a record format compatible with Confluent's Oracle CDC Source.
 ## Building
 
 ```bash
-mvn clean verify -DskipE2E      # quality gates and unit tests, no Docker
-mvn clean package -DskipTests   # plugin ZIP in kafka-connect-oracle-cdc/target
+./mvnw clean verify -DskipE2E      # quality gates and unit tests, no Docker
+./mvnw clean package -DskipTests   # plugin ZIP in kafka-connect-oracle-cdc/target
 ```
 
 Docker-backed tests against Oracle Database Free live in `e2e-tests`; see `CLAUDE.md` for the
