@@ -117,9 +117,10 @@ public final class LogMinerQuery {
   /**
    * With {@code rbaCursor} the lower bound is the redo byte address (RS_ID, then SSN) rather than
    * the SCN, so redo that reached the log after the previous step but with an earlier SCN is still
-   * returned (ADR-0014). Rows with the all-zero RS_ID, which is no address, come back from the SCN
-   * of the last applied record on, so the address bound never hides them. Binds are then RS_ID,
-   * RS_ID, SSN, that SCN, end SCN. Without it the binds are start SCN and end SCN.
+   * returned (ADR-0014). Rows with the all-zero RS_ID, which is no address, come back by SCN within
+   * the step's own range, so the address bound never hides them and no step returns one that a step
+   * before it returned. Binds are then RS_ID, RS_ID, SSN, the step's start SCN, end SCN. Without it
+   * the binds are start SCN and end SCN.
    */
   public static String sql(MiningFilter f, boolean rbaCursor, boolean inclusive) {
     StringBuilder sb = new StringBuilder("SELECT ");

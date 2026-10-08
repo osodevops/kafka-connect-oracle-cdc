@@ -128,7 +128,7 @@ public final class JdbcLogMinerSession implements LogMinerSource {
         ps.setString(1, from.lastApplied().rsId());
         ps.setString(2, from.lastApplied().rsId());
         ps.setLong(3, from.lastApplied().ssn());
-        ps.setLong(4, from.lastApplied().scn());
+        ps.setLong(4, from.scn());
         ps.setLong(5, endScn);
       } else {
         ps.setLong(1, from.scn());

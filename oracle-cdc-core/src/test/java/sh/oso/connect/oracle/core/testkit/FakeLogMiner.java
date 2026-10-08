@@ -324,13 +324,10 @@ public final class FakeLogMiner implements EventSource {
           MiningEvent e = events.get(i);
           // with a redo byte address the log is read in append order whatever the SCN; without
           // one the fake behaves like an SCN window
-          // an all-zero RS_ID is no address: the query returns those rows by SCN from the last
-          // applied record on
+          // an all-zero RS_ID is no address: the query returns those rows by SCN within the step
           boolean skip =
               from.hasRba()
-                  ? e.id().zeroRsId()
-                      ? e.scn() < from.lastApplied().scn()
-                      : from.alreadyApplied(e.id())
+                  ? e.id().zeroRsId() ? e.scn() < from.scn() : from.alreadyApplied(e.id())
                   : e.scn() < from.scn();
           if (skip) {
             continue;

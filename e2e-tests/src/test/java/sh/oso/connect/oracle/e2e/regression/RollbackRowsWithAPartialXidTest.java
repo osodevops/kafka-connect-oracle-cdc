@@ -109,6 +109,37 @@ class RollbackRowsWithAPartialXidTest {
   }
 
   @Test
+  void aPartialXidRollbackAfterASavepointUndoDoesNotEndTheTransaction() throws Exception {
+    // the rows LogMiner returned live for 3.3.710 (7 October 2026): undo rows of a rollback to a
+    // savepoint and a ROLLBACK row with the partial XID and no redo byte address, then the
+    // transaction carried on and committed; mined again from the archived log, the same rows
+    // carried the full XID and there was no ROLLBACK row
+    ScriptedEngine s = new ScriptedEngine();
+    TxKey a = s.fake.tx(3, 3, 710);
+    s.fake
+        .start(a, "APP")
+        .dmlWithRowId(
+            a, Operation.INSERT, ScriptedEngine.ORDERS, ScriptedEngine.insert(1, "kept"), "R1")
+        .dmlWithRowId(
+            a, Operation.INSERT, ScriptedEngine.ORDERS, ScriptedEngine.insert(2, "undone"), "R2")
+        .undo(partialOf(a), Operation.DELETE, ScriptedEngine.ORDERS, "delete", "R2")
+        .zeroRsId()
+        .rollback(partialOf(a))
+        .dmlWithRowId(
+            a, Operation.INSERT, ScriptedEngine.ORDERS, ScriptedEngine.insert(3, "after"), "R3")
+        .commit(a);
+    s.safeEnd = s.fake.nextScn() + 1;
+    CaptureEngine e = s.engine(3);
+    s.runUntilIdle(e);
+
+    assertThat(s.committed).extracting(CommittedTransaction::key).containsExactly(a);
+    assertThat(s.committed.get(0).events())
+        .extracting(RowChange::rowId)
+        .as("the transaction survives the ROLLBACK row of its rollback to a savepoint")
+        .containsExactly("R1", "R3");
+  }
+
+  @Test
   void aPartialXidRowWhoseSlotHasNoOpenTransactionIsDropped() throws Exception {
     ScriptedEngine s = new ScriptedEngine();
     TxKey a = s.fake.tx(1, 1, 1);

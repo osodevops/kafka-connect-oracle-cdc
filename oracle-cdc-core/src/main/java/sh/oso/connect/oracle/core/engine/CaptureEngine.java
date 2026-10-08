@@ -647,8 +647,31 @@ public final class CaptureEngine {
         }
         metrics.decodeFailures.incrementAndGet();
         sink.unsupported(u);
+      } else if (e instanceof MiningEvent.Other o
+          && PartialXidResolver.PARTIAL_ROLLBACK.equals(o.operation())) {
+        partialRollback(o);
       }
-      // MissingScn never reaches here (the runner stops); Other and LogBoundary are ignored
+      // MissingScn never reaches here (the runner stops); other Other rows and LogBoundary are
+      // ignored
+    }
+  }
+
+  /**
+   * ADR-0022: a ROLLBACK row with the partial XID ends its transaction only when every buffered
+   * change of it has been undone, as the undo rows of a full rollback leave it; otherwise it closed
+   * a rollback to a savepoint and the transaction carries on. A transaction that really rolled back
+   * with changes still buffered (an undo row that matched nothing) waits for the orphan check,
+   * which releases it only once the database no longer has it open. A spilled transaction resolves
+   * its undo rows at commit, so it is left alone.
+   */
+  private void partialRollback(MiningEvent.Other o) {
+    boolean emptied =
+        buffer.open().stream()
+            .filter(t -> t.key().equals(o.tx()))
+            .anyMatch(t -> t.events() == 0 && t.spilledBytes() == 0);
+    if (emptied) {
+      lobs.discard(o.tx());
+      buffer.rollback(new MiningEvent.Rollback(o.tx(), o.id(), 0, null));
     }
   }
 

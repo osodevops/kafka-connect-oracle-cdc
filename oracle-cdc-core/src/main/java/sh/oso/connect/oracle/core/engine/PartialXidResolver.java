@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import sh.oso.connect.oracle.core.mining.event.MiningEvent;
 import sh.oso.connect.oracle.core.mining.step.StepOutcome;
+import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.TxKey;
 
 /**
@@ -32,6 +33,12 @@ import sh.oso.connect.oracle.core.model.TxKey;
  * segment and slot: one buffered before the step, or one whose rows came earlier in the step. A row
  * whose slot has no open transaction undoes nothing that was captured and is dropped. The pairing
  * is only ever made against transactions open at that moment, never kept as an identity.
+ *
+ * <p>A ROLLBACK row with the partial XID does not mean the transaction ended: mined live from the
+ * online log, LogMiner also writes one at the end of a rollback to a savepoint, after which the
+ * transaction carries on and commits (3.3.710 on 7 October 2026; mined again from the archived log
+ * the same transaction had no ROLLBACK row). Such a row becomes {@link #PARTIAL_ROLLBACK}, which
+ * the engine applies only when nothing of the transaction is left buffered.
  */
 final class PartialXidResolver {
 
@@ -40,6 +47,9 @@ final class PartialXidResolver {
       return new Slot(k.srcConId(), k.xid().usn(), k.xid().slot());
     }
   }
+
+  /** The operation name of a ROLLBACK row that came with the partial XID. */
+  static final String PARTIAL_ROLLBACK = "PARTIAL_ROLLBACK";
 
   private long dropped;
 
@@ -79,6 +89,11 @@ final class PartialXidResolver {
         TxKey live = active.get(Slot.of(tx));
         if (live == null) {
           dropped++;
+          continue;
+        }
+        if (e instanceof MiningEvent.Rollback) {
+          // may close a rollback to a savepoint rather than the transaction: the slot stays open
+          out.add(new MiningEvent.Other(live, e.id(), Operation.ROLLBACK, PARTIAL_ROLLBACK));
           continue;
         }
         e = e.withTx(live);
