@@ -151,6 +151,59 @@ public final class CaptureEngine {
     this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
   }
 
+  /** The redo threads this task is qualified for; events from any other thread stop it. */
+  private java.util.Set<Integer> expectedThreads;
+
+  /**
+   * ADR-0023: the enabled redo threads the start-time topology check accepted. A mined event from
+   * another thread (one enabled after the start) stops the task before the event is buffered.
+   */
+  public CaptureEngine withExpectedThreads(java.util.Set<Integer> threads) {
+    this.expectedThreads = java.util.Set.copyOf(threads);
+    return this;
+  }
+
+  /** ADR-0023: redo from a thread the start did not qualify stops the task, nothing buffered. */
+  private void requireQualifiedThread(MiningEvent e) {
+    int thread = threadOf(e);
+    if (expectedThreads != null && thread > 0 && !expectedThreads.contains(thread)) {
+      throw new sh.oso.connect.oracle.core.errors.TopologyException(
+          "Redo from thread "
+              + thread
+              + " appeared at SCN "
+              + e.scn()
+              + ", but the start qualified thread "
+              + expectedThreads.stream()
+                  .sorted()
+                  .map(String::valueOf)
+                  .collect(java.util.stream.Collectors.joining(", "))
+              + " only. A thread enabled after the start cannot be placed by one cursor, so"
+              + " nothing of it was buffered.",
+          "The database now has more than one enabled redo thread; this release captures a single"
+              + " thread (ADR-0023). Restart against a single-instance database.");
+    }
+  }
+
+  /** The redo thread an event was mined from; -1 for rows that carry none. */
+  static int threadOf(MiningEvent e) {
+    if (e instanceof MiningEvent.TxStart s) {
+      return s.thread();
+    } else if (e instanceof MiningEvent.Dml d) {
+      return d.thread();
+    } else if (e instanceof MiningEvent.Commit c) {
+      return c.thread();
+    } else if (e instanceof MiningEvent.Rollback r) {
+      return r.thread();
+    } else if (e instanceof MiningEvent.Ddl d) {
+      return d.thread();
+    } else if (e instanceof MiningEvent.MissingScn m) {
+      return m.thread();
+    } else if (e instanceof MiningEvent.LogBoundary b) {
+      return b.thread();
+    }
+    return -1;
+  }
+
   /** SCH-5: which tables are captured; DDL on the others is ignored without classification. */
   public CaptureEngine withCapturedTables(
       java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured) {
@@ -570,6 +623,7 @@ public final class CaptureEngine {
 
   private void apply(StepOutcome outcome) throws SQLException {
     for (MiningEvent e : outcome.events()) {
+      requireQualifiedThread(e);
       metrics.eventsApplied.incrementAndGet();
       if (e instanceof MiningEvent.TxStart s) {
         buffer.start(s);

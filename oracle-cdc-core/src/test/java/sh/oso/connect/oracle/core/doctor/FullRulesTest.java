@@ -96,7 +96,7 @@ class FullRulesTest {
             "DOC-18", "DOC-19", "DOC-20", "DOC-21", "DOC-22");
     assertThat(r.findings()).extracting(Finding::severity).containsOnly(Severity.INFO);
     assertThat(r.exitCode()).isEqualTo(Report.EXIT_OK);
-    assertThat(Rules.fastMode()).hasSize(11);
+    assertThat(Rules.fastMode()).hasSize(12);
   }
 
   @Test

@@ -1,12 +1,13 @@
 ---
 title: "CDC-5001 Topology change"
-description: "Runbook for CDC-5001 TOPOLOGY: the stored offset belongs to another database incarnation, or there is no valid archive destination to mine."
+description: "Runbook for CDC-5001 TOPOLOGY: the stored offset belongs to another database incarnation, there is no valid archive destination to mine, or the database has more than one enabled redo thread."
 slug: /runbooks/topology
 ---
 
 # CDC-5001 Topology change
 
-**Code:** `CDC-5001` (`TOPOLOGY`). Raised at task start. Not retried.
+**Code:** `CDC-5001` (`TOPOLOGY`). Raised at task start, or during the run when a second redo
+thread appears. Not retried.
 
 ## What the connector observed
 
@@ -20,6 +21,13 @@ One of these, and the message says which:
   flashback, or an offset copied from another connector.
 - **No archive destination to mine.** `cdc.archive.destination` names a destination that is not
   active, or, with the setting empty, no valid local archive destination exists.
+- **More than one enabled redo thread (RAC).** "The database has N enabled redo threads (thread 1
+  OPEN, thread 2 OPEN)" at start, or "Redo from thread N appeared" during the run when an
+  instance's thread was enabled after the start. This release captures a single redo thread: the
+  mining cursor and the commit order are per thread, so with two threads the connector would skip
+  or repeat whole threads. It stops instead, and the step that carried the foreign redo is never
+  acknowledged. A thread shown DISABLED by `V$THREAD`, left behind by an instance removed from the
+  cluster, does not count.
 
 The steps below use Kafka Connect's REST API; [`oracle-cdc-admin offsets`](../admin.md) shows and
 sets the stored offset as well.
@@ -28,13 +36,15 @@ sets the stored offset as well.
 
 A position is an SCN and a redo address in one database incarnation. In another incarnation the
 same numbers point at different changes, so resuming would skip or repeat changes at random.
-Without an archive destination, the connector cannot list the logs it must mine.
+Without an archive destination, the connector cannot list the logs it must mine. With two
+enabled redo threads, no position in the offset could say where each thread stands.
 
 ## Confirm the cause
 
 ```sql
 SELECT dbid, name, resetlogs_change#, resetlogs_time, database_role, open_mode FROM v$database;
 SELECT dest_id, dest_name, status, type, destination FROM v$archive_dest_status WHERE status <> 'INACTIVE';
+SELECT thread#, status, enabled, sequence# FROM v$thread;
 ```
 
 Compare `DBID` and `RESETLOGS_CHANGE#` with `dbid` and `resetlogs_scn` in the stored offset:
@@ -57,6 +67,12 @@ curl -s "$CONNECT/connectors/$NAME/offsets"
 - **Archive destination.** Set `cdc.archive.destination` to the name of a valid destination (for
   example `LOG_ARCHIVE_DEST_1`), or leave it empty to use the lowest valid local destination, and
   make sure one is valid (`oracle-cdc-doctor check`, rule DOC-12). Then restart the task.
+
+- **More than one enabled redo thread.** Run the connector against a single-instance database.
+  If the second thread belongs to an instance that has left the cluster for good, a DBA can
+  disable it (`ALTER DATABASE DISABLE THREAD n` once its redo is archived), after which the
+  connector starts. RAC capture arrives with the per-thread position; `oracle-cdc-doctor check`
+  reports the same condition as DOC-13.
 
 ```bash
 curl -s -X PUT "$CONNECT/connectors/$NAME/stop"

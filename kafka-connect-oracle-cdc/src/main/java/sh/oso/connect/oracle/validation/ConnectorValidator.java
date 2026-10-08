@@ -103,6 +103,8 @@ public final class ConnectorValidator {
         return CoreConfig.DATABASE_USER;
       case "DOC-12":
         return CoreConfig.ARCHIVE_DESTINATION;
+      case "DOC-13":
+        return CoreConfig.DATABASE_HOST; // the database, not a setting, is the problem
       case "DOC-14":
         return CoreConfig.CAPTURE_MODE;
       default:

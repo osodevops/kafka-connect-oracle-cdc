@@ -131,7 +131,7 @@ fill and halt the database. How long archived logs must stay is covered in
 | Platform | Status |
 |---|---|
 | On-premises and self-managed cloud VMs, single instance, CDB or non-CDB | Supported; `setup-sql --platform onprem` (the default) |
-| Oracle RAC | Not supported yet. The log inventory already checks every redo thread, but RAC is not qualified |
+| Oracle RAC | Not supported yet. A database with more than one enabled redo thread is refused at start (CDC-5001, doctor rule DOC-13) until the per-thread position ships; a DISABLED thread left by a removed instance is fine |
 | Amazon RDS for Oracle | Not supported yet; `setup-sql --platform rds` prints a notice and exits with code 3 |
 | Autonomous Database | Not supported yet; `setup-sql --platform autonomous` prints a notice and exits with code 3 |
 | Physical standby | Not qualified. `cdc.capture.mode=archive_only` mines archived logs only, which is what standby capture needs, but it is tested on primary databases only |

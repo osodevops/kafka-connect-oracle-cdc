@@ -206,6 +206,11 @@ final class TaskHarness implements AutoCloseable {
             return IDENTITY;
           }
 
+          public sh.oso.connect.oracle.core.topology.Topology topology() {
+            return new sh.oso.connect.oracle.core.topology.Topology(
+                catalog.database, catalog.threads(), catalog.pdbs(), 1);
+          }
+
           public long currentScn() {
             return currentScn;
           }
@@ -280,7 +285,9 @@ final class TaskHarness implements AutoCloseable {
                             new LogInventory(catalog, CoreConfig.CaptureMode.ONLINE, 1),
                             () -> safeEnd),
                     Instant::now)
-                .withColumnFilter(cfg.columnFilter()); // as JdbcEngineFactory wires it
+                .withColumnFilter(cfg.columnFilter()) // as JdbcEngineFactory wires it
+                .withExpectedThreads(
+                    sh.oso.connect.oracle.core.topology.TopologyGuard.qualifiedThreads(topology()));
           }
 
           public void close() {}

@@ -104,6 +104,11 @@ transaction.
 
 ### In flight, not committed
 
+- 8 October 2026, ADR-0023: the task now probes the topology before reading an offset and refuses
+  a database with more than one enabled redo thread (CDC-5001); DOC-13 is blocking in fast mode.
+  Before this nothing stopped a RAC database from mining with one cursor. The full plan for RDS,
+  standby, RAC and per-PDB capture is in Sion's plan file (`cuddly-coalescing-pixel.md`).
+
 Nothing uncommitted. Still open:
 
 - **Nightly tier, 6 October 2026, Mac awake.** Every suite passes: broker restart, abandoned

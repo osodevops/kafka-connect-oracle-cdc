@@ -200,6 +200,30 @@ class OracleCdcSourceTaskTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("rac-single-thread")
+  void refusesADatabaseWithTwoEnabledRedoThreadsAtStart() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      // ADR-0023: the shape is checked before any offset is read, so nothing is mined
+      h.catalog.threads.add(new sh.oso.connect.oracle.core.topology.ThreadInfo(2, true, "OPEN", 3));
+      assertThatThrownBy(h::start)
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-5001")
+          .hasMessageContaining("2 enabled redo threads (thread 1 OPEN, thread 2 OPEN)");
+    }
+    try (TaskHarness h = new TaskHarness()) {
+      // a disabled thread is an instance that left the cluster: a single-thread database
+      h.catalog.threads.add(
+          new sh.oso.connect.oracle.core.topology.ThreadInfo(2, false, "CLOSED", 3));
+      TxKey a = h.fake.tx(1, 1, 1);
+      h.fake.start(a, "APP").insert(a, TaskHarness.T, "a1").commit(a);
+      h.safeEnd = h.fake.nextScn();
+      h.start();
+      assertThat(h.pollUntil(1, 5000)).hasSize(1);
+      h.task().stop();
+    }
+  }
+
+  @Test
   void rejectsAnOffsetFromAnotherDatabaseAndSurfacesEngineFailures() throws Exception {
     try (TaskHarness h = new TaskHarness()) {
       TxKey a = h.fake.tx(1, 1, 1);

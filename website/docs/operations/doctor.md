@@ -63,7 +63,7 @@ worker to validate the configuration.
 | DOC-10 | Archived redo reaches back at least `cdc.txjournal.threshold.ms` plus the planned maximum downtime (`--max-downtime`, default 24 hours) | warning; info until a log has been deleted | no |
 | DOC-11 | `UNDO_RETENTION` of at least 120 seconds, the longest a snapshot chunk read is expected to take | warning | no |
 | DOC-12 | A valid local archive destination (or the configured one) | blocking | yes |
-| DOC-13 | RAC: redo threads and whether each is enabled; `cdc.database.fan.enabled` | info | no |
+| DOC-13 | RAC: more than one enabled redo thread, which the task refuses at start; `cdc.database.fan.enabled` | blocking | yes |
 | DOC-14 | PRIMARY and READ WRITE for online capture mode | blocking | yes |
 | DOC-15 | Oracle Database 19c or later | blocking | yes |
 | DOC-16 | Fixed-object statistics present | warning | no |
@@ -85,8 +85,11 @@ Notes on individual rules:
 - DOC-10 measures how far back the oldest archived log still present reaches on every enabled
   thread. Until the catalog lists a deleted log, retention has not been exercised and the rule
   only reports what it needs.
-- DOC-13: the connector is qualified for a single redo thread only. RAC capture is not available
-  yet, and the connector does not subscribe to FAN events.
+- DOC-13: the connector is qualified for a single redo thread only. A database with more than one
+  enabled redo thread is refused at start with CDC-5001 (see the
+  [topology runbook](runbooks/topology.md)); a thread that `V$THREAD` shows DISABLED, left behind
+  by an instance removed from the cluster, is fine. RAC capture is not available yet, and the
+  connector does not subscribe to FAN events.
 - DOC-19: the connector's connections use TCP keepalive. Without `oracle.net.TCP_KEEPIDLE` the
   operating system's idle time applies (two hours by default on Linux), which is longer than the
   idle timeout of an AWS Network Load Balancer (350 seconds) or an Azure Load Balancer (four

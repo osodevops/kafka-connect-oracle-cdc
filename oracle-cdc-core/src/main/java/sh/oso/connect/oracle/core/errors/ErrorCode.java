@@ -106,8 +106,9 @@ public enum ErrorCode {
       "CDC-5001",
       "topology",
       false,
-      "The stored offset belongs to another database (DBID or RESETLOGS changed), or no valid"
-          + " archive destination can be mined."),
+      "The stored offset belongs to another database (DBID or RESETLOGS changed), no valid"
+          + " archive destination can be mined, or the database has more than one enabled redo"
+          + " thread (RAC), which this release does not capture."),
   /** ORA-01031 or ORA-00942 on a required view or package. */
   PRIVILEGE(
       "CDC-5002",

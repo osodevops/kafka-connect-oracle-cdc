@@ -47,6 +47,9 @@ public interface EngineFactory {
   interface Session extends AutoCloseable {
     DatabaseIdentity identity();
 
+    /** CORE-CONN-5: the database shape at this start, which ADR-0023 checks before any offset. */
+    sh.oso.connect.oracle.core.topology.Topology topology();
+
     long currentScn();
 
     /**

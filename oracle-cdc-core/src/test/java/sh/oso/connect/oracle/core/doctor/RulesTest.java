@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.topology.ArchiveDestination;
 import sh.oso.connect.oracle.core.topology.DatabaseInfo;
+import sh.oso.connect.oracle.core.topology.ThreadInfo;
 
 class RulesTest {
 
@@ -59,6 +60,33 @@ class RulesTest {
         List.of("FREEPDB1\\.APP\\..*"),
         List.of("FREEPDB1\\.APP\\.SKIP.*"),
         keyMissing);
+  }
+
+  @Test
+  void aSecondEnabledRedoThreadIsBlockingInFastMode() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.tables.add(table("ORDERS", true, true, List.of(ID)));
+    cat.base.threads.add(new ThreadInfo(2, true, "OPEN", 3));
+    Report r = new Doctor(Rules.fastMode()).run(ctx(cat, "fail"));
+    assertThat(r.findings())
+        .filteredOn(f -> f.rule().equals("DOC-13"))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.BLOCKING);
+    assertThat(r.findings())
+        .filteredOn(f -> f.rule().equals("DOC-13"))
+        .extracting(Finding::message)
+        .allMatch(m -> m.contains("2 enabled redo threads (thread 1 OPEN, thread 2 OPEN)"))
+        .allMatch(m -> m.contains("CDC-5001"));
+    assertThat(r.exitCode()).isEqualTo(Report.EXIT_BLOCKING);
+
+    // a disabled second thread (an instance removed from the cluster) is information only
+    cat.base.threads.set(1, new ThreadInfo(2, false, "CLOSED", 3));
+    Report info = new Doctor(Rules.fastMode()).run(ctx(cat, "fail"));
+    assertThat(info.findings())
+        .filteredOn(f -> f.rule().equals("DOC-13"))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.INFO);
+    assertThat(info.exitCode()).isEqualTo(Report.EXIT_OK);
   }
 
   @Test

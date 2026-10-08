@@ -61,6 +61,7 @@ public final class Rules {
         longNames(),
         keys(),
         archiveDestination(),
+        rac(),
         roleAndOpenMode(),
         version(),
         avroNames());
@@ -759,22 +760,28 @@ public final class Rules {
         ctx -> {
           List<ThreadInfo> threads = ctx.catalog().threads();
           List<Finding> out = new ArrayList<>();
-          if (threads.size() > 1) {
-            StringBuilder sb = new StringBuilder();
-            for (ThreadInfo t : threads) {
-              sb.append(sb.length() == 0 ? "" : ", ")
-                  .append("thread ")
-                  .append(t.thread())
-                  .append(' ')
-                  .append(t.enabled() ? t.status() : "disabled");
-            }
+          long enabled = threads.stream().filter(ThreadInfo::enabled).count();
+          if (enabled > 1) {
+            // ADR-0023: the task refuses this shape at start with CDC-5001
+            out.add(
+                Finding.blocking(
+                    "DOC-13",
+                    "RAC with "
+                        + enabled
+                        + " enabled redo threads ("
+                        + sh.oso.connect.oracle.core.topology.TopologyGuard.describe(threads)
+                        + "). This release captures a single redo thread: with one cursor the"
+                        + " connector would skip or repeat whole threads, so the task refuses to"
+                        + " start (CDC-5001). RAC capture is planned for Phase 2.",
+                    null));
+          } else if (threads.size() > 1) {
             out.add(
                 Finding.info(
                     "DOC-13",
                     "RAC with "
                         + threads.size()
                         + " redo threads ("
-                        + sb
+                        + sh.oso.connect.oracle.core.topology.TopologyGuard.describe(threads)
                         + "). The connector requires the logs of every enabled thread and does"
                         + " not wait for a disabled one. This release is qualified for a single"
                         + " redo thread; RAC capture is planned for Phase 2."));

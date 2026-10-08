@@ -76,6 +76,19 @@ public final class FakeLogMiner implements EventSource {
   private Long lateScn;
   private boolean zeroRsId;
 
+  /** The redo thread stamped on the events scripted from now on; 1 until {@link #onThread}. */
+  private int thread = 1;
+
+  /**
+   * Events scripted from now on carry redo thread {@code thread}, as rows of another RAC instance
+   * would. The redo byte addresses keep one counter across threads, so the cursor still sees every
+   * event in script order.
+   */
+  public FakeLogMiner onThread(int thread) {
+    this.thread = thread;
+    return this;
+  }
+
   private RedoRecordId id() {
     long scn = lateScn != null ? lateScn : nextScn++;
     lateScn = null;
@@ -114,7 +127,7 @@ public final class FakeLogMiner implements EventSource {
   }
 
   public FakeLogMiner start(TxKey tx, String user) {
-    return add(new MiningEvent.TxStart(tx, id(), 1, user, null, 10, 1, Instant.EPOCH));
+    return add(new MiningEvent.TxStart(tx, id(), thread, user, null, 10, 1, Instant.EPOCH));
   }
 
   public FakeLogMiner insert(TxKey tx, TableId t, String sql) {
@@ -135,7 +148,7 @@ public final class FakeLogMiner implements EventSource {
         new MiningEvent.Dml(
             tx,
             id(),
-            1,
+            thread,
             op,
             t,
             100,
@@ -156,7 +169,7 @@ public final class FakeLogMiner implements EventSource {
         new MiningEvent.Dml(
             tx,
             id(),
-            1,
+            thread,
             op,
             t,
             100,
@@ -177,7 +190,7 @@ public final class FakeLogMiner implements EventSource {
         new MiningEvent.Dml(
             tx,
             id(),
-            1,
+            thread,
             op,
             t,
             100,
@@ -226,11 +239,11 @@ public final class FakeLogMiner implements EventSource {
   }
 
   public FakeLogMiner commit(TxKey tx) {
-    return add(new MiningEvent.Commit(tx, id(), 1, Instant.EPOCH));
+    return add(new MiningEvent.Commit(tx, id(), thread, Instant.EPOCH));
   }
 
   public FakeLogMiner rollback(TxKey tx) {
-    return add(new MiningEvent.Rollback(tx, id(), 1, Instant.EPOCH));
+    return add(new MiningEvent.Rollback(tx, id(), thread, Instant.EPOCH));
   }
 
   public FakeLogMiner ddl(TxKey tx, TableId t, long dataObj, String sql) {
@@ -238,7 +251,7 @@ public final class FakeLogMiner implements EventSource {
         new MiningEvent.Ddl(
             tx,
             id(),
-            1,
+            thread,
             t.pdb(),
             t.schema(),
             t.table(),
@@ -252,11 +265,11 @@ public final class FakeLogMiner implements EventSource {
   }
 
   public FakeLogMiner logBoundary(long sequence) {
-    return add(new MiningEvent.LogBoundary(id(), 1, sequence));
+    return add(new MiningEvent.LogBoundary(id(), thread, sequence));
   }
 
   public FakeLogMiner missingScn() {
-    return add(new MiningEvent.MissingScn(id(), 1, "missing redo"));
+    return add(new MiningEvent.MissingScn(id(), thread, "missing redo"));
   }
 
   /** Throws {@code t} when a cursor reaches event {@code index} (0-based, in the full script). */

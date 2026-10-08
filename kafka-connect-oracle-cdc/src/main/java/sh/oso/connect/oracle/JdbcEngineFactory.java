@@ -47,9 +47,11 @@ import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.schema.JdbcDictionaryReader;
 import sh.oso.connect.oracle.core.schema.KeySelector;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
-import sh.oso.connect.oracle.core.topology.ArchiveDestination;
 import sh.oso.connect.oracle.core.topology.DatabaseInfo;
 import sh.oso.connect.oracle.core.topology.JdbcCatalogSource;
+import sh.oso.connect.oracle.core.topology.Topology;
+import sh.oso.connect.oracle.core.topology.TopologyGuard;
+import sh.oso.connect.oracle.core.topology.TopologyProbe;
 
 /** Wires the real engine: metadata and mining connections, inventory, resolver, registry. */
 public final class JdbcEngineFactory implements EngineFactory {
@@ -83,6 +85,7 @@ public final class JdbcEngineFactory implements EngineFactory {
     private volatile Connection reselect; // cdc.lob.mode=reselect only, opened on first use
     private final JdbcCatalogSource catalog;
     private DatabaseInfo info;
+    private volatile Topology topology;
     private final SchemaRegistry schemas;
     private volatile LogMinerEventSource source;
     private volatile ResolvedObjects objects;
@@ -150,6 +153,20 @@ public final class JdbcEngineFactory implements EngineFactory {
     @Override
     public DatabaseIdentity identity() {
       return new DatabaseIdentity(info.dbid(), info.resetlogsChangeScn());
+    }
+
+    /** Probed once per session: V$DATABASE, V$THREAD, V$PDBS and the archive destination. */
+    @Override
+    public Topology topology() {
+      if (topology == null) {
+        try {
+          topology =
+              new TopologyProbe(catalog, core.getString(CoreConfig.ARCHIVE_DESTINATION)).probe();
+        } catch (SQLException e) {
+          throw classifier.toException(e, "probing the database topology");
+        }
+      }
+      return topology;
     }
 
     @Override
@@ -223,7 +240,8 @@ public final class JdbcEngineFactory implements EngineFactory {
     public CaptureEngine engine(
         Position start, EventSink sink, sh.oso.connect.oracle.journal.BufferSetup setup)
         throws Exception {
-      int destId = archiveDestination();
+      Topology shape = topology();
+      int destId = shape.archiveDestId();
       LogInventory inventory = new LogInventory(catalog, core.captureMode(), destId);
       ObjectIdResolver resolver =
           new ObjectIdResolver(
@@ -334,6 +352,8 @@ public final class JdbcEngineFactory implements EngineFactory {
                   ? sh.oso.connect.oracle.core.orphan.OrphanDetector.Action.FAIL
                   : sh.oso.connect.oracle.core.orphan.OrphanDetector.Action.RELEASE,
               start.released()));
+      // ADR-0023: redo from a thread the start did not qualify stops the task
+      engine.withExpectedThreads(TopologyGuard.qualifiedThreads(shape));
       return engine;
     }
 
@@ -380,7 +400,7 @@ public final class JdbcEngineFactory implements EngineFactory {
         databaseNow = rs.getTimestamp(1).toLocalDateTime();
       }
       boolean none =
-          new LogInventory(catalog, core.captureMode(), archiveDestination())
+          new LogInventory(catalog, core.captureMode(), topology().archiveDestId())
               .dictionaryBuildBefore(Long.MAX_VALUE)
               .isEmpty();
       Duration delay =
@@ -409,31 +429,6 @@ public final class JdbcEngineFactory implements EngineFactory {
           intervalMs,
           delay.toMinutes(),
           none ? "; one now, as the archived logs hold none" : "");
-    }
-
-    /** The configured destination by name, else the lowest valid local one (DOC-12). */
-    private int archiveDestination() throws SQLException {
-      String wanted = core.getString(CoreConfig.ARCHIVE_DESTINATION);
-      List<ArchiveDestination> dests = catalog.archiveDestinations();
-      if (wanted != null && !wanted.isBlank()) {
-        for (ArchiveDestination d : dests) {
-          if (d.name().equalsIgnoreCase(wanted)) {
-            return d.destId();
-          }
-        }
-        throw new sh.oso.connect.oracle.core.errors.TopologyException(
-            "Archive destination " + wanted + " does not exist",
-            "Set cdc.archive.destination to a name from V$ARCHIVE_DEST_STATUS or leave it empty.");
-      }
-      return dests.stream()
-          .filter(ArchiveDestination::validLocal)
-          .mapToInt(ArchiveDestination::destId)
-          .min()
-          .orElseThrow(
-              () ->
-                  new sh.oso.connect.oracle.core.errors.TopologyException(
-                      "No valid local archive destination",
-                      "Configure log_archive_dest_n with a LOCATION (doctor rule DOC-12)."));
     }
 
     /**

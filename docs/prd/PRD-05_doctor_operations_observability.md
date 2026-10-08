@@ -37,7 +37,7 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | DOC-10 | Archive retention shorter than `cdc.txjournal.threshold.ms` plus planned maximum downtime | Warning |
 | DOC-11 | `UNDO_RETENTION` below the longest expected chunk read | Warning |
 | DOC-12 | Archive destination valid and readable for all threads | Blocking |
-| DOC-13 | RAC: all threads enabled; FAN availability | Info |
+| DOC-13 | RAC: more than one enabled redo thread is refused until the per-thread position exists (ADR-0023); FAN availability | Blocking (RAC), Info otherwise |
 | DOC-14 | Database role and open mode match `cdc.capture.mode` | Blocking |
 | DOC-15 | Version and RU supported (matrix in docs); per-PDB mining needs 19c RU10 or later | Blocking |
 | DOC-16 | Fixed-object statistics present (affects LogMiner view performance) | Warning |
