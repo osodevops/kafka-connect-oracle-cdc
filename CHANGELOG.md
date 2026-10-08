@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.1](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.0...v0.1.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **core:** a ROLLBACK row with a partial XID ends a transaction only when all of it was undone ([61c6bb3](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/61c6bb3f895c64ba7e54bc0161f6c6297fedc199))
+* **core:** rollback rows with a partial XID reach the transaction open in their undo slot ([4ea01cb](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/4ea01cba888de6bc4e33be2d2b29ec1602a3acde))
+
+
+### Documentation
+
+* **adr,prd:** ADR-0022, rows with a partial XID belong to the open transaction of their undo slot ([760abd2](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/760abd2a134db63dd2b0ac44223215c124aba445))
+* **adr:** ADR-0022 amendment for the savepoint ROLLBACK row; ADR-0014 zero rows per step ([7a691f3](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/7a691f38ba860ff35f0db2d484cbcf9a30eaf6b0))
+* **handover:** first CI on GitHub, zero RS_ID fix, release 0.1.0 under way ([21ad17f](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/21ad17f21ffc5f945178215196af40e6b6aad3a3))
+
 ## 0.1.0 (2026-10-07)
 
 

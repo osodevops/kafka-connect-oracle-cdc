@@ -4,7 +4,7 @@
 
   <groupId>sh.oso</groupId>
   <artifactId>kafka-connect-oracle-cdc-parent</artifactId>
-  <version>0.1.1-SNAPSHOT</version>
+  <version>0.1.1</version>
   <packaging>pom</packaging>
 
   <name>OSO CDC Connector for Oracle Database (parent)</name>
