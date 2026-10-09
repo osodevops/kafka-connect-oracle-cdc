@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.5](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.4...v0.1.5) (2026-10-09)
+
+
+### Documentation
+
+* a Kafka Connect worker against RDS for Oracle 19c, killed mid-stream, loses no row ([27617d4](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/27617d42b038ebe9e4084003faf3258c0d19a2a3))
+* **handover:** 0.1.4, Connect worker qualified on RDS, Phase 3b progress ([2570a7f](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/2570a7f8818ab029db2a5192e550ece131f6da14))
+
 ## [0.1.4](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.3...v0.1.4) (2026-10-09)
 
 
