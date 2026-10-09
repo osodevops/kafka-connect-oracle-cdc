@@ -90,6 +90,81 @@ class RulesTest {
   }
 
   @Test
+  void onAmazonRdsEveryFixIsOneTheMasterUserCanRun() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.platform = sh.oso.connect.oracle.core.topology.Platform.RDS;
+    cat.rdsConfiguration.put("archivelog retention hours", "48");
+    cat.tables.add(table("ORDERS", true, true, List.of(ID)));
+    cat.base.database =
+        new DatabaseInfo(
+            1,
+            "CDCLAB",
+            false,
+            "NOARCHIVELOG",
+            "READ WRITE",
+            "PRIMARY",
+            "19.0.0.0.0",
+            1,
+            false,
+            "Linux x86 64-bit");
+    cat.inaccessible.add("V$LOGMNR_CONTENTS");
+    cat.parameters.put("undo_retention", "60");
+    cat.base.destinations.clear();
+    cat.dictionaryPackage = false;
+    Report r = new Doctor(Rules.all()).run(ctx(cat, "fail"));
+    List<Finding> withFix = r.findings().stream().filter(f -> f.fixSql() != null).toList();
+    assertThat(withFix)
+        .extracting(Finding::rule)
+        .contains("DOC-1", "DOC-2", "DOC-4", "DOC-11", "DOC-12");
+    assertThat(withFix)
+        .extracting(Finding::fixSql)
+        .noneMatch(f -> f.contains("ALTER SYSTEM"))
+        .noneMatch(f -> f.contains("ALTER DATABASE"))
+        .noneMatch(f -> f.contains("SHUTDOWN"))
+        .noneMatch(f -> f.contains("GRANT SELECT ON"));
+    assertThat(fixOf(r, "DOC-1")).contains("--backup-retention-period 1");
+    assertThat(fixOf(r, "DOC-2")).contains("alter_supplemental_logging(p_action => 'ADD')");
+    assertThat(fixOf(r, "DOC-4"))
+        .contains("grant_sys_object('V_$LOGMNR_CONTENTS', 'C##CDC', 'SELECT')");
+    assertThat(fixOf(r, "DOC-11")).contains("ParameterName=undo_retention,ParameterValue=900");
+  }
+
+  private static String fixOf(Report r, String rule) {
+    return r.findings().stream()
+        .filter(f -> f.rule().equals(rule) && f.fixSql() != null)
+        .map(Finding::fixSql)
+        .findFirst()
+        .orElseThrow();
+  }
+
+  @Test
+  void rdsArchiveRetentionMustCoverTheJournalThresholdAndTheDowntime() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    // not RDS: the rule has nothing to say
+    assertThat(new Doctor(List.of(Rules.rdsArchiveRetention())).run(ctx(cat, "fail")).findings())
+        .isEmpty();
+    cat.platform = sh.oso.connect.oracle.core.topology.Platform.RDS;
+    // the master user can read the setting; the capture user usually cannot
+    assertThat(doc23(cat)).extracting(Finding::severity).containsExactly(Severity.INFO);
+    cat.rdsConfiguration.put("archivelog retention hours", "0");
+    assertThat(doc23(cat)).extracting(Finding::severity).containsExactly(Severity.BLOCKING);
+    assertThat(doc23(cat).get(0).fixSql())
+        .contains("name  => 'archivelog retention hours'")
+        .contains("value => '25'")
+        .contains("COMMIT;");
+    cat.rdsConfiguration.put("archivelog retention hours", "24");
+    assertThat(doc23(cat)).extracting(Finding::severity).containsExactly(Severity.WARNING);
+    assertThat(doc23(cat).get(0).message()).contains("24 hours").contains("needs 25");
+    cat.rdsConfiguration.put(
+        "archivelog retention hours", String.valueOf(SetupSql.RDS_RETENTION_HOURS));
+    assertThat(doc23(cat)).as("the setup script's value satisfies the rule").isEmpty();
+  }
+
+  private List<Finding> doc23(FakeDoctorCatalog cat) {
+    return new Doctor(List.of(Rules.rdsArchiveRetention())).run(ctx(cat, "fail")).findings();
+  }
+
+  @Test
   void aCleanDatabaseHasNoFindings() {
     FakeDoctorCatalog cat = new FakeDoctorCatalog();
     cat.tables.add(table("ORDERS", true, true, List.of(ID)));
@@ -255,7 +330,7 @@ class RulesTest {
             "cdc",
             true,
             SetupSql.Profile.LAB,
-            SetupSql.Platform.ONPREM,
+            sh.oso.connect.oracle.core.topology.Platform.ONPREM,
             List.of("FREEPDB1", "FREEPDB2"));
     assertThat(lab)
         .contains("CREATE USER c##cdc IDENTIFIED BY \"cdc\" CONTAINER=ALL;")
@@ -268,7 +343,7 @@ class RulesTest {
             "secret",
             true,
             SetupSql.Profile.PRODUCTION,
-            SetupSql.Platform.ONPREM,
+            sh.oso.connect.oracle.core.topology.Platform.ONPREM,
             List.of());
     assertThat(prod)
         .doesNotContain("ALTER SYSTEM")
@@ -276,11 +351,49 @@ class RulesTest {
         .contains("SUPPLEMENTAL LOG DATA (ALL) COLUMNS");
     String nonCdb =
         SetupSql.generate(
-            "cdc", "x", false, SetupSql.Profile.PRODUCTION, SetupSql.Platform.ONPREM, List.of());
+            "cdc",
+            "x",
+            false,
+            SetupSql.Profile.PRODUCTION,
+            sh.oso.connect.oracle.core.topology.Platform.ONPREM,
+            List.of());
     assertThat(nonCdb).doesNotContain("CONTAINER").doesNotContain("SET CONTAINER");
+    String rds =
+        SetupSql.generate(
+            "cdc",
+            "secret",
+            false,
+            SetupSql.Profile.PRODUCTION,
+            sh.oso.connect.oracle.core.topology.Platform.RDS,
+            List.of());
+    assertThat(rds)
+        .contains("CREATE USER cdc IDENTIFIED BY \"secret\";")
+        .contains("GRANT LOGMINING TO cdc;")
+        .contains("rdsadmin.rdsadmin_util.grant_sys_object('DBMS_LOGMNR_D', 'CDC', 'EXECUTE');")
+        .contains("rdsadmin.rdsadmin_util.grant_sys_object('V_$LOGMNR_CONTENTS', 'CDC', 'SELECT');")
+        .contains("rdsadmin.rdsadmin_util.grant_sys_object('V_$INSTANCE', 'CDC', 'SELECT');")
+        .contains("alter_supplemental_logging(p_action => 'ADD')")
+        .contains("value => '" + SetupSql.RDS_RETENTION_HOURS + "'")
+        .contains("COMMIT;");
+    // what the master user executes, comments aside: nothing RDS refuses
+    String executable =
+        rds.lines()
+            .filter(l -> !l.startsWith("--"))
+            .collect(java.util.stream.Collectors.joining("\n"));
+    assertThat(executable)
+        .doesNotContain("CONTAINER=")
+        .doesNotContain("SET CONTAINER")
+        .doesNotContain("ALTER SYSTEM")
+        .doesNotContain("ALTER DATABASE")
+        .doesNotContain("GRANT SELECT ON");
     assertThat(
             SetupSql.generate(
-                "u", "p", true, SetupSql.Profile.PRODUCTION, SetupSql.Platform.RDS, List.of()))
+                "u",
+                "p",
+                true,
+                SetupSql.Profile.PRODUCTION,
+                sh.oso.connect.oracle.core.topology.Platform.AUTONOMOUS,
+                List.of()))
         .contains("not available yet");
   }
 }

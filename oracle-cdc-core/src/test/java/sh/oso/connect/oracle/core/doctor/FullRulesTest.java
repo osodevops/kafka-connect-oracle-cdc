@@ -93,10 +93,10 @@ class FullRulesTest {
         .containsExactly(
             "DOC-1", "DOC-2", "DOC-3", "DOC-4", "DOC-5", "DOC-6", "DOC-7", "DOC-8", "DOC-9",
             "DOC-10", "DOC-11", "DOC-12", "DOC-13", "DOC-14", "DOC-15", "DOC-16", "DOC-17",
-            "DOC-18", "DOC-19", "DOC-20", "DOC-21", "DOC-22");
+            "DOC-18", "DOC-19", "DOC-20", "DOC-21", "DOC-22", "DOC-23");
     assertThat(r.findings()).extracting(Finding::severity).containsOnly(Severity.INFO);
     assertThat(r.exitCode()).isEqualTo(Report.EXIT_OK);
-    assertThat(Rules.fastMode()).hasSize(12);
+    assertThat(Rules.fastMode()).hasSize(13);
   }
 
   @Test

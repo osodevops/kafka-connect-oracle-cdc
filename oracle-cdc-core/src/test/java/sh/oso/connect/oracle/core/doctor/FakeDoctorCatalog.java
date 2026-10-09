@@ -45,6 +45,9 @@ public final class FakeDoctorCatalog implements DoctorCatalog {
   public boolean common = true;
   public int fixedTablesWithStatistics = 1200;
   public boolean dictionaryPackage = true;
+  public sh.oso.connect.oracle.core.topology.Platform platform =
+      sh.oso.connect.oracle.core.topology.Platform.ONPREM;
+  public final Map<String, String> rdsConfiguration = new HashMap<>();
 
   @Override
   public List<CapturedTable> capturedTables(
@@ -65,6 +68,16 @@ public final class FakeDoctorCatalog implements DoctorCatalog {
   @Override
   public List<String> inaccessibleViews() {
     return inaccessible;
+  }
+
+  @Override
+  public sh.oso.connect.oracle.core.topology.Platform platform() {
+    return platform;
+  }
+
+  @Override
+  public String rdsConfiguration(String name) {
+    return rdsConfiguration.get(name);
   }
 
   @Override

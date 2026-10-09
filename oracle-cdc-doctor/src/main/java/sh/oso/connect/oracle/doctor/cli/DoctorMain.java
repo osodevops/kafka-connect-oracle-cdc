@@ -41,10 +41,10 @@ import sh.oso.connect.oracle.core.doctor.Finding;
 import sh.oso.connect.oracle.core.doctor.InternalTopic;
 import sh.oso.connect.oracle.core.doctor.Report;
 import sh.oso.connect.oracle.core.doctor.Rules;
-import sh.oso.connect.oracle.core.doctor.SetupSql.Platform;
 import sh.oso.connect.oracle.core.doctor.SetupSql.Profile;
 import sh.oso.connect.oracle.core.doctor.WorkerFacts;
 import sh.oso.connect.oracle.core.errors.OracleCdcException;
+import sh.oso.connect.oracle.core.topology.Platform;
 import sh.oso.connect.oracle.doctor.admin.ConfigFiles;
 import sh.oso.connect.oracle.doctor.admin.Database;
 import sh.oso.connect.oracle.doctor.admin.Environment;
@@ -348,10 +348,10 @@ public final class DoctorMain implements Callable<Integer>, AdminCommands.Rooted
     @Option(
         names = "--platform",
         defaultValue = "onprem",
-        description = "onprem (RDS and Autonomous arrive in later phases).")
+        description = "onprem or rds (an RDS for Oracle non-CDB); autonomous arrives later.")
     Platform platform;
 
-    @Option(names = "--user", description = "Mining user; default c##cdc.")
+    @Option(names = "--user", description = "Mining user; default c##cdc, or cdc on RDS.")
     String user;
 
     @Option(
@@ -385,7 +385,7 @@ public final class DoctorMain implements Callable<Integer>, AdminCommands.Rooted
         }
       }
       if (user == null) {
-        user = "c##cdc";
+        user = platform == Platform.RDS ? "cdc" : "c##cdc";
       }
       if (password == null) {
         password = profile == Profile.LAB ? "cdc" : "<change-me>";
@@ -399,7 +399,7 @@ public final class DoctorMain implements Callable<Integer>, AdminCommands.Rooted
               user, password, !nonCdb, profile, platform, pdbs);
       out.print(sql);
       out.flush();
-      return platform == Platform.ONPREM ? EXIT_OK : EXIT_NOT_IMPLEMENTED;
+      return platform == Platform.AUTONOMOUS ? EXIT_NOT_IMPLEMENTED : EXIT_OK;
     }
   }
 

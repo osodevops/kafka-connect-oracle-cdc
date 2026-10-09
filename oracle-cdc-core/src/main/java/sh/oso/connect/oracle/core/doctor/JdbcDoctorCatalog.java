@@ -61,6 +61,7 @@ public final class JdbcDoctorCatalog implements DoctorCatalog {
 
   private final Connection c;
   private final JdbcCatalogSource base;
+  private sh.oso.connect.oracle.core.topology.Platform platform;
 
   public JdbcDoctorCatalog(Connection metadataConnection) {
     this.c = metadataConnection;
@@ -225,6 +226,33 @@ public final class JdbcDoctorCatalog implements DoctorCatalog {
       }
     }
     return out;
+  }
+
+  @Override
+  public sh.oso.connect.oracle.core.topology.Platform platform() throws SQLException {
+    if (platform == null) {
+      platform = sh.oso.connect.oracle.core.topology.Platform.detect(c);
+    }
+    return platform;
+  }
+
+  @Override
+  public String rdsConfiguration(String name) throws SQLException {
+    if (platform() != sh.oso.connect.oracle.core.topology.Platform.RDS) {
+      return null;
+    }
+    try (PreparedStatement ps =
+        c.prepareStatement("SELECT value FROM rdsadmin.rds_configuration WHERE name = ?")) {
+      ps.setString(1, name);
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next() ? rs.getString(1) : null;
+      }
+    } catch (SQLException e) {
+      if (e.getErrorCode() == 942 || e.getErrorCode() == 1031) {
+        return null; // readable by the master user; the capture user usually cannot
+      }
+      throw e;
+    }
   }
 
   @Override

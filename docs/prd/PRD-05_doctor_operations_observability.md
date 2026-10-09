@@ -16,7 +16,7 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | Command | Purpose |
 |---|---|
 | `oracle-cdc-doctor check --config connector.json` | Run all rules; output a report (Markdown, JSON, JUnit XML for CI). Exit 0 no blocking findings, 1 blocking findings, 2 warnings only |
-| `oracle-cdc-doctor setup-sql --config connector.json` | Generate a commented SQL script for the DBA: user creation (common user in CDB), grants, supplemental logging per captured table, optional `DBMS_LOGMNR_D.BUILD` grant, recommended redo log changes. Variants for on-premises, RDS (`rdsadmin` procedures) and Autonomous |
+| `oracle-cdc-doctor setup-sql --config connector.json` | Generate a commented SQL script for the DBA: user creation (common user in CDB), grants, supplemental logging per captured table, optional `DBMS_LOGMNR_D.BUILD` grant, recommended redo log changes. Variants for on-premises and RDS non-CDB (`rdsadmin` procedures, ADR-0024); Autonomous later. The platform is detected for the doctor's fix text |
 | `oracle-cdc-doctor redo-profile --window 2h` | Mine an archived window with no table filter and report redo operations by owner, table and operation, flag truncate-and-reload patterns, and estimate what share of mined rows the connector would discard (the Pepkor diagnosis, automated; see [Debezium blog](https://debezium.io/blog/2026/04/20/oracle-cdc-replication-lag/)) |
 | `oracle-cdc-doctor sizing` | Log switch rate per thread over 7 days, archive generation per day, recommended online log size and archive retention for a stated maximum downtime |
 | `oracle-cdc-doctor explain-lag --connect-url` | Read connector metrics and break lag into mining query, fetch, decode, buffer wait, emit and Kafka produce time, with the top cause in plain English |
@@ -47,8 +47,9 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | DOC-20 | Dictionary build privilege present (enables DDL lag recovery) | Info |
 | DOC-21 | Every pluggable database open, with a saved state (a closed PDB stops mining with ORA-16331, ADR-0021) | Warning or info |
 | DOC-22 | With an Avro converter on the connector, captured names Avro refuses need the name adjustment modes (ADR-0020) | Blocking (columns) or warning |
+| DOC-23 | Amazon RDS: `archivelog retention hours` covers the journal threshold plus the planned downtime (ADR-0024) | Blocking at 0, warning below the need, info when unreadable |
 
-The connector's `validate()` runs DOC-1 to DOC-7, DOC-12, DOC-14, DOC-15, DOC-17, DOC-18 and DOC-22 in fast mode.
+The connector's `validate()` runs DOC-1 to DOC-7, DOC-12 to DOC-15, DOC-22 and DOC-23 in fast mode.
 
 ## 4. `oracle-cdc-admin` (subcommands of the same CLI)
 

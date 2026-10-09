@@ -74,10 +74,22 @@ class DoctorMainTest {
   }
 
   @Test
-  void otherPlatformsAreNotImplementedYet() {
-    Run r = run("setup-sql", "--platform", "rds");
+  void autonomousDatabaseIsNotImplementedYet() {
+    Run r = run("setup-sql", "--platform", "autonomous");
     assertThat(r.exit()).isEqualTo(DoctorMain.EXIT_NOT_IMPLEMENTED);
     assertThat(r.out()).contains("not available yet");
+  }
+
+  @Test
+  void rdsScriptUsesRdsadminGrantsAndALocalUser() {
+    Run r = run("setup-sql", "--platform", "rds");
+    assertThat(r.exit()).isEqualTo(DoctorMain.EXIT_OK);
+    assertThat(r.out())
+        .contains("CREATE USER cdc IDENTIFIED BY \"<change-me>\";")
+        .contains("rdsadmin.rdsadmin_util.grant_sys_object('DBMS_LOGMNR', 'CDC', 'EXECUTE');")
+        .contains("archivelog retention hours")
+        .doesNotContain("c##")
+        .doesNotContain("CONTAINER=");
   }
 
   @Test

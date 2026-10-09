@@ -65,4 +65,13 @@ public interface DoctorCatalog extends CatalogSource {
 
   /** Whether the connected user may execute the package {@code owner.name} (DOC-20). */
   boolean canExecute(String owner, String name) throws SQLException;
+
+  /** Where the database runs (ADR-0024); fix text and DOC-23 depend on it. */
+  sh.oso.connect.oracle.core.topology.Platform platform() throws SQLException;
+
+  /**
+   * An RDS configuration value from {@code rdsadmin.rds_configuration} (DOC-23), or null when the
+   * user cannot read it or the database is not RDS.
+   */
+  String rdsConfiguration(String name) throws SQLException;
 }

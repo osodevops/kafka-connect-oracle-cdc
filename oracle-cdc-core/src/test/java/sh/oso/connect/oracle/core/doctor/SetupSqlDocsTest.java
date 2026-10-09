@@ -49,7 +49,7 @@ class SetupSqlDocsTest {
             "<change-me>",
             true,
             SetupSql.Profile.PRODUCTION,
-            SetupSql.Platform.ONPREM,
+            sh.oso.connect.oracle.core.topology.Platform.ONPREM,
             List.of());
     String expected = "\n\n```sql\n" + sql + "```\n\n";
     String text = Files.readString(PAGE, StandardCharsets.UTF_8);

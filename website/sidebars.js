@@ -51,7 +51,11 @@ const sidebars = {
       type: 'category',
       label: 'Database setup',
       link: {type: 'doc', id: 'database-setup/index'},
-      items: ['database-setup/supplemental-logging', 'database-setup/redo-sizing'],
+      items: [
+        'database-setup/supplemental-logging',
+        'database-setup/redo-sizing',
+        'database-setup/amazon-rds',
+      ],
     },
     {
       type: 'category',

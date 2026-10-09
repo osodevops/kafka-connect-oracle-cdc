@@ -64,7 +64,8 @@ public final class Rules {
         rac(),
         roleAndOpenMode(),
         version(),
-        avroNames());
+        avroNames(),
+        rdsArchiveRetention());
   }
 
   /** Every rule, in rule order: what {@code oracle-cdc-doctor check} runs by default. */
@@ -91,7 +92,8 @@ public final class Rules {
         idleTimeout(),
         lagRecovery(),
         pdbsOpen(),
-        avroNames());
+        avroNames(),
+        rdsArchiveRetention());
   }
 
   static Rule archivelog() {
@@ -105,10 +107,7 @@ public final class Rules {
                   Finding.blocking(
                       "DOC-1",
                       "The database runs in " + db.logMode() + " mode; LogMiner needs ARCHIVELOG.",
-                      "SHUTDOWN IMMEDIATE;\n"
-                          + "STARTUP MOUNT;\n"
-                          + "ALTER DATABASE ARCHIVELOG;\n"
-                          + "ALTER DATABASE OPEN;"));
+                      PlatformSql.enableArchivelog(ctx.catalog().platform())));
         });
   }
 
@@ -123,7 +122,7 @@ public final class Rules {
                         "DOC-2",
                         "Minimal supplemental logging is off at database level; LogMiner cannot"
                             + " reconstruct rows without it.",
-                        "ALTER DATABASE ADD SUPPLEMENTAL LOG DATA;")));
+                        PlatformSql.addSupplementalLogging(ctx.catalog().platform()))));
   }
 
   static Rule supplementalPerTable() {
@@ -186,12 +185,7 @@ public final class Rules {
                 Finding.blocking(
                     "DOC-4",
                     "The mining user cannot read " + v + ".",
-                    "GRANT SELECT ON "
-                        + v.replace("GV$", "GV_$").replace("V$", "V_$").replace("GV__$", "GV_$")
-                        + " TO "
-                        + user
-                        + all
-                        + ";"));
+                    PlatformSql.grantSelect(ctx.catalog().platform(), v, user, cdb)));
           }
           if (inaccessible.contains("V$DATABASE")) {
             return out; // container checks need V$DATABASE; the grant above comes first
@@ -468,8 +462,7 @@ public final class Rules {
                       "No valid local archive destination"
                           + (wanted == null || wanted.isBlank() ? "" : " named " + wanted)
                           + " in V$ARCHIVE_DEST_STATUS.",
-                      "ALTER SYSTEM SET log_archive_dest_1 = 'LOCATION=/path/to/archive'"
-                          + " SCOPE=BOTH;"));
+                      PlatformSql.archiveDestination(ctx.catalog().platform())));
         });
   }
 
@@ -602,6 +595,70 @@ public final class Rules {
     return Duration.ofMillis(Math.max(0, ctx.config().getLong(CoreConfig.TXJOURNAL_THRESHOLD_MS)));
   }
 
+  /** DOC-10's need: the journal threshold plus the planned maximum downtime, in whole hours. */
+  private static Duration requiredRetention(DoctorContext ctx) {
+    return Sizing.roundUpHours(ctx.maxDowntime().plus(journalThreshold(ctx)));
+  }
+
+  /**
+   * ADR-0024: RDS deletes archived redo after {@code archivelog retention hours}, 0 by default, so
+   * a stopped connector finds nothing to resume from beyond the online logs (CDC-2002).
+   */
+  static Rule rdsArchiveRetention() {
+    return rule(
+        "DOC-23",
+        ctx -> {
+          if (ctx.catalog().platform() != sh.oso.connect.oracle.core.topology.Platform.RDS) {
+            return List.of();
+          }
+          long need = requiredRetention(ctx).toHours();
+          String fix =
+              PlatformSql.archiveRetention(sh.oso.connect.oracle.core.topology.Platform.RDS, need);
+          String value = ctx.catalog().rdsConfiguration("archivelog retention hours");
+          if (value == null) {
+            return List.of(
+                Finding.info(
+                    "DOC-23",
+                    "Amazon RDS: the archived redo retention could not be read"
+                        + " (rdsadmin.rds_configuration). Check it as the master user with"
+                        + " rdsadmin.rdsadmin_util.show_configuration; the connector needs at least"
+                        + " "
+                        + need
+                        + " hours."));
+          }
+          long hours;
+          try {
+            hours = Long.parseLong(value.trim());
+          } catch (NumberFormatException e) {
+            hours = 0;
+          }
+          if (hours <= 0) {
+            return List.of(
+                Finding.blocking(
+                    "DOC-23",
+                    "Amazon RDS keeps no archived redo (archivelog retention hours is "
+                        + value.trim()
+                        + "): logs are deleted soon after they are archived, so a connector that"
+                        + " stops for longer than the online logs last cannot resume (CDC-2002).",
+                    fix));
+          }
+          if (hours < need) {
+            return List.of(
+                Finding.warning(
+                    "DOC-23",
+                    "Amazon RDS keeps archived redo for "
+                        + hours
+                        + " hours, but the connector needs "
+                        + need
+                        + " (cdc.txjournal.threshold.ms plus a planned maximum downtime of "
+                        + Sizing.duration(ctx.maxDowntime())
+                        + ").",
+                    fix));
+          }
+          return List.of();
+        });
+  }
+
   static Rule switchRate() {
     return rule(
         "DOC-9",
@@ -642,13 +699,7 @@ public final class Rules {
                           + ") keep that hour at about "
                           + Sizing.TARGET_SWITCHES_PER_HOUR
                           + " switches.",
-                      "-- Add groups of the recommended size, switch until the old groups are"
-                          + " INACTIVE, then drop them.\n"
-                          + "ALTER DATABASE ADD LOGFILE THREAD "
-                          + f.thread()
-                          + " SIZE "
-                          + mib
-                          + "M;"));
+                      PlatformSql.addLogfile(ctx.catalog().platform(), f.thread(), mib)));
             }
           }
           return out;
@@ -714,12 +765,7 @@ public final class Rules {
                       + need
                       + ". A connector stopped for longer finds its redo purged (CDC-2002) and"
                       + " needs oracle-cdc-admin resnapshot.",
-                  "-- In the job that deletes archived logs, keep at least "
-                      + hours
-                      + " hours, for example in RMAN:\n"
-                      + "-- DELETE ARCHIVELOG ALL COMPLETED BEFORE 'SYSDATE-"
-                      + hours
-                      + "/24';"));
+                  PlatformSql.archiveRetention(ctx.catalog().platform(), hours)));
         });
   }
 
@@ -750,7 +796,7 @@ public final class Rules {
                       + EXPECTED_CHUNK_READ.toSeconds()
                       + " s a snapshot chunk read may take; chunk reads then fail with"
                       + " ORA-01555 and are retried at half the size, down to CDC-8001.",
-                  "ALTER SYSTEM SET UNDO_RETENTION = 900 SCOPE=BOTH;"));
+                  PlatformSql.setParameter(ctx.catalog().platform(), "undo_retention", "900")));
         });
   }
 
@@ -1156,10 +1202,7 @@ public final class Rules {
           boolean builds = ctx.config().getLong(CoreConfig.DICTIONARY_BUILD_INTERVAL_MS) > 0;
           String user = ctx.config().getString(CoreConfig.DATABASE_USER);
           String grant =
-              "GRANT EXECUTE ON DBMS_LOGMNR_D TO "
-                  + user
-                  + (ctx.database().cdb() ? " CONTAINER=ALL" : "")
-                  + ";";
+              PlatformSql.grantExecute(cat.platform(), "DBMS_LOGMNR_D", user, ctx.database().cdb());
           int dest = ctx.archiveDestId();
           Optional<DictionaryBuild> build = Optional.empty();
           String broken = null;
