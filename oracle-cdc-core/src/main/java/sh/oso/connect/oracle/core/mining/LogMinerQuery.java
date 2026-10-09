@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import sh.oso.connect.oracle.core.mining.step.StepCursor;
 
 /**
  * Builds the V$LOGMNR_CONTENTS query. Three OR branches, always present (ADR-0001): row changes on
@@ -120,19 +121,51 @@ public final class LogMinerQuery {
    * returned (ADR-0014). Rows with the all-zero RS_ID, which is no address, come back by SCN within
    * the step's own range, so the address bound never hides them and no step returns one that a step
    * before it returned. Binds are then RS_ID, RS_ID, SSN, the step's start SCN, end SCN. Without it
-   * the binds are start SCN and end SCN.
+   * the binds are start SCN and end SCN. This is the thread-less form of {@link #sql(MiningFilter,
+   * List, boolean)}.
    */
   public static String sql(MiningFilter f, boolean rbaCursor, boolean inclusive) {
+    return sql(f, rbaCursor ? List.of(StepCursor.ANY_THREAD) : List.of(), inclusive);
+  }
+
+  /**
+   * The query for a cursor whose marks carry a redo byte address on {@code rbaThreads} (ADR-0026).
+   * Empty: the SCN form, binds start SCN and end SCN. Only {@link StepCursor#ANY_THREAD}: one
+   * address bound for every thread, binds RS_ID, RS_ID, SSN, start SCN, end SCN. Otherwise one term
+   * per listed thread, {@code THREAD# = t AND (RS_ID > ? OR (RS_ID = ? AND SSN > ?))}, because a
+   * redo byte address is ordered only within its thread; rows of any other thread (one with no mark
+   * yet) come back by SCN from the step's start. Binds are RS_ID, RS_ID, SSN per listed thread in
+   * order, then the start SCN for the other threads, the start SCN for all-zero RS_ID rows and the
+   * end SCN.
+   */
+  public static String sql(MiningFilter f, List<Integer> rbaThreads, boolean inclusive) {
     StringBuilder sb = new StringBuilder("SELECT ");
     sb.append(String.join(", ", COLUMNS));
-    if (rbaCursor) {
-      String op = inclusive ? ">=" : ">";
+    String op = inclusive ? ">=" : ">";
+    if (rbaThreads.isEmpty()) {
+      sb.append(" FROM V$LOGMNR_CONTENTS WHERE SCN >= ? AND SCN < ? AND (");
+    } else if (rbaThreads.equals(List.of(StepCursor.ANY_THREAD))) {
       sb.append(" FROM V$LOGMNR_CONTENTS WHERE (RS_ID > ? OR (RS_ID = ? AND SSN ")
           .append(op)
           .append(
               " ?) OR (TRIM(RS_ID) = '0x000000.00000000.0000' AND SCN >= ?)) AND SCN < ? AND (");
     } else {
-      sb.append(" FROM V$LOGMNR_CONTENTS WHERE SCN >= ? AND SCN < ? AND (");
+      if (rbaThreads.contains(StepCursor.ANY_THREAD)) {
+        throw new IllegalArgumentException(
+            "a thread-less mark cannot share a cursor: " + rbaThreads);
+      }
+      sb.append(" FROM V$LOGMNR_CONTENTS WHERE (");
+      for (int t : rbaThreads) {
+        sb.append("(THREAD# = ")
+            .append(t)
+            .append(" AND (RS_ID > ? OR (RS_ID = ? AND SSN ")
+            .append(op)
+            .append(" ?))) OR ");
+      }
+      sb.append("((THREAD# IS NULL OR THREAD# NOT IN (")
+          .append(join(rbaThreads))
+          .append(")) AND SCN >= ?)")
+          .append(" OR (TRIM(RS_ID) = '0x000000.00000000.0000' AND SCN >= ?)) AND SCN < ? AND (");
     }
     // 1. row changes on captured objects, per source container: the same DATA_OBJ# names
     //    different tables in CDB$ROOT and in each PDB

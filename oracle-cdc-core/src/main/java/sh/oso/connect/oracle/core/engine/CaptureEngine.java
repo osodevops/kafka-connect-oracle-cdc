@@ -204,24 +204,9 @@ public final class CaptureEngine {
     }
   }
 
-  /** The redo thread an event was mined from; -1 for rows that carry none. */
+  /** The redo thread an event was mined from. */
   static int threadOf(MiningEvent e) {
-    if (e instanceof MiningEvent.TxStart s) {
-      return s.thread();
-    } else if (e instanceof MiningEvent.Dml d) {
-      return d.thread();
-    } else if (e instanceof MiningEvent.Commit c) {
-      return c.thread();
-    } else if (e instanceof MiningEvent.Rollback r) {
-      return r.thread();
-    } else if (e instanceof MiningEvent.Ddl d) {
-      return d.thread();
-    } else if (e instanceof MiningEvent.MissingScn m) {
-      return m.thread();
-    } else if (e instanceof MiningEvent.LogBoundary b) {
-      return b.thread();
-    }
-    return -1;
+    return e.thread();
   }
 
   /** SCH-5: which tables are captured; DDL on the others is ignored without classification. */
@@ -985,7 +970,8 @@ public final class CaptureEngine {
     metrics.transactionsCommitted.incrementAndGet();
     // the candidate at this commit: the commit row itself bounds the cursor side of the rule
     sh.oso.connect.oracle.core.model.RedoRecordId resume =
-        ResumeCalculator.resume(new StepCursor(tx.commitScn(), tx.commitId(), false), oldestOpen());
+        ResumeCalculator.resume(
+            StepCursor.of(tx.commitScn(), tx.thread(), tx.commitId()), oldestOpen());
     sink.committed(tx, skip, resume);
   }
 }

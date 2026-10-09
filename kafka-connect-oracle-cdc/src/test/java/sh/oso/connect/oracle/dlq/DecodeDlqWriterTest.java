@@ -88,6 +88,7 @@ class DecodeDlqWriterTest {
         new MiningEvent.Unsupported(
             TX,
             new RedoRecordId(4991, " 0x000001.00000011.0010 ", 0),
+            1,
             T,
             77,
             2,
@@ -148,6 +149,7 @@ class DecodeDlqWriterTest {
         new MiningEvent.Unsupported(
             TX,
             new RedoRecordId(4991, " 0x000001.00000011.0010 ", 0),
+            1,
             T,
             77,
             2,

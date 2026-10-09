@@ -89,6 +89,18 @@ public final class FakeLogMiner implements EventSource {
     return this;
   }
 
+  /** With {@link #perThreadRba()}: the next redo byte address of each thread. */
+  private java.util.Map<Integer, Long> rbaByThread;
+
+  /**
+   * From now on each thread numbers its redo byte addresses from one, as each RAC instance writes
+   * its own redo: two threads then produce the same RS_ID strings, which are different records.
+   */
+  public FakeLogMiner perThreadRba() {
+    this.rbaByThread = new java.util.HashMap<>();
+    return this;
+  }
+
   private RedoRecordId id() {
     long scn = lateScn != null ? lateScn : nextScn++;
     lateScn = null;
@@ -96,7 +108,8 @@ public final class FakeLogMiner implements EventSource {
       zeroRsId = false;
       return new RedoRecordId(scn, " 0x000000.00000000.0000 ", 0);
     }
-    return new RedoRecordId(scn, String.format(" 0x%06x.%08x.%04x ", 1, rba++, 0), 0);
+    long next = rbaByThread == null ? rba++ : rbaByThread.merge(thread, 1L, Long::sum);
+    return new RedoRecordId(scn, String.format(" 0x%06x.%08x.%04x ", 1, next, 0), 0);
   }
 
   /**
@@ -337,10 +350,14 @@ public final class FakeLogMiner implements EventSource {
           MiningEvent e = events.get(i);
           // with a redo byte address the log is read in append order whatever the SCN; without
           // one the fake behaves like an SCN window
-          // an all-zero RS_ID is no address: the query returns those rows by SCN within the step
+          // an all-zero RS_ID is no address: the query returns those rows by SCN within the step;
+          // a thread without a mark of its own (nor a thread-less one) is read by SCN (ADR-0026)
+          sh.oso.connect.oracle.core.model.RedoRecordId mark = from.markFor(e.thread());
           boolean skip =
               from.hasRba()
-                  ? e.id().zeroRsId() ? e.scn() < from.scn() : from.alreadyApplied(e.id())
+                  ? e.id().zeroRsId() || mark == null || !mark.hasRba()
+                      ? e.scn() < from.scn()
+                      : from.alreadyApplied(e.thread(), e.id())
                   : e.scn() < from.scn();
           if (skip) {
             continue;

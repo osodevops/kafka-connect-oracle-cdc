@@ -30,6 +30,12 @@ public sealed interface MiningEvent {
 
   RedoRecordId id();
 
+  /**
+   * The redo thread the row was mined from (THREAD#). Redo byte addresses are only ordered within
+   * one thread, so every comparison of {@link #id()} values is made per thread (ADR-0026).
+   */
+  int thread();
+
   default long scn() {
     return id().scn();
   }
@@ -166,6 +172,7 @@ public sealed interface MiningEvent {
   record Unsupported(
       TxKey tx,
       RedoRecordId id,
+      int thread,
       TableId table,
       long dataObj,
       int status,
@@ -179,7 +186,7 @@ public sealed interface MiningEvent {
 
     @Override
     public MiningEvent withTx(TxKey t) {
-      return new Unsupported(t, id, table, dataObj, status, info, sqlRedo);
+      return new Unsupported(t, id, thread, table, dataObj, status, info, sqlRedo);
     }
   }
 
@@ -187,7 +194,8 @@ public sealed interface MiningEvent {
   record MissingScn(RedoRecordId id, int thread, String info) implements MiningEvent {}
 
   /** Any other operation code that reached the client; counted and ignored. */
-  record Other(TxKey tx, RedoRecordId id, Operation op, String operation) implements MiningEvent {
+  record Other(TxKey tx, RedoRecordId id, int thread, Operation op, String operation)
+      implements MiningEvent {
     @Override
     public TxKey txOrNull() {
       return tx;
@@ -195,7 +203,7 @@ public sealed interface MiningEvent {
 
     @Override
     public MiningEvent withTx(TxKey t) {
-      return new Other(t, id, op, operation);
+      return new Other(t, id, thread, op, operation);
     }
   }
 

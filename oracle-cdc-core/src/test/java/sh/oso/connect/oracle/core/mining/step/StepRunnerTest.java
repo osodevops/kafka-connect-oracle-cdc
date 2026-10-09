@@ -202,4 +202,43 @@ class StepRunnerTest {
     assertThat(r.due()).isFalse();
     assertThat(r.recycles()).isEqualTo(1);
   }
+
+  /**
+   * ADR-0026: RS_ID starts with the thread's own log sequence, so thread 1 being further on in its
+   * redo says nothing about thread 2. With one cursor for both, thread 2's later rows sort below
+   * thread 1's mark and are skipped without a trace; with a mark per thread they are mined.
+   */
+  @Test
+  void aSlowThreadsRowsAreNotHiddenByAnotherThreadsAddress() {
+    FakeLogMiner f = new FakeLogMiner().startAt(1000).perThreadRba();
+    TxKey a = f.tx(1, 1, 1);
+    f.start(a, "APP");
+    for (int i = 0; i < 6; i++) {
+      f.insert(a, T, "a" + i);
+    }
+    f.commit(a); // thread 1 at block 8
+    TxKey b = f.onThread(2).tx(2, 1, 1);
+    f.start(b, "APP").insert(b, T, "b0").commit(b); // thread 2 at block 3
+    StepOutcome first = runner().run(f, StepCursor.at(1000), 1100);
+    assertThat(first.events()).hasSize(11);
+    assertThat(first.next().marks()).containsOnlyKeys(1, 2);
+
+    TxKey c = f.tx(2, 2, 1);
+    f.start(c, "APP").insert(c, T, "c0").commit(c); // thread 2, blocks 4 to 6
+    StepOutcome second = runner().run(f, first.next(), 1200);
+    assertThat(second.events())
+        .as("thread 2's blocks 4 to 6 sort below thread 1's block 8 but are new")
+        .hasSize(3)
+        .allSatisfy(e -> assertThat(e.thread()).isEqualTo(2));
+    assertThat(second.next().marks().get(1)).isEqualTo(first.next().marks().get(1));
+  }
+
+  @Test
+  void aThreadLessResumeMarkIsReplacedByTheThreadsOwnMark() {
+    FakeLogMiner f = script();
+    StepOutcome o = runner().run(f, StepCursor.resume(f.events().get(1).id()), 1010);
+    assertThat(o.events()).hasSize(4).first().isEqualTo(f.events().get(1));
+    assertThat(o.next().marks()).containsOnlyKeys(1);
+    assertThat(o.next().lastApplied()).isEqualTo(f.events().get(4).id());
+  }
 }

@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Set;
 import sh.oso.connect.oracle.core.errors.DictionaryUnavailableException;
 import sh.oso.connect.oracle.core.logs.RedoLog;
+import sh.oso.connect.oracle.core.mining.step.StepCursor;
+import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.Xid;
 
 /**
@@ -148,23 +150,25 @@ public final class JdbcLogMinerSession implements LogMinerSource {
   public RowCursor query(
       MiningFilter filter, sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
       throws SQLException {
-    PreparedStatement ps =
-        c.prepareStatement(LogMinerQuery.sql(filter, from.hasRba(), from.inclusive()));
+    List<Integer> threads = from.rbaThreads();
+    PreparedStatement ps = c.prepareStatement(LogMinerQuery.sql(filter, threads, from.inclusive()));
     try {
       ps.setFetchSize(fetchSize);
       if (queryTimeoutSeconds > 0) {
         ps.setQueryTimeout(queryTimeoutSeconds);
       }
-      if (from.hasRba()) {
-        ps.setString(1, from.lastApplied().rsId());
-        ps.setString(2, from.lastApplied().rsId());
-        ps.setLong(3, from.lastApplied().ssn());
-        ps.setLong(4, from.scn());
-        ps.setLong(5, endScn);
-      } else {
-        ps.setLong(1, from.scn());
-        ps.setLong(2, endScn);
+      int i = 1;
+      for (int t : threads) { // in the query's order (LogMinerQuery.sql)
+        RedoRecordId mark = from.marks().get(t);
+        ps.setString(i++, mark.rsId());
+        ps.setString(i++, mark.rsId());
+        ps.setLong(i++, mark.ssn());
       }
+      if (!threads.isEmpty() && !threads.equals(List.of(StepCursor.ANY_THREAD))) {
+        ps.setLong(i++, from.scn()); // threads without a mark
+      }
+      ps.setLong(i++, from.scn());
+      ps.setLong(i, endScn);
       ResultSet rs = ps.executeQuery();
       return new JdbcRowCursor(ps, rs);
     } catch (SQLException | RuntimeException e) {

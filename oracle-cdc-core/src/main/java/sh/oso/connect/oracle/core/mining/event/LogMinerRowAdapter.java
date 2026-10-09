@@ -144,7 +144,14 @@ public final class LogMinerRowAdapter {
             r.timestamp());
       case UNSUPPORTED:
         return new MiningEvent.Unsupported(
-            r.txKey(), r.id(), table(r), r.dataObj(), r.status(), r.info(), r.sqlRedo());
+            r.txKey(),
+            r.id(),
+            r.thread(),
+            table(r),
+            r.dataObj(),
+            r.status(),
+            r.info(),
+            r.sqlRedo());
       case MISSING_SCN:
         return new MiningEvent.MissingScn(r.id(), r.thread(), r.info());
       default:
@@ -167,7 +174,7 @@ public final class LogMinerRowAdapter {
               r.username(),
               r.timestamp());
         }
-        return new MiningEvent.Other(r.txKey(), r.id(), op, r.operation());
+        return new MiningEvent.Other(r.txKey(), r.id(), r.thread(), op, r.operation());
     }
   }
 

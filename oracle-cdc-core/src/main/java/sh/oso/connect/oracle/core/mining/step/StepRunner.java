@@ -19,6 +19,8 @@ import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import sh.oso.connect.oracle.core.errors.ErrorCode;
 import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.errors.OracleCdcCorruptionException;
@@ -46,7 +48,7 @@ public final class StepRunner {
   public StepOutcome run(EventSource source, StepCursor from, long endScn) {
     List<MiningEvent> staged = new ArrayList<>();
     int rows = 0;
-    RedoRecordId last = from.lastApplied();
+    Map<Integer, RedoRecordId> last = new TreeMap<>(from.marks()); // per thread (ADR-0026)
     try (EventCursor c = source.open(from, endScn)) {
       while (c.next()) {
         rows++;
@@ -71,11 +73,15 @@ public final class StepRunner {
           staged.add(e); // never the cursor: it names no place in the log
           continue;
         }
-        if (from.alreadyApplied(e.id())) {
+        if (from.alreadyApplied(e.thread(), e.id())) {
           continue;
         }
-        if (last == null || e.id().compareTo(last) > 0) {
-          last = e.id(); // the cursor advances by redo byte address, not by SCN (ADR-0014)
+        RedoRecordId mark =
+            last.containsKey(e.thread()) ? last.get(e.thread()) : from.markFor(e.thread());
+        if (mark == null || e.id().compareTo(mark) > 0) {
+          // the cursor advances by redo byte address, not by SCN (ADR-0014), and only within the
+          // row's own thread: another thread's addresses are not comparable (ADR-0026)
+          last.put(e.thread(), e.id());
         }
         if (e instanceof MiningEvent.MissingScn m) {
           throw new OracleCdcCorruptionException(
@@ -87,12 +93,14 @@ public final class StepRunner {
         }
         staged.add(e);
         if (e instanceof MiningEvent.Ddl d && cut.requiresCut(d)) {
+          Map<Integer, RedoRecordId> atCut = new TreeMap<>(last);
+          atCut.put(d.thread(), d.id());
           return new StepOutcome(
-              StepOutcome.Kind.CUT, staged, new StepCursor(d.scn(), d.id(), false), rows, null);
+              StepOutcome.Kind.CUT, staged, from.after(d.scn(), atCut), rows, null);
         }
       }
       return new StepOutcome(
-          StepOutcome.Kind.COMPLETE, staged, new StepCursor(endScn, last, false), rows, null);
+          StepOutcome.Kind.COMPLETE, staged, from.after(endScn, last), rows, null);
     } catch (OracleCdcException e) {
       throw e;
     } catch (SQLException e) {

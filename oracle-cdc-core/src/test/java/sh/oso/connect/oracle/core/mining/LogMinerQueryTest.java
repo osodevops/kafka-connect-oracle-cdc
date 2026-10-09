@@ -36,6 +36,38 @@ class LogMinerQueryTest {
   }
 
   @Test
+  void theThreadLessCursorKeepsTheSingleAddressForm() {
+    MiningFilter f = MiningFilter.of(3, Set.of(1001L), Set.of("APP"));
+    assertThat(
+            LogMinerQuery.sql(
+                f,
+                java.util.List.of(sh.oso.connect.oracle.core.mining.step.StepCursor.ANY_THREAD),
+                false))
+        .isEqualTo(LogMinerQuery.sql(f, true, false));
+    assertThat(LogMinerQuery.sql(f, java.util.List.of(), false))
+        .isEqualTo(LogMinerQuery.sql(f, false, false));
+  }
+
+  /** ADR-0026: a redo byte address is ordered within its thread, so each thread gets its bound. */
+  @Test
+  void eachThreadIsBoundedByItsOwnAddressAndOtherThreadsBySCN() {
+    String sql =
+        LogMinerQuery.sql(
+            MiningFilter.of(3, Set.of(1001L), Set.of("APP")), java.util.List.of(1, 2), false);
+    assertThat(sql)
+        .contains(
+            " WHERE ((THREAD# = 1 AND (RS_ID > ? OR (RS_ID = ? AND SSN > ?)))"
+                + " OR (THREAD# = 2 AND (RS_ID > ? OR (RS_ID = ? AND SSN > ?)))"
+                + " OR ((THREAD# IS NULL OR THREAD# NOT IN (1, 2)) AND SCN >= ?)"
+                + " OR (TRIM(RS_ID) = '0x000000.00000000.0000' AND SCN >= ?)) AND SCN < ? AND (");
+    assertThat(sql.chars().filter(ch -> ch == '?').count()).isEqualTo(9);
+    assertThat(
+            LogMinerQuery.sql(
+                MiningFilter.of(3, Set.of(1001L), Set.of("APP")), java.util.List.of(1), true))
+        .contains("(THREAD# = 1 AND (RS_ID > ? OR (RS_ID = ? AND SSN >= ?)))");
+  }
+
+  @Test
   void threeBranchesAreAlwaysPresent() {
     String sql = LogMinerQuery.sql(MiningFilter.of(3, Set.of(1001L, 1002L), Set.of("APP")));
     assertThat(sql)

@@ -93,7 +93,9 @@ final class PartialXidResolver {
         }
         if (e instanceof MiningEvent.Rollback) {
           // may close a rollback to a savepoint rather than the transaction: the slot stays open
-          out.add(new MiningEvent.Other(live, e.id(), Operation.ROLLBACK, PARTIAL_ROLLBACK));
+          out.add(
+              new MiningEvent.Other(
+                  live, e.id(), e.thread(), Operation.ROLLBACK, PARTIAL_ROLLBACK));
           continue;
         }
         e = e.withTx(live);

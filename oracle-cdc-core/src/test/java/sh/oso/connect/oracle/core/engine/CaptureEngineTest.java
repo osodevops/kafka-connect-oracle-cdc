@@ -470,6 +470,7 @@ class CaptureEngineTest {
             new MiningEvent.Unsupported(
                 a,
                 new sh.oso.connect.oracle.core.model.RedoRecordId(1010, "0x1", 0),
+                1,
                 T,
                 100,
                 2,
