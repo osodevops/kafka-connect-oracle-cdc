@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import sh.oso.connect.oracle.core.errors.OracleCdcCorruptionException;
+import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.TxKey;
 import sh.oso.connect.oracle.core.model.Xid;
 
@@ -48,6 +49,9 @@ public final class PositionCodec {
   static final String LAST_COMMIT_RS_ID = "last_commit_rs_id";
   static final String LAST_COMMIT_SSN = "last_commit_ssn";
 
+  /** ADR-0026: one mark per redo thread, JSON; written only for a position over several threads. */
+  static final String THREADS = "threads";
+
   private static final Set<String> KNOWN_V1 =
       Set.of(
           V,
@@ -65,7 +69,8 @@ public final class PositionCodec {
           RESUME_RS_ID,
           RESUME_SSN,
           LAST_COMMIT_RS_ID,
-          LAST_COMMIT_SSN);
+          LAST_COMMIT_SSN,
+          THREADS);
 
   private PositionCodec() {}
 
@@ -87,6 +92,9 @@ public final class PositionCodec {
     m.put(RESUME_SSN, p.resumeRsId() == null ? null : p.resumeSsn());
     m.put(LAST_COMMIT_RS_ID, p.lastCommitRsId());
     m.put(LAST_COMMIT_SSN, p.lastCommitRsId() == null ? null : p.lastCommitSsn());
+    if (p.perThread()) {
+      m.put(THREADS, threadsJson(p.threads())); // absent for one thread: the offset is unchanged
+    }
     for (Map.Entry<String, Object> e : p.extras().entrySet()) {
       m.putIfAbsent(e.getKey(), e.getValue());
     }
@@ -140,23 +148,123 @@ public final class PositionCodec {
       }
     }
     Object snap = m.get(SNAPSHOT);
-    return new Position(
-        1,
-        longValue(m, RESUME_SCN),
-        longValue(m, LAST_COMMIT_SCN),
-        xid == null ? null : parseKey(xid),
-        integer(m, LAST_COMMIT_THREAD, 0),
-        integer(m, EVENT_INDEX, 0),
-        longValue(m, JOURNAL_GENERATION),
-        longValue(m, SCHEMA_EPOCH),
-        new DatabaseIdentity(longValue(m, DBID), longValue(m, RESETLOGS_SCN)),
-        released,
-        snapshot(snap),
-        extras,
-        text(m, RESUME_RS_ID),
-        text(m, RESUME_RS_ID) == null ? 0 : longValue(m, RESUME_SSN),
-        text(m, LAST_COMMIT_RS_ID),
-        text(m, LAST_COMMIT_RS_ID) == null ? 0 : longValue(m, LAST_COMMIT_SSN));
+    Position legacy =
+        new Position(
+            1,
+            longValue(m, RESUME_SCN),
+            longValue(m, LAST_COMMIT_SCN),
+            xid == null ? null : parseKey(xid),
+            integer(m, LAST_COMMIT_THREAD, 0),
+            integer(m, EVENT_INDEX, 0),
+            longValue(m, JOURNAL_GENERATION),
+            longValue(m, SCHEMA_EPOCH),
+            new DatabaseIdentity(longValue(m, DBID), longValue(m, RESETLOGS_SCN)),
+            released,
+            snapshot(snap),
+            extras,
+            text(m, RESUME_RS_ID),
+            text(m, RESUME_RS_ID) == null ? 0 : longValue(m, RESUME_SSN),
+            text(m, LAST_COMMIT_RS_ID),
+            text(m, LAST_COMMIT_RS_ID) == null ? 0 : longValue(m, LAST_COMMIT_SSN));
+    java.util.SortedMap<Integer, ThreadMark> threads = threads(m.get(THREADS));
+    return agrees(threads, legacy) ? legacy.withThreads(threads) : legacy;
+  }
+
+  /**
+   * ADR-0026: the per-thread block is trusted only while it agrees with the legacy keys, which
+   * every version writes and keeps authoritative: the lowest resume SCN of the threads is the
+   * resume SCN, and the last acknowledged commit is the commit of its thread. A block that an older
+   * version carried along unchanged in the extras while it advanced the legacy keys fails this, and
+   * the position is then read as a single-thread one from the legacy keys.
+   */
+  static boolean agrees(java.util.SortedMap<Integer, ThreadMark> threads, Position legacy) {
+    if (threads.isEmpty()) {
+      return false;
+    }
+    long lowest = Long.MAX_VALUE;
+    for (ThreadMark t : threads.values()) {
+      lowest = Math.min(lowest, t.resume().scn());
+    }
+    if (lowest != legacy.resumeScn()) {
+      return false;
+    }
+    if (!legacy.hasCommit()) {
+      return threads.values().stream().noneMatch(ThreadMark::hasCommit);
+    }
+    ThreadMark last = threads.get(legacy.lastCommitThread());
+    return last != null
+        && last.hasCommit()
+        && last.commitKey().equals(legacy.lastCommitKey())
+        && last.commit().scn() == legacy.lastCommitScn();
+  }
+
+  static String threadsJson(java.util.SortedMap<Integer, ThreadMark> threads) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    for (Map.Entry<Integer, ThreadMark> e : threads.entrySet()) {
+      ThreadMark t = e.getValue();
+      Map<String, Object> mark = new LinkedHashMap<>();
+      mark.put("resume_scn", t.resume().scn());
+      if (t.resume().hasRba()) {
+        mark.put("resume_rs_id", t.resume().rsId());
+        mark.put("resume_ssn", t.resume().ssn());
+      }
+      if (t.hasCommit()) {
+        mark.put("commit_scn", t.commit().scn());
+        if (t.commit().hasRba()) {
+          mark.put("commit_rs_id", t.commit().rsId());
+          mark.put("commit_ssn", t.commit().ssn());
+        }
+        mark.put("commit_xid", t.commitKey().toString());
+      }
+      out.put(String.valueOf(e.getKey()), mark);
+    }
+    try {
+      return JSON.writeValueAsString(out);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+      throw new OracleCdcCorruptionException(
+          "The per-thread block cannot be serialised: " + ex.getMessage(),
+          "Report the connector logs; the position is not written.",
+          ex);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  static java.util.SortedMap<Integer, ThreadMark> threads(Object raw) {
+    java.util.SortedMap<Integer, ThreadMark> out = new java.util.TreeMap<>();
+    if (raw == null || raw.toString().isBlank()) {
+      return out;
+    }
+    try {
+      Map<String, Object> block =
+          raw instanceof Map<?, ?> rm
+              ? (Map<String, Object>) rm
+              : JSON.readValue(raw.toString(), Map.class);
+      for (Map.Entry<String, Object> e : block.entrySet()) {
+        Map<String, ?> mark = (Map<String, ?>) e.getValue();
+        RedoRecordId resume =
+            new RedoRecordId(
+                longValue(mark, "resume_scn"),
+                text(mark, "resume_rs_id"),
+                longValue(mark, "resume_ssn"));
+        String xid = text(mark, "commit_xid");
+        RedoRecordId commit =
+            xid == null
+                ? null
+                : new RedoRecordId(
+                    longValue(mark, "commit_scn"),
+                    text(mark, "commit_rs_id"),
+                    longValue(mark, "commit_ssn"));
+        out.put(
+            Integer.parseInt(e.getKey()),
+            new ThreadMark(resume, commit, xid == null ? null : parseKey(xid)));
+      }
+      return out;
+    } catch (java.io.IOException | RuntimeException ex) {
+      throw new OracleCdcCorruptionException(
+          "The stored offset's per-thread block cannot be read: " + raw,
+          "Reset the connector's offsets with oracle-cdc-admin.",
+          ex);
+    }
   }
 
   private static String text(Map<String, ?> m, String key) {
