@@ -1,0 +1,26 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "PreconditionQualIT",
+  "scenario" : "precondition",
+  "startedAt" : "2026-10-09T18:12:21.516106Z",
+  "finishedAt" : "2026-10-09T18:12:25.523200Z",
+  "versions" : {
+    "project" : "0.1.5-SNAPSHOT",
+    "oracleImageTag" : "external",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "target" : "rds cdb pdb CDCPDB jdbc:oracle:thin:@//localhost:15210/CDCPDB"
+  },
+  "faults" : [ ],
+  "counts" : {
+    "findings" : 0
+  },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "1887be35b148eb7a1526204bc9fd448e84a2d8e62c9d58664a4c441e4275f59b"
+}

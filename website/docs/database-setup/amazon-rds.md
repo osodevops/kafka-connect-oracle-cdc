@@ -10,8 +10,9 @@ Amazon RDS for Oracle 19c passed the connector's qualification suites on 9 Octob
 architectures, on RDS SE2 License Included. As a non-CDB: the setup script below, the doctor's
 checks, capture in online and archive-only mode, and dictionary builds. With the CDB architecture,
 from release 0.1.3: the same setup script, checks and capture, mined from inside the tenant
-database in range mode. A real Kafka Connect worker against RDS and a restart there are not yet
-part of those runs, so treat RDS support as a preview.
+database in range mode. A real Kafka Connect worker against each, killed and restarted
+mid-stream, then delivered every committed row. A log purged by the retention setting, Multi-AZ
+failover and releases from 21c have not been run on RDS yet, so treat RDS support as a preview.
 :::
 
 The connector mines an RDS for Oracle database with LogMiner exactly as it mines one on premises:
