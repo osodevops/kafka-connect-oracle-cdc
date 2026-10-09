@@ -63,7 +63,7 @@ jobs:
             label: t4-qual-container
             timeout: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free disk space for the Oracle images
         run: |
