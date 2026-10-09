@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.4](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.3...v0.1.4) (2026-10-09)
+
+
+### Features
+
+* **mining:** a step cursor mark per redo thread (Phase 3a, ADR-0026) ([91d5500](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/91d5500684569c41d21bd8d0748653ecfbc85369))
+
+
+### Bug Fixes
+
+* **errors:** classify ORA-00604 by the error it wraps, so a missing log in range mode is CDC-2002 ([57f2353](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/57f2353e476695f1a7901a89bff8a095fff9508e))
+
+
+### Documentation
+
+* **adr:** ADR-0026 per-thread redo addresses (in progress) ([eb5558b](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/eb5558bc86846dbaf47e3ce5e543775e8fb2b300))
+* **handover:** releases 0.1.2 and 0.1.3, range mode qualified on RDS CDB, Phase 3a ([c6efad2](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/c6efad22d28ed27076b08a78f3a84b33ec9a1823))
+
 ## [0.1.3](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.2...v0.1.3) (2026-10-09)
 
 
