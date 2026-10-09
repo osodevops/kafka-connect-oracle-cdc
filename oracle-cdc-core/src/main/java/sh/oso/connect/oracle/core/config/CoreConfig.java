@@ -92,6 +92,7 @@ public class CoreConfig extends AbstractConfig {
   // PRD-03 section 3 step 5: dictionary builds into the redo for the lag case
   public static final String DICTIONARY_BUILD_INTERVAL_MS = "cdc.dictionary.build.interval.ms";
   public static final String DICTIONARY_BUILD_TIME = "cdc.dictionary.build.time";
+  public static final String DICTIONARY_DATABASE_URL = "cdc.dictionary.database.url";
 
   public static final String BUFFER_MEMORY_MAX_BYTES = "cdc.buffer.memory.max.bytes";
   public static final String BUFFER_SPILL_DIR = "cdc.buffer.spill.dir";
@@ -639,6 +640,19 @@ public class CoreConfig extends AbstractConfig {
         ++o,
         Width.SHORT,
         "Dictionary build time");
+    def.define(
+        DICTIONARY_DATABASE_URL,
+        Type.STRING,
+        null,
+        Importance.LOW,
+        "JDBC URL of the database dictionary builds run on, with the connector's user and password."
+            + " Set it to the primary when the connector captures from a physical standby, which is"
+            + " read-only and cannot write a build; the build reaches the standby through the redo."
+            + " Empty: the captured database.",
+        GROUP_MINING,
+        ++o,
+        Width.LONG,
+        "Dictionary build database URL");
     // Buffer
     def.define(
         BUFFER_MEMORY_MAX_BYTES,

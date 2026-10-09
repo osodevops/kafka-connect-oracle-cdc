@@ -107,6 +107,8 @@ public final class ConnectorValidator {
         return CoreConfig.DATABASE_HOST; // the database, not a setting, is the problem
       case "DOC-14":
         return CoreConfig.CAPTURE_MODE;
+      case "DOC-24":
+        return CoreConfig.DICTIONARY_DATABASE_URL;
       default:
         return CoreConfig.DATABASE_HOST;
     }

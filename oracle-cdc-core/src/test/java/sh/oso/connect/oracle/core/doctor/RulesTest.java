@@ -308,6 +308,46 @@ class RulesTest {
         "fail");
   }
 
+  @Test
+  void aStandbyNeedsItsDictionaryBuildsOnThePrimary() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    // a primary with builds on and no URL: nothing to say
+    assertThat(doc24(cat, Map.of())).isEmpty();
+    cat.base.database = standby("READ ONLY WITH APPLY");
+    assertThat(doc24(cat, Map.of(CoreConfig.CAPTURE_MODE, "archive_only")))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.BLOCKING);
+    assertThat(
+            doc24(
+                cat,
+                Map.of(
+                    CoreConfig.CAPTURE_MODE,
+                    "archive_only",
+                    CoreConfig.DICTIONARY_BUILD_INTERVAL_MS,
+                    "0")))
+        .as("builds switched off is a choice, not a fault")
+        .isEmpty();
+    List<Finding> withUrl =
+        doc24(
+            cat,
+            Map.of(
+                CoreConfig.CAPTURE_MODE,
+                "archive_only",
+                CoreConfig.DICTIONARY_DATABASE_URL,
+                "jdbc:oracle:thin:scott/tiger@//primary:1521/ORCL"));
+    assertThat(withUrl).extracting(Finding::severity).containsExactly(Severity.INFO);
+    assertThat(withUrl.get(0).message())
+        .as("the URL is never echoed: a thin URL can carry a password")
+        .doesNotContain("tiger")
+        .contains("must be the primary");
+  }
+
+  private List<Finding> doc24(FakeDoctorCatalog cat, Map<String, String> extra) {
+    return new Doctor(List.of(Rules.standbyDictionarySource()))
+        .run(new DoctorContext(config(extra), cat, List.of(".*"), List.of(), "fail"))
+        .findings();
+  }
+
   private static DatabaseInfo standby(String openMode) {
     return new DatabaseInfo(
         1,

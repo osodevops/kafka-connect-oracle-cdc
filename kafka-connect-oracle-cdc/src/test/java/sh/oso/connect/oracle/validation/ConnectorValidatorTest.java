@@ -33,6 +33,7 @@ class ConnectorValidatorTest {
     // ADR-0023: a RAC database is refused; the database, not a setting, is what has to change
     assertThat(ConnectorValidator.keyFor("DOC-13")).isEqualTo(CoreConfig.DATABASE_HOST);
     assertThat(ConnectorValidator.keyFor("DOC-14")).isEqualTo(CoreConfig.CAPTURE_MODE);
+    assertThat(ConnectorValidator.keyFor("DOC-24")).isEqualTo(CoreConfig.DICTIONARY_DATABASE_URL);
     assertThat(ConnectorValidator.keyFor("DOC-99")).isEqualTo(CoreConfig.DATABASE_HOST);
   }
 }

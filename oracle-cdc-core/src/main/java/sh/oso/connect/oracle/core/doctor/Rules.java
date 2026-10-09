@@ -65,7 +65,8 @@ public final class Rules {
         roleAndOpenMode(),
         version(),
         avroNames(),
-        rdsArchiveRetention());
+        rdsArchiveRetention(),
+        standbyDictionarySource());
   }
 
   /** Every rule, in rule order: what {@code oracle-cdc-doctor check} runs by default. */
@@ -93,7 +94,8 @@ public final class Rules {
         lagRecovery(),
         pdbsOpen(),
         avroNames(),
-        rdsArchiveRetention());
+        rdsArchiveRetention(),
+        standbyDictionarySource());
   }
 
   static Rule archivelog() {
@@ -603,6 +605,45 @@ public final class Rules {
 
   private static Duration journalThreshold(DoctorContext ctx) {
     return Duration.ofMillis(Math.max(0, ctx.config().getLong(CoreConfig.TXJOURNAL_THRESHOLD_MS)));
+  }
+
+  /**
+   * ADR-0025: a physical standby is read-only, so dictionary builds must run on the primary named
+   * by {@code cdc.dictionary.database.url}. The URL is never echoed: a thin URL can carry a
+   * password.
+   */
+  static Rule standbyDictionarySource() {
+    return rule(
+        "DOC-24",
+        ctx -> {
+          boolean builds = ctx.config().getLong(CoreConfig.DICTIONARY_BUILD_INTERVAL_MS) > 0;
+          String url = ctx.config().getString(CoreConfig.DICTIONARY_DATABASE_URL);
+          boolean set = url != null && !url.isBlank();
+          String role = ctx.database().databaseRole();
+          boolean standby = "PHYSICAL STANDBY".equals(role == null ? "" : role.trim());
+          if (standby && builds && !set) {
+            return List.of(
+                Finding.blocking(
+                    "DOC-24",
+                    "The captured database is a physical standby, which is read-only: dictionary"
+                        + " builds cannot run on it, so rows written before a DDL the connector has"
+                        + " not mined yet cannot be decoded (CDC-6001). Set"
+                        + " cdc.dictionary.database.url to the primary, or switch builds off with"
+                        + " cdc.dictionary.build.interval.ms=0.",
+                    null));
+          }
+          if (set && builds) {
+            return List.of(
+                Finding.info(
+                    "DOC-24",
+                    "Dictionary builds run on the database named by cdc.dictionary.database.url"
+                        + (standby
+                            ? ", which must be the primary"
+                            : " rather than the captured one")
+                        + "; the doctor does not check that database."));
+          }
+          return List.of();
+        });
   }
 
   /** DOC-10's need: the journal threshold plus the planned maximum downtime, in whole hours. */

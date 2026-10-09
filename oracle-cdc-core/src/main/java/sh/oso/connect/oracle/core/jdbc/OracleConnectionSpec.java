@@ -94,6 +94,11 @@ public final class OracleConnectionSpec {
     return url;
   }
 
+  /** The same user, password and driver properties for another database (ADR-0025). */
+  public OracleConnectionSpec withUrl(String otherUrl) {
+    return new OracleConnectionSpec(otherUrl, user, password, properties);
+  }
+
   public String user() {
     return user;
   }

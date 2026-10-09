@@ -100,4 +100,21 @@ class OracleConnectionSpecTest {
     assertThat(s.toDriverProperties().getProperty("javax.net.ssl.trustStorePassword"))
         .isEqualTo("tspw");
   }
+
+  @Test
+  void anotherUrlKeepsTheCredentialsAndDriverProperties() {
+    OracleConnectionSpec spec =
+        OracleConnectionSpec.from(
+            new sh.oso.connect.oracle.core.config.CoreConfig(
+                java.util.Map.of(
+                    "cdc.database.host", "standby",
+                    "cdc.database.service", "ORCL",
+                    "cdc.database.user", "cdc",
+                    "cdc.database.password", "pw")));
+    OracleConnectionSpec primary = spec.withUrl("jdbc:oracle:thin:@//primary:1521/ORCL");
+    org.assertj.core.api.Assertions.assertThat(primary.url())
+        .isEqualTo("jdbc:oracle:thin:@//primary:1521/ORCL");
+    org.assertj.core.api.Assertions.assertThat(primary.toDriverProperties())
+        .isEqualTo(spec.toDriverProperties());
+  }
 }

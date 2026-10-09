@@ -415,6 +415,28 @@ public final class JdbcEngineFactory implements EngineFactory {
         rs.next();
         databaseNow = rs.getTimestamp(1).toLocalDateTime();
       }
+      // ADR-0025: a physical standby cannot write a build; builds run on the primary when the
+      // dictionary URL names it, and are off (with an ops event) when it does not
+      String dictionaryUrl = core.getString(CoreConfig.DICTIONARY_DATABASE_URL);
+      boolean otherDatabase = dictionaryUrl != null && !dictionaryUrl.isBlank();
+      String role = topology().database().databaseRole();
+      if (!otherDatabase && !"PRIMARY".equals(role == null ? "" : role.trim())) {
+        String message =
+            "Dictionary builds are off: the captured database is a "
+                + role
+                + ", which cannot write a build. Set cdc.dictionary.database.url to the primary so"
+                + " rows written before a DDL can be decoded (ADR-0025).";
+        LOG.warn(message);
+        events.disabled(message);
+        return;
+      }
+      ConnectionFactory buildConnections =
+          otherDatabase
+              ? new ConnectionFactory(
+                  OracleConnectionSpec.from(core).withUrl(dictionaryUrl),
+                  new RetryPolicy(Duration.ofMillis(core.getLong(CoreConfig.RETRY_MAX_TIME_MS))),
+                  classifier)
+              : connections;
       boolean none =
           new LogInventory(catalog, core.captureMode(), topology().archiveDestId())
               .dictionaryBuildBefore(Long.MAX_VALUE)
@@ -426,7 +448,7 @@ public final class JdbcEngineFactory implements EngineFactory {
       builds =
           new sh.oso.connect.oracle.core.logs.DictionaryBuildScheduler(
               () -> {
-                try (Connection c = connections.open(ConnectionRole.METADATA);
+                try (Connection c = buildConnections.open(ConnectionRole.METADATA);
                     java.sql.Statement s = c.createStatement()) {
                   c.setNetworkTimeout(Runnable::run, 0); // a build may run for minutes
                   s.execute(

@@ -151,6 +151,7 @@ These properties are surfaced by PRD-01 with the `cdc.` prefix.
 | `cdc.database.pdbs` | list | empty | PDBs to capture; empty for non-CDB |
 | `cdc.database.fan.enabled` | boolean | false | RAC Fast Application Notification |
 | `cdc.capture.mode` | enum | `online` | `online` or `archive_only` |
+| `cdc.dictionary.database.url` | string | empty | Database dictionary builds run on, with the connector's credentials; the primary when capturing from a physical standby (ADR-0025) |
 | `cdc.archive.destination` | string | auto | Archive destination name |
 | `cdc.mining.target.latency.ms` | long | 2000 | Latency goal for the adaptive window |
 | `cdc.mining.max.logs.per.step` | int | 8 | Upper bound for catch-up windows |

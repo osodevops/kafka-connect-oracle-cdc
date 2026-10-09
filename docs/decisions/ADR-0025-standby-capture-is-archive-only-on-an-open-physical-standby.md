@@ -1,8 +1,8 @@
 # ADR-0025: Standby capture is archive-only on an open physical standby, bounded by the applied SCN
 
-**Status:** Accepted. Implemented: the role and open-mode rules, the applied-SCN bound and the
-re-check after a reconnect. Still to come: dictionary builds on the primary (`cdc.dictionary.database.url`,
-DOC-24) and qualification on the Data Guard lab.
+**Status:** Accepted. Implemented: the role and open-mode rules, the applied-SCN bound, the
+re-check after a reconnect and dictionary builds on the primary. Still to come: qualification on
+the Data Guard lab.
 **Context:** PRD-01 Phase 2 (archive-log-only standby), PRD-00 CORE-LOG-6 and CORE-CONN-5; research
 on Data Guard and on Debezium's standby support, 8 and 9 October 2026.
 
@@ -39,10 +39,12 @@ rows past it would be decoded against a dictionary that does not have their DDL 
    capture going; a role the capture mode cannot mine stops the task.
 4. DOC-14 warns about a physical standby open READ ONLY without apply: archived logs arrive but
    the safe end does not move until apply runs.
-5. **Planned:** dictionary builds (`DBMS_LOGMNR_D.BUILD`) cannot run on a read-only standby; a new
-   key `cdc.dictionary.database.url` names the primary they run on, and DOC-24 blocks a standby with
-   builds on and no such URL. Snapshots stay on the captured database, reading `AS OF SCN` at an
-   applied SCN.
+5. Dictionary builds (`DBMS_LOGMNR_D.BUILD`) cannot run on a read-only standby. The key
+   `cdc.dictionary.database.url` names the primary they run on, with the connector's credentials;
+   the build reaches the standby through the redo. Without it, builds on a standby are switched off
+   at start with an ops event, and DOC-24 blocks the configuration in `validate()`. DOC-24 never
+   echoes the URL, which can carry a password. Snapshots stay on the captured database, reading
+   `AS OF SCN` at an applied SCN.
 
 ## Consequences
 

@@ -74,6 +74,7 @@ worker to validate the configuration.
 | DOC-21 | Every pluggable database of the CDB is open (`V$PDBS`) and has a saved state (`DBA_PDB_SAVED_STATES`) | warning or info | no |
 | DOC-22 | With an Avro converter set on the connector (`key.converter` or `value.converter`): captured names Avro refuses while `cdc.field.name.adjustment.mode` or `cdc.schema.name.adjustment.mode` is `none` | blocking (column names) or warning (owner, table or prefix) | yes |
 | DOC-23 | Amazon RDS only: `archivelog retention hours` is at least `cdc.txjournal.threshold.ms` plus the planned maximum downtime (RDS deletes archived redo after it, and the default is 0) | blocking at 0, warning below the need, info when the capture user cannot read it | yes |
+| DOC-24 | On a physical standby with dictionary builds on: `cdc.dictionary.database.url` names the primary the builds run on (a read-only standby cannot write one) | blocking when missing, info when set | yes |
 
 Notes on individual rules:
 

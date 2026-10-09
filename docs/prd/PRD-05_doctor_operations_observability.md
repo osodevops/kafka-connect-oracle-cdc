@@ -48,8 +48,9 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | DOC-21 | Every pluggable database open, with a saved state (a closed PDB stops mining with ORA-16331, ADR-0021) | Warning or info |
 | DOC-22 | With an Avro converter on the connector, captured names Avro refuses need the name adjustment modes (ADR-0020) | Blocking (columns) or warning |
 | DOC-23 | Amazon RDS: `archivelog retention hours` covers the journal threshold plus the planned downtime (ADR-0024) | Blocking at 0, warning below the need, info when unreadable |
+| DOC-24 | A physical standby with dictionary builds on names the primary in `cdc.dictionary.database.url` (ADR-0025) | Blocking when missing; info when set |
 
-The connector's `validate()` runs DOC-1 to DOC-7, DOC-12 to DOC-15, DOC-22 and DOC-23 in fast mode.
+The connector's `validate()` runs DOC-1 to DOC-7, DOC-12 to DOC-15 and DOC-22 to DOC-24 in fast mode.
 
 ## 4. `oracle-cdc-admin` (subcommands of the same CLI)
 
