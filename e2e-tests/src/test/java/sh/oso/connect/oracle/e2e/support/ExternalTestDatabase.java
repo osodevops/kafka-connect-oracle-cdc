@@ -33,12 +33,12 @@ import sh.oso.connect.oracle.core.topology.Platform;
 
 /**
  * {@link TestDatabase} over a database the suite does not own, reached by JDBC URL: Amazon RDS for
- * Oracle in the temporary dev-account lab, reached over Tailscale. Non-CDB only for now. Passwords
- * come from the environment, never from a property, so they stay out of build logs.
+ * Oracle in the temporary dev-account lab, reached through an SSM port forward. Non-CDB only for
+ * now. Passwords come from the environment, never from a property, so they stay out of build logs.
  *
  * <ul>
  *   <li>{@code e2e.external.url}: JDBC URL, for example {@code
- *       jdbc:oracle:thin:@//10.10.252.10:1521/CDCLAB}
+ *       jdbc:oracle:thin:@//localhost:15210/CDCLAB} (an SSM port forward)
  *   <li>{@code e2e.external.user} (default {@code CDC}) and env {@code CDC_E2E_PASSWORD}: the
  *       capture user
  *   <li>{@code e2e.external.admin.user} and env {@code CDC_E2E_ADMIN_PASSWORD}: a user that may
