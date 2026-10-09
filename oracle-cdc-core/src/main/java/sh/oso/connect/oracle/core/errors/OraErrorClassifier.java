@@ -84,6 +84,31 @@ public final class OraErrorClassifier {
     return -1;
   }
 
+  /**
+   * The ORA code that classifies {@code t}. ORA-00604 ("error occurred at recursive SQL level 1.
+   * Check subsequent errors") only wraps the error of a recursive statement, so the first other
+   * code in its message stack is the one that counts: LogMiner raises a missing archived log in
+   * range mode as ORA-00604 over ORA-01284 and ORA-00308 (ADR-0027).
+   */
+  public static int effectiveOraCode(Throwable t) {
+    int code = oraCode(t);
+    if (code != 604) {
+      return code;
+    }
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c.getMessage() != null) {
+        Matcher m = ORA.matcher(c.getMessage());
+        while (m.find()) {
+          int nested = Integer.parseInt(m.group(1));
+          if (nested != 604) {
+            return nested;
+          }
+        }
+      }
+    }
+    return code;
+  }
+
   public ErrorCode classify(Throwable t) {
     for (Throwable c = t; c != null; c = c.getCause()) {
       if (c instanceof java.sql.SQLRecoverableException
@@ -91,7 +116,7 @@ public final class OraErrorClassifier {
         return ErrorCode.TRANSIENT_DATABASE; // the driver itself says the connection is gone
       }
     }
-    int code = oraCode(t);
+    int code = effectiveOraCode(t);
     if (code > 0) {
       if (PRIVILEGE.contains(code)) {
         return ErrorCode.PRIVILEGE;
@@ -130,7 +155,7 @@ public final class OraErrorClassifier {
    */
   public OracleCdcException toException(Throwable t, String context) {
     ErrorCode code = classify(t);
-    int ora = oraCode(t);
+    int ora = effectiveOraCode(t);
     String what =
         context + (ora > 0 ? " failed with ORA-" + String.format("%05d", ora) : " failed") + ".";
     if (code == null) {

@@ -17,8 +17,10 @@ package sh.oso.connect.oracle.e2e.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -28,12 +30,14 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.engine.LobAssembler;
 import sh.oso.connect.oracle.core.errors.DictionaryUnavailableException;
+import sh.oso.connect.oracle.core.errors.OracleCdcPurgedException;
 import sh.oso.connect.oracle.core.jdbc.ConnectionRole;
 import sh.oso.connect.oracle.core.jdbc.SessionInitializer;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.testkit.InMemorySchemaStore;
 import sh.oso.connect.oracle.e2e.support.EngineDriver;
 import sh.oso.connect.oracle.e2e.support.LogMinerHelper;
+import sh.oso.connect.oracle.e2e.support.OracleSql;
 import sh.oso.connect.oracle.e2e.support.OracleTestDatabase;
 import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
 
@@ -90,6 +94,63 @@ class PdbLocalCaptureEngineIT {
               .hasMessageContaining("range mode");
           assertThat(d.committed).as("nothing delivered from a guessed schema").isEmpty();
         });
+  }
+
+  /**
+   * In range mode Oracle chooses the logs, so the connector never adds the missing file itself.
+   * When the only copy of an archived log is gone, the step covering it must still stop the task
+   * with a typed error and deliver nothing, never a partial range (ADR-0027).
+   */
+  @Test
+  @Tag("range-missing-redo")
+  void aMissingArchivedLogStopsTheTaskInRangeModeAndDeliversNothing() throws Exception {
+    try {
+      run(
+          (d, w, meta) -> {
+            exec(w, "INSERT INTO pc VALUES (1, 'in the hidden log')");
+            long inA = LogMinerHelper.currentScn(meta);
+            OracleSql.archiveLogCurrent(db);
+            // recycle every online group so the archived file is the only copy of that redo
+            int groups;
+            try (Statement s = meta.createStatement();
+                ResultSet rs = s.executeQuery("SELECT COUNT(*) FROM v$log")) {
+              rs.next();
+              groups = rs.getInt(1);
+            }
+            for (int i = 0; i <= groups; i++) {
+              exec(w, "INSERT INTO pc VALUES (" + (100 + i) + ", 'filler')");
+              OracleSql.archiveLogCurrent(db);
+            }
+            List<String> victims = new ArrayList<>();
+            try (Statement s = meta.createStatement();
+                ResultSet rs =
+                    s.executeQuery(
+                        "SELECT name FROM v$archived_log WHERE name IS NOT NULL AND deleted = 'NO'"
+                            + " AND first_change# <= "
+                            + inA
+                            + " AND next_change# > "
+                            + inA)) {
+              while (rs.next()) {
+                victims.add(rs.getString(1));
+              }
+            }
+            assertThat(victims).as("the archived log holding row 1").isNotEmpty();
+            for (String f : victims) {
+              OracleSql.hideArchivedLog(db, f);
+            }
+            long end = LogMinerHelper.currentScn(meta);
+            Throwable stop = catchThrowable(() -> d.runTo(end));
+            // Oracle raises ORA-00604 over ORA-01284 and ORA-00308 (9 October 2026, Free 23ai)
+            assertThat(stop)
+                .as("a typed stop, never a partial range")
+                .isInstanceOf(OracleCdcPurgedException.class)
+                .hasMessageContaining("CDC-2002");
+            assertThat(d.committed).as("nothing delivered past the missing log").isEmpty();
+            System.out.println("range-missing-redo: " + stop.getMessage());
+          });
+    } finally {
+      OracleSql.restoreHiddenLogs(db);
+    }
   }
 
   @FunctionalInterface

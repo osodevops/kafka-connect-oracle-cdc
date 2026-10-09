@@ -33,7 +33,9 @@ Oracle Database Free, connected to FREEPDB1 as a local user with LOGMINING:
 2. In range mode the log inventory still lists the logs of every step and runs the continuity
    checks, so a gap or a purged log stops the task exactly as in logs mode (CDC-2001, CDC-2002);
    only `ADD_LOGFILE` is skipped. Oracle's own ORA-01291 for an uncovered range is classified as
-   before.
+   before. When the only copy of an archived log is gone, `START_LOGMNR` fails with ORA-00604 over
+   ORA-01284 and ORA-00308; ORA-00604 is classified by the error it wraps, so this is CDC-2002 as
+   in logs mode.
 3. The lag-case replay (P1-17) needs a dictionary from the redo, which a PDB cannot use: in range
    mode such rows stop the task with `DictionaryUnavailableException` (CDC-6001), and dictionary
    builds are switched off at start with an ops event. No row is decoded against the wrong layout.
@@ -55,7 +57,8 @@ Oracle Database Free, connected to FREEPDB1 as a local user with LOGMINING:
 
 `PdbLocalMiningRefEngineIT` (reference document above), `PdbLocalCaptureEngineIT` (a local user
 in FREEPDB1 captures DML and the rows after a DDL in range mode; rows written before an unmined DDL
-stop the task with CDC-6001 and nothing is delivered), `JdbcLogMinerSessionRangeModeTest` (no
+stop the task with CDC-6001; an archived log whose only copy is gone stops it with CDC-2002; in both
+cases nothing is delivered), `OraErrorClassifierTest.ora604IsClassifiedByTheErrorItWraps`, `JdbcLogMinerSessionRangeModeTest` (no
 `ADD_LOGFILE`; a redo-dictionary start is CDC-6001), the qualification run on RDS with the CDB
 architecture (`docs/qualification/2026-10-09-rds-19c-se2-cdb/`), `RulesTest`
 (`aLocalUserInsideAPdbNeedsRangeModeNotACommonUser`), `CoreConfigTest`.

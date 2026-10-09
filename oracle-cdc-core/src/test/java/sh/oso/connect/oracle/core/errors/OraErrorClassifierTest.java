@@ -91,6 +91,30 @@ class OraErrorClassifierTest {
     assertThat(classifier.classify(new SQLException("ORA-00604: plain", "99999", 604))).isNull();
   }
 
+  /** ADR-0027: in range mode a missing archived log arrives as ORA-00604 over ORA-01284. */
+  @Test
+  void ora604IsClassifiedByTheErrorItWraps() {
+    SQLException missing =
+        new SQLException(
+            "ORA-00604: Error occurred at recursive SQL level 1. Check subsequent errors.\n"
+                + "ORA-01284: file /arch/a.arc cannot be opened\n"
+                + "ORA-00308: cannot open archived log '/arch/a.arc'\n"
+                + "ORA-27037: unable to obtain file status",
+            "99999",
+            604);
+    assertThat(classifier.classify(missing)).isEqualTo(ErrorCode.LOG_PURGED);
+    assertThat(OraErrorClassifier.effectiveOraCode(missing)).isEqualTo(1284);
+    assertThat(classifier.toException(missing, "mining 1..2").getMessage())
+        .contains("CDC-2002")
+        .contains("ORA-01284");
+    SQLException retry =
+        new SQLException(
+            "ORA-00604: error occurred at recursive SQL level 1\nORA-01291: missing log file",
+            "99999",
+            604);
+    assertThat(classifier.classify(retry)).isEqualTo(ErrorCode.MINING_STEP_RETRY);
+  }
+
   @Test
   void oraCodeIsReadFromCodeOrMessage() {
     assertThat(OraErrorClassifier.oraCode(new SQLException("x", "y", 1284))).isEqualTo(1284);
