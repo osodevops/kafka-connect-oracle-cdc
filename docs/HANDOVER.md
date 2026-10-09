@@ -112,6 +112,21 @@ transaction.
   incarnation check after every reconnect (ADR-0023 amendment). The dev-account lab is
   `terraform/oracle-cdc-lab` in `oso_aws_infrastructure_resources` (PR #283), reached by SSM port
   forwarding on local port 15210, never Tailscale.
+- 9 October 2026, releases 0.1.2 and 0.1.3: RAC refused at start (ADR-0023), standby rules and
+  the applied-SCN bound (ADR-0025, DOC-24, `cdc.dictionary.database.url`), RDS non-CDB qualified
+  (`docs/qualification/2026-10-09-rds-19c-se2-non-cdb`), the secret-scan rule (CLAUDE.md,
+  `.gitleaks.toml`, CI job), and range mode for mining from inside a PDB (ADR-0027,
+  `cdc.mining.mode`), qualified on RDS 19c SE2 with the CDB architecture
+  (`docs/qualification/2026-10-09-rds-19c-se2-cdb`). Every lab database was destroyed after its
+  run; only the SSM bastion of the lab stack stays up (toggles in `terraform-dev.tfvars`).
+- Phase 3 (RAC, ADR-0026): 3a, the step cursor with a mark per thread, is on `main` after 0.1.3,
+  green on T0 and on both T1 tiers. The RAC refusal stays until 3d. Next: 3b, the per-thread position (`threads` block in the `v=1` offset,
+  per-thread `SkipRule` and `ResumeCalculator`), then 3c (closed and disabled threads,
+  `cdc.rac.safety.lag.ms`, CDC-7003). 3d lifts the refusal and needs a RAC lab.
+- Blocked on Sion: the Data Guard and RAC labs need an Oracle account for the Enterprise Edition
+  images at container-registry.oracle.com; Autonomous Database needs an OCI account. The
+  qualification runner for the AWS lab is a shell script kept outside the repository; the stack
+  README in the infra repo shows the port-forward and qual commands.
 
 Nothing uncommitted. Still open:
 
