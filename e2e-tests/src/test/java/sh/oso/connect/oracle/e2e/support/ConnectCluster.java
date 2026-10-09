@@ -648,6 +648,25 @@ public final class ConnectCluster implements AutoCloseable {
     return out;
   }
 
+  /** True when the worker container opens a TCP connection to {@code host:port} within 5 s. */
+  public boolean workerReaches(String host, int port) throws Exception {
+    var r =
+        connect.execInContainer(
+            "bash", "-c", "timeout 5 bash -c '</dev/tcp/" + host + "/" + port + "'");
+    return r.getExitCode() == 0;
+  }
+
+  /** The topics the broker holds now. */
+  public java.util.Set<String> topics() {
+    Properties p = new Properties();
+    p.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
+    p.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+    p.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+    try (KafkaConsumer<String, String> c = new KafkaConsumer<>(p)) {
+      return c.listTopics(Duration.ofSeconds(30)).keySet();
+    }
+  }
+
   /** SIGKILL the worker, then start a fresh container that rejoins the same group and topics. */
   public void killAndRestartWorker() {
     connect.getDockerClient().killContainerCmd(connect.getContainerId()).withSignal("KILL").exec();

@@ -85,6 +85,11 @@ final class ContainerTestDatabase implements TestDatabase {
   }
 
   @Override
+  public Map<String, String> connectorDatabaseProps() {
+    return ConnectCluster.oracleDatabaseProps(String.join(",", pdbs()));
+  }
+
+  @Override
   public CoreConfig coreConfig() {
     return new CoreConfig(
         Map.of(

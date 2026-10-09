@@ -303,6 +303,32 @@ final class ExternalTestDatabase implements TestDatabase {
     }
   }
 
+  /**
+   * The URL's host, port and service as a Connect worker in Docker reaches them: a database on the
+   * workstation's loopback (the SSM port forward) is {@code host.docker.internal} from a container.
+   */
+  @Override
+  public Map<String, String> connectorDatabaseProps() {
+    java.util.regex.Matcher m =
+        java.util.regex.Pattern.compile("@//([^:/]+):(\\d+)/(.+)$").matcher(url);
+    if (!m.find()) {
+      throw new IllegalStateException(
+          "e2e.external.url must have the form jdbc:oracle:thin:@//host:port/service");
+    }
+    String host = m.group(1);
+    if (host.equals("localhost") || host.equals("127.0.0.1")) {
+      host = "host.docker.internal";
+    }
+    Map<String, String> props = new java.util.LinkedHashMap<>();
+    props.put("cdc.database.host", host);
+    props.put("cdc.database.port", m.group(2));
+    props.put("cdc.database.service", m.group(3));
+    props.put("cdc.database.user", user);
+    props.put("cdc.database.password", password);
+    props.put("cdc.database.pdbs", pdb == null ? "" : pdb);
+    return props;
+  }
+
   @Override
   public CoreConfig coreConfig() {
     return new CoreConfig(

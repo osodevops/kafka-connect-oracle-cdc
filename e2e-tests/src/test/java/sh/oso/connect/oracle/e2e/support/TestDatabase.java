@@ -68,6 +68,22 @@ public interface TestDatabase {
     return false;
   }
 
+  /**
+   * The connector's database properties as a Kafka Connect worker in Docker reaches this database:
+   * the container by its network alias, an external database through the host (for example the SSM
+   * port forward on the workstation, as {@code host.docker.internal}).
+   */
+  java.util.Map<String, String> connectorDatabaseProps();
+
+  /** Host and port a Connect worker in Docker connects to, for the reachability check. */
+  default String workerHost() {
+    return connectorDatabaseProps().get("cdc.database.host");
+  }
+
+  default int workerPort() {
+    return Integer.parseInt(connectorDatabaseProps().get("cdc.database.port"));
+  }
+
   /** What the evidence file records about the target: never a credential. */
   String describe();
 }
