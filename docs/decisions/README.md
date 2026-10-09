@@ -31,6 +31,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0023 | Unqualified database shapes are refused at start | Accepted |
 | 0024 | The platform is detected, not configured; RDS setup runs through rdsadmin | Accepted |
 | 0025 | Standby capture is archive-only on an open physical standby, bounded by the applied SCN | Accepted |
+| 0026 | The position is a vector of per-thread redo addresses; commit order is per thread | Accepted (in progress) |
 | 0027 | Per-PDB mining: Oracle chooses the logs, the connector keeps the stop conditions | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
