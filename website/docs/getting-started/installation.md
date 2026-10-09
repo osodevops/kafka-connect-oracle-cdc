@@ -90,6 +90,8 @@ After the restart, `GET /connector-plugins` on the worker lists
 | Converters | JSON, and Avro with the [name adjustment modes](../reference/record-formats.md#avro-and-other-strict-naming-rules) | The JSON converter with and without schemas, and Apicurio Registry 3.3.3's Avro converter. Protobuf and other converters are not tested |
 | Platforms | Apache Kafka Connect, Strimzi, Confluent Platform 7.6 and later, Amazon MSK Connect | Apache Kafka Connect and Strimzi. Exactly-once delivery on MSK Connect has not been verified |
 
-Not supported yet: Oracle RAC (a database with more than one enabled redo thread is refused at
-start with CDC-5001), Amazon RDS for Oracle, Autonomous Database, and capture from a standby
-database.
+Amazon RDS for Oracle 19c non-CDB is a preview: it passed the qualification suites, and
+[its setup](../database-setup/amazon-rds.md) differs. Not supported yet: Oracle RAC (a database
+with more than one enabled redo thread is refused at start with CDC-5001), the RDS CDB
+architecture, Autonomous Database, and capture from a standby database (accepted in archive-only
+mode but not qualified).

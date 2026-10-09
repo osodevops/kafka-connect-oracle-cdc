@@ -132,6 +132,6 @@ fill and halt the database. How long archived logs must stay is covered in
 |---|---|
 | On-premises and self-managed cloud VMs, single instance, CDB or non-CDB | Supported; `setup-sql --platform onprem` (the default) |
 | Oracle RAC | Not supported yet. A database with more than one enabled redo thread is refused at start (CDC-5001, doctor rule DOC-13) until the per-thread position ships; a DISABLED thread left by a removed instance is fine |
-| Amazon RDS for Oracle | Not supported yet. The non-CDB setup script and RDS-aware doctor checks are in development and not in a published release; see [Amazon RDS for Oracle](amazon-rds.md). The CDB architecture (every release from 21c) needs per-PDB mining |
+| Amazon RDS for Oracle | Preview for 19c non-CDB: `setup-sql --platform rds` and RDS-aware doctor checks, qualified on RDS SE2 on 9 October 2026 (see [Amazon RDS for Oracle](amazon-rds.md)). The CDB architecture (every release from 21c) needs per-PDB mining and is not supported |
 | Autonomous Database | Not supported yet; `setup-sql --platform autonomous` prints a notice and exits with code 3 |
 | Physical standby | Not qualified. With `cdc.capture.mode=archive_only` the connector accepts a physical standby open read-only (Active Data Guard) and never mines past the SCN redo apply has reached, but it is tested on primary databases only. Online mode on a standby, and a mounted, logical or snapshot standby in any mode, are refused at start (CDC-5001, doctor rule DOC-14) |

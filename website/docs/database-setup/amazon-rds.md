@@ -5,10 +5,12 @@ description: What changes on Amazon RDS for Oracle, the setup script for the mas
 
 # Amazon RDS for Oracle
 
-:::caution Not in a published release
-Amazon RDS support is in development. The setup script and the RDS-aware doctor checks below are
-on the main branch and not in a published release, and the connector is not yet qualified on RDS.
-Until it is, treat RDS as unsupported.
+:::note Preview
+Amazon RDS for Oracle 19c, non-CDB, passed the connector's qualification suites on 9 October 2026:
+the setup script below, the doctor's checks, capture in online and archive-only mode, and
+dictionary builds, against RDS SE2 License Included. A real Kafka Connect worker against RDS and a
+restart there are not yet part of that run, so treat RDS support as a preview. The CDB
+architecture is not supported.
 :::
 
 The connector mines an RDS for Oracle database with LogMiner exactly as it mines one on premises:
