@@ -6,11 +6,12 @@ description: What changes on Amazon RDS for Oracle, the setup script for the mas
 # Amazon RDS for Oracle
 
 :::note Preview
-Amazon RDS for Oracle 19c, non-CDB, passed the connector's qualification suites on 9 October 2026:
-the setup script below, the doctor's checks, capture in online and archive-only mode, and
-dictionary builds, against RDS SE2 License Included. A real Kafka Connect worker against RDS and a
-restart there are not yet part of that run, so treat RDS support as a preview. The CDB
-architecture is not supported.
+Amazon RDS for Oracle 19c passed the connector's qualification suites on 9 October 2026 in both
+architectures, on RDS SE2 License Included. As a non-CDB: the setup script below, the doctor's
+checks, capture in online and archive-only mode, and dictionary builds. With the CDB architecture,
+from release 0.1.3: the same setup script, checks and capture, mined from inside the tenant
+database in range mode. A real Kafka Connect worker against RDS and a restart there are not yet
+part of those runs, so treat RDS support as a preview.
 :::
 
 The connector mines an RDS for Oracle database with LogMiner exactly as it mines one on premises:
@@ -31,12 +32,20 @@ The doctor detects RDS (the `RDSADMIN` schema exists) and gives every fix in the
 
 ## Architecture
 
-The preview covers Oracle Database 19c created as a non-CDB. With the CDB architecture, which every
+The preview covers Oracle Database 19c in both architectures. With the CDB architecture, which every
 RDS release from 21c uses and 19c offers, the client always connects to the tenant database as a
-local user and cannot reach `CDB$ROOT`. The connector then mines that tenant database in
-[range mode](../concepts/multi-pdb.md#mining-from-inside-a-pdb) (`cdc.mining.mode=auto` chooses it):
-LogMiner chooses the logs and the connector still checks them. This is in development, not yet
-qualified on RDS, and not in a published release.
+local user and cannot reach `CDB$ROOT`. From release 0.1.3 the connector mines that tenant database
+in [range mode](../concepts/multi-pdb.md#mining-from-inside-a-pdb) (`cdc.mining.mode=auto` chooses
+it): LogMiner chooses the logs, and the connector still lists them and checks them for gaps. Two
+things differ from a non-CDB:
+
+- Rows written before a DDL that the connector has not mined yet stop the task with CDC-6001
+  instead of being replayed, because LogMiner cannot use a dictionary from the redo inside a PDB.
+  Keep the connector's lag short where DDL is frequent.
+- Dictionary builds are switched off.
+
+Run the setup script below connected to the tenant database. Releases from 21c have not been
+through the qualification suites yet.
 
 ## The setup script
 

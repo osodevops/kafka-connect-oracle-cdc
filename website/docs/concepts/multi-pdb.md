@@ -57,5 +57,7 @@ chooses it whenever the connection is to a PDB):
   DBMS_LOGMNR` in that PDB, and the fixed views the doctor checks (DOC-4). It is a local user, with
   no `C##` prefix and no `CONTAINER_DATA`.
 
-Range mode is in development and not yet qualified on Amazon RDS or Autonomous Database.
+Range mode is available from release 0.1.3. It passed the qualification suites on Amazon RDS for
+Oracle 19c with the CDB architecture on 9 October 2026; Autonomous Database has not been qualified
+yet.
 

@@ -16,6 +16,7 @@
 package sh.oso.connect.oracle.e2e.qual;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.sql.Connection;
 import java.sql.Statement;
@@ -42,6 +43,10 @@ class DictionaryBuildQualIT {
 
   @Test
   void theCaptureUserWritesADictionaryBuildTheInventoryFinds() throws Exception {
+    // ADR-0027: inside a PDB LogMiner cannot use a dictionary from the redo (ORA-01371), so range
+    // mode switches builds off. On RDS with the CDB architecture BUILD ran from the tenant database
+    // without error, but the inventory found no build (9 October 2026).
+    assumeFalse(db.rangeMode(), "dictionary builds are off in range mode (ADR-0027)");
     Evidence ev = Evidence.of(getClass(), "dictionary build").param("target", db.describe());
     try (Connection c = db.capture()) {
       long before = LogMinerHelper.currentScn(c);

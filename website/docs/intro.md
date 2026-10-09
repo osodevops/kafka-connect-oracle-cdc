@@ -39,8 +39,8 @@ site describes as available is in that release and covered by its test suites (s
 | Several PDBs from one connector | See [multi-PDB capture](concepts/multi-pdb.md) |
 | [`oracle-cdc-admin`](operations/admin.md): offsets, resnapshot, open transactions, journal inspection | Available |
 | [Migration tools](migration/tools.md) from Confluent and Debezium: configuration translation, takeover SCN, cutover verification | Available |
-| [Amazon RDS for Oracle](database-setup/amazon-rds.md) 19c non-CDB | Preview |
-| Oracle RAC, RDS with the CDB architecture, Autonomous Database, standby capture | Not available yet |
+| [Amazon RDS for Oracle](database-setup/amazon-rds.md) 19c, non-CDB, and with the CDB architecture from 0.1.3 | Preview |
+| Oracle RAC, Autonomous Database, standby capture | Not available yet |
 | Confluent-compatible record format, transaction metadata records, schema change topic | Not available yet |
 
 Oracle Database 19c and later is required. The test suites run against Oracle Database Free,

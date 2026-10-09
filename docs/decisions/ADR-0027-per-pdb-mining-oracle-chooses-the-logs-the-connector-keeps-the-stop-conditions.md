@@ -1,8 +1,8 @@
 # ADR-0027: Per-PDB mining: Oracle chooses the logs, the connector keeps the stop conditions
 
-**Status:** Accepted. Implemented: `cdc.mining.mode` and range mode. Still to come: qualification on
-Amazon RDS with the CDB architecture (dev-account lab) and on Autonomous Database (needs an OCI
-account).
+**Status:** Accepted. Implemented: `cdc.mining.mode` and range mode, qualified on Amazon RDS for
+Oracle 19c SE2 with the CDB architecture on 9 October 2026. Still to come: qualification on
+Autonomous Database (needs an OCI account).
 **Context:** PRD-01 Phase 3 (per-PDB mining for Autonomous Database and RDS CDB), PRD-00
 CORE-LOG-1/2 and CORE-MINE-1; the `pdb-local-mining` reference spike, 9 October 2026.
 
@@ -56,7 +56,8 @@ Oracle Database Free, connected to FREEPDB1 as a local user with LOGMINING:
 `PdbLocalMiningRefEngineIT` (reference document above), `PdbLocalCaptureEngineIT` (a local user
 in FREEPDB1 captures DML and the rows after a DDL in range mode; rows written before an unmined DDL
 stop the task with CDC-6001 and nothing is delivered), `JdbcLogMinerSessionRangeModeTest` (no
-`ADD_LOGFILE`; a redo-dictionary start is CDC-6001), `RulesTest`
+`ADD_LOGFILE`; a redo-dictionary start is CDC-6001), the qualification run on RDS with the CDB
+architecture (`docs/qualification/2026-10-09-rds-19c-se2-cdb/`), `RulesTest`
 (`aLocalUserInsideAPdbNeedsRangeModeNotACommonUser`), `CoreConfigTest`.
 
 ## PRD edits
