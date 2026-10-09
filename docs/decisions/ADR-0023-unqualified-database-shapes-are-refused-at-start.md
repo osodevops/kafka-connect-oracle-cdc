@@ -58,4 +58,17 @@ PRD-00 CORE-CONN-5: "Shapes the release is not qualified for stop the task with
 
 ## Amendments
 
-None.
+### 9 October 2026: the incarnation is checked again after every reconnect
+
+The offset's identity (DBID and RESETLOGS SCN) was compared with the database only at task start.
+A failover or a point-in-time recovery opens the database with RESETLOGS, a new incarnation whose
+log sequences start again at 1. A task that lost its connection to the primary and reconnected
+(CORE-CONN-6) to the new one went on mining with a cursor of the old incarnation, and the redo byte
+address filter would have skipped the new incarnation's rows.
+
+After every reconnect the engine reads the identity again before it mines; a different identity
+stops the task with `TopologyException` (CDC-5001), nothing of the new incarnation applied. The
+read runs inside the step, so a transient error while making it leads to another reconnect. A
+switchover, or a connection that merely dropped, keeps the identity and the task continues.
+Evidence: `StopsWhenTheDatabaseIncarnationChangesMidRunTest` (tag `incarnation-change`), which
+failed before the change. PRD-00 CORE-CONN-6 gains the sentence.

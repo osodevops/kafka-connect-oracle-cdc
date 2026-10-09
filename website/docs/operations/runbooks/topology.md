@@ -19,6 +19,12 @@ One of these, and the message says which:
   connected to ...". Typical causes are a connector pointed at a different database (a clone, a
   refreshed test database), a database opened with RESETLOGS after point-in-time recovery or a
   flashback, or an offset copied from another connector.
+- **The database changed incarnation while the task ran.** "After reconnecting, the database is
+  ... but the position belongs to ...": the connection dropped and the database the task
+  reconnected to had been opened with RESETLOGS, typically a Data Guard failover or a
+  point-in-time recovery. Nothing of the new incarnation was mined. A failover can lose
+  transactions the old primary had committed, and the connector may already have delivered
+  them; compare before you resnapshot.
 - **No archive destination to mine.** `cdc.archive.destination` names a destination that is not
   active, or, with the setting empty, no valid local archive destination exists.
 - **More than one enabled redo thread (RAC).** "The database has N enabled redo threads (thread 1

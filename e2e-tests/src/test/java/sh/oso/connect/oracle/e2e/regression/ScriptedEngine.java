@@ -61,6 +61,12 @@ final class ScriptedEngine {
   long minedTo;
   RedoRecordId resume;
 
+  /** What a reconnect returns; by default a scenario has none. */
+  CaptureEngine.Reconnector reconnector =
+      cause -> {
+        throw new AssertionError("this scenario has no reconnect", cause);
+      };
+
   /** An INSERT of ORDERS as LogMiner writes it. */
   static String insert(int id, String name) {
     return "insert into \"APP\".\"ORDERS\"(\"ID\",\"NAME\") values ('" + id + "','" + name + "')";
@@ -139,9 +145,7 @@ final class ScriptedEngine {
         new OraErrorClassifier(),
         Set.of("APP"),
         () -> Set.of("APP"),
-        cause -> {
-          throw new AssertionError("this scenario has no reconnect", cause);
-        },
+        cause -> reconnector.reconnect(cause),
         () -> Instant.EPOCH);
   }
 

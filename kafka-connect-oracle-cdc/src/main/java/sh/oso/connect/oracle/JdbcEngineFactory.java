@@ -354,6 +354,12 @@ public final class JdbcEngineFactory implements EngineFactory {
               start.released()));
       // ADR-0023: redo from a thread the start did not qualify stops the task
       engine.withExpectedThreads(TopologyGuard.qualifiedThreads(shape));
+      // ADR-0023 amendment: after a reconnect the database must be the same incarnation
+      engine.withIdentityCheck(
+          () -> {
+            DatabaseInfo d = catalog.database();
+            return new DatabaseIdentity(d.dbid(), d.resetlogsChangeScn());
+          });
       return engine;
     }
 

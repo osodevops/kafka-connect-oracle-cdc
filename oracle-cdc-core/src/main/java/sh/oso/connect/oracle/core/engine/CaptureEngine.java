@@ -67,6 +67,11 @@ public final class CaptureEngine {
     Sources reconnect(Throwable cause) throws SQLException, InterruptedException;
   }
 
+  /** Reads the identity (DBID and RESETLOGS SCN) of the database the sources are connected to. */
+  public interface IdentityProbe {
+    sh.oso.connect.oracle.core.position.DatabaseIdentity identity() throws SQLException;
+  }
+
   /** Called after a DDL step cut so the owner refreshes the pushed-down object ids (ADR-0001). */
   public interface IdRefresher {
     /** Re-resolves the pushed-down ids; returns the captured owners afterwards. */
@@ -151,8 +156,23 @@ public final class CaptureEngine {
     this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
   }
 
+  /** Re-reads the database identity after every reconnect; null when the owner gives none. */
+  private volatile IdentityProbe identityProbe; // set before start, read on the engine thread
+
+  /** A reconnect happened: the next step checks the identity before it mines anything. */
+  private volatile boolean identityPending;
+
+  /**
+   * ADR-0023 amendment: after a reconnect the database must still be the incarnation the position
+   * belongs to; a failover or a point-in-time recovery opens it with RESETLOGS.
+   */
+  public CaptureEngine withIdentityCheck(IdentityProbe probe) {
+    this.identityProbe = probe;
+    return this;
+  }
+
   /** The redo threads this task is qualified for; events from any other thread stop it. */
-  private java.util.Set<Integer> expectedThreads;
+  private volatile java.util.Set<Integer> expectedThreads; // set before start
 
   /**
    * ADR-0023: the enabled redo threads the start-time topology check accepted. A mined event from
@@ -346,12 +366,38 @@ public final class CaptureEngine {
     this.source = fresh.source();
     this.inventory = fresh.inventory();
     this.safeEnd = fresh.safeEndScn();
+    this.identityPending = identityProbe != null;
     recycler.recycled();
     sink.reconnected(cause.getMessage());
     return Progress.RECONNECTED;
   }
 
+  /**
+   * ADR-0023 amendment: the database reached after a reconnect must be the incarnation the position
+   * belongs to. A failover or a point-in-time recovery opens it with RESETLOGS and log sequences
+   * start again, so the cursor's redo byte address means nothing there. Runs inside the step, so a
+   * transient error while reading it leads to another reconnect.
+   */
+  private void verifyIdentity() throws SQLException {
+    sh.oso.connect.oracle.core.position.DatabaseIdentity now = identityProbe.identity();
+    if (!now.equals(start.identity())) {
+      throw new sh.oso.connect.oracle.core.errors.TopologyException(
+          "After reconnecting, the database is "
+              + now
+              + " but the position belongs to "
+              + start.identity()
+              + ": it was opened with RESETLOGS (a failover or a point-in-time recovery) while"
+              + " the task ran. Nothing of the new incarnation was mined.",
+          "Find out whether the failover lost transactions the connector already delivered, then"
+              + " reset the connector's offsets and resnapshot (topology runbook).");
+    }
+    identityPending = false;
+  }
+
   private Progress step() throws SQLException {
+    if (identityPending) {
+      verifyIdentity();
+    }
     if (pendingRefresh) {
       refreshIds();
     }

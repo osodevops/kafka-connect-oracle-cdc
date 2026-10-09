@@ -108,6 +108,10 @@ transaction.
   a database with more than one enabled redo thread (CDC-5001); DOC-13 is blocking in fast mode.
   Before this nothing stopped a RAC database from mining with one cursor. The full plan for RDS,
   standby, RAC and per-PDB capture is in Sion's plan file (`cuddly-coalescing-pixel.md`).
+- 9 October 2026: RDS doctor and setup-sql (ADR-0024, DOC-23), the `*QualIT` tier, and the
+  incarnation check after every reconnect (ADR-0023 amendment). The dev-account lab is
+  `terraform/oracle-cdc-lab` in `oso_aws_infrastructure_resources` (PR #283), reached by SSM port
+  forwarding on local port 15210, never Tailscale.
 
 Nothing uncommitted. Still open:
 
