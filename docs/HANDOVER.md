@@ -119,8 +119,15 @@ transaction.
   `cdc.mining.mode`), qualified on RDS 19c SE2 with the CDB architecture
   (`docs/qualification/2026-10-09-rds-19c-se2-cdb`). Every lab database was destroyed after its
   run; only the SSM bastion of the lab stack stays up (toggles in `terraform-dev.tfvars`).
-- Phase 3 (RAC, ADR-0026): 3a, the step cursor with a mark per thread, is on `main` after 0.1.3,
-  green on T0 and on both T1 tiers. The RAC refusal stays until 3d. Next: 3b, the per-thread position (`threads` block in the `v=1` offset,
+- Release 0.1.4 (9 October 2026): 3a below, and ORA-00604 classified by the error it wraps (a
+  missing log in range mode is CDC-2002). `ConnectorQualIT` (a Connect worker killed mid-stream)
+  then passed on both RDS architectures (`docs/qualification/2026-10-09-rds-19c-se2-connect-worker`).
+- Phase 3 (RAC, ADR-0026): 3a, the step cursor with a mark per thread, is on `main` since 0.1.4,
+  green on T0 and on both T1 tiers. 3b-1 (the optional `threads` block in the offset) and 3b-2
+  (the per-thread skip rule) are on branch `feat/rac-per-thread-position` (worktree
+  `../kafka-connect-oracle-cdc-rac`), T0 only; nothing writes the block yet. The RAC refusal stays
+  until 3d. Next: 3b-3, the per-thread resume vector through `CaptureEngine` and
+  `RecordQueueSink`, then 3b, the per-thread position (`threads` block in the `v=1` offset,
   per-thread `SkipRule` and `ResumeCalculator`), then 3c (closed and disabled threads,
   `cdc.rac.safety.lag.ms`, CDC-7003). 3d lifts the refusal and needs a RAC lab.
 - Blocked on Sion: the Data Guard and RAC labs need an Oracle account for the Enterprise Edition
