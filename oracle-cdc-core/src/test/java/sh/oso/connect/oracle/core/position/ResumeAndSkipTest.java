@@ -117,4 +117,59 @@ class ResumeAndSkipTest {
         .as("lower commit SCN but written after the acknowledged commit: replayed")
         .isZero();
   }
+
+  // ADR-0026: per-thread marks
+
+  static ThreadMark mark(CommittedTransaction t) {
+    return new ThreadMark(t.firstCaptured(), t.commitId(), t.key());
+  }
+
+  /** Thread 1 acknowledged a, thread 2 acknowledged b (the globally last, 2 of its 3 events). */
+  static Position perThread(CommittedTransaction a, CommittedTransaction b) {
+    java.util.SortedMap<Integer, ThreadMark> marks = new java.util.TreeMap<>();
+    marks.put(1, mark(a));
+    marks.put(2, mark(b));
+    return Position.initial(a.firstCaptured().scn(), new DatabaseIdentity(1, 1))
+        .withCommit(b.commitId(), 2, b.key(), 2)
+        .withThreads(marks);
+  }
+
+  @Test
+  void aLaterCommitOfAnotherThreadIsNotSkippedBecauseOfTheGlobalLastCommit() {
+    CommittedTransaction a = tx(200, 1, 1, 3);
+    CommittedTransaction b = tx(300, 2, 2, 3);
+    CommittedTransaction later = tx(250, 1, 3, 2); // thread 1, after a in thread 1's redo
+    Position p = perThread(a, b);
+    assertThat(SkipRule.eventsToSkip(p, later))
+        .as("one cursor would order thread 1 below thread 2 and skip it whole")
+        .isZero();
+    Position legacy =
+        Position.initial(190, new DatabaseIdentity(1, 1)).withCommit(b.commitId(), 2, b.key(), 2);
+    assertThat(SkipRule.eventsToSkip(legacy, later))
+        .as("the single-thread rule, kept for single-thread positions")
+        .isEqualTo(later.size());
+  }
+
+  @Test
+  void aCommitAtOrBeforeItsThreadsMarkIsSkippedWhole() {
+    CommittedTransaction a = tx(200, 1, 1, 3);
+    CommittedTransaction b = tx(300, 2, 2, 3);
+    Position p = perThread(a, b);
+    assertThat(SkipRule.eventsToSkip(p, a)).isEqualTo(a.size());
+    assertThat(SkipRule.eventsToSkip(p, tx(150, 1, 4, 2))).isEqualTo(2);
+  }
+
+  @Test
+  void theGloballyLastCommitResumesAtItsEventIndex() {
+    CommittedTransaction a = tx(200, 1, 1, 3);
+    CommittedTransaction b = tx(300, 2, 2, 3);
+    assertThat(SkipRule.eventsToSkip(perThread(a, b), b)).isEqualTo(2);
+  }
+
+  @Test
+  void aThreadWithoutAnAcknowledgedCommitSkipsNothing() {
+    CommittedTransaction a = tx(200, 1, 1, 3);
+    CommittedTransaction b = tx(300, 2, 2, 3);
+    assertThat(SkipRule.eventsToSkip(perThread(a, b), tx(100, 3, 5, 2))).isZero();
+  }
 }
