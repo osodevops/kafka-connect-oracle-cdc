@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.2](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.1...v0.1.2) (2026-10-09)
+
+
+### Features
+
+* **core:** dictionary builds run on the primary when capturing a standby (ADR-0025, DOC-24) ([261fdbb](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/261fdbb9da01c11a56a5c068e81c9def66ffb628))
+* **core:** standby capture rules and the applied-SCN bound (ADR-0025) ([9bca625](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/9bca6253016d53ab2e1d57ed151dd21682eaf1c6))
+* **doctor:** RDS setup script and platform-aware fixes; DOC-23 archive retention (ADR-0024) ([a8b071b](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/a8b071b4104ba87113030a88944e7a9bd04fb3e1))
+
+
+### Bug Fixes
+
+* **core:** refuse a database with more than one enabled redo thread (ADR-0023) ([0d36ba3](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/0d36ba375bd2bae28393aaa9dd0daf8dba1f484a))
+* **core:** stop when a reconnect reaches a new database incarnation (ADR-0023 amendment) ([d3c3abd](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/d3c3abd26010534fceea996984b2702e61734922))
+
+
+### Documentation
+
+* **e2e:** the external lab database is reached through an SSM port forward ([fb0b180](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/fb0b18020101d9d2df23249a1eebe025cb49f2ff))
+* RDS for Oracle 19c non-CDB qualified as a preview ([fb696c2](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/fb696c27b50e96d721bdc5a4da1e2d9f8a0daba4))
+* README points at the live documentation; handover records the repository going public ([4e2db06](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/4e2db0662edba10163e921e245b2df08fae6e932))
+* the site describes release 0.1.1 and gains a development section ([4c63bdb](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/4c63bdb26d2be77551784d3497df59927f6961ee))
+
 ## [0.1.1](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.0...v0.1.1) (2026-10-08)
 
 
