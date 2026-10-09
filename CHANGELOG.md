@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.3](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.2...v0.1.3) (2026-10-09)
+
+
+### Features
+
+* **mining:** range mode for mining from inside a PDB (ADR-0027) ([6364a0b](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/6364a0bd83fa1a917591db6aa97a1e81737f2811))
+
+
+### Bug Fixes
+
+* **security:** no credential on a command line or in a connect string; secret scan in CI ([ecfef68](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/ecfef6815d06c4550c0355d3e0f0827dc65df875))
+
+
+### Documentation
+
+* RDS for Oracle 19c with the CDB architecture qualified in range mode ([e566e36](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/e566e3649c00c017f6fc63765bdbefdf71d19262))
+
 ## [0.1.2](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.1...v0.1.2) (2026-10-09)
 
 
