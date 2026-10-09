@@ -48,7 +48,49 @@ public record Position(
     String resumeRsId,
     long resumeSsn,
     String lastCommitRsId,
-    long lastCommitSsn) {
+    long lastCommitSsn,
+    java.util.SortedMap<Integer, ThreadMark> threads) {
+
+  /**
+   * The single-thread shape: no per-thread block. Every position of a single-instance database has
+   * this shape, so its offset is written exactly as before ADR-0026.
+   */
+  public Position(
+      int version,
+      long resumeScn,
+      long lastCommitScn,
+      TxKey lastCommitKey,
+      int lastCommitThread,
+      int eventIndex,
+      long journalGeneration,
+      long schemaEpoch,
+      DatabaseIdentity identity,
+      List<String> released,
+      Map<String, Object> snapshot,
+      Map<String, Object> extras,
+      String resumeRsId,
+      long resumeSsn,
+      String lastCommitRsId,
+      long lastCommitSsn) {
+    this(
+        version,
+        resumeScn,
+        lastCommitScn,
+        lastCommitKey,
+        lastCommitThread,
+        eventIndex,
+        journalGeneration,
+        schemaEpoch,
+        identity,
+        released,
+        snapshot,
+        extras,
+        resumeRsId,
+        resumeSsn,
+        lastCommitRsId,
+        lastCommitSsn,
+        null);
+  }
 
   /** The pre-ADR-0014 shape: no redo byte addresses. */
   public Position(
@@ -96,6 +138,10 @@ public record Position(
     released = List.copyOf(released);
     snapshot = snapshot == null ? null : Map.copyOf(snapshot);
     extras = Map.copyOf(extras);
+    threads =
+        threads == null || threads.isEmpty()
+            ? java.util.Collections.emptySortedMap()
+            : java.util.Collections.unmodifiableSortedMap(new java.util.TreeMap<>(threads));
   }
 
   /** The starting position for a fresh connector on this database. */
@@ -199,7 +245,8 @@ public record Position(
         null,
         0,
         lastCommitRsId,
-        lastCommitSsn);
+        lastCommitSsn,
+        threads);
   }
 
   /** The resume point: SCN floor for log selection plus the inclusive redo byte address. */
@@ -220,7 +267,8 @@ public record Position(
         point.hasRba() ? point.rsId() : null,
         point.hasRba() ? point.ssn() : 0,
         lastCommitRsId,
-        lastCommitSsn);
+        lastCommitSsn,
+        threads);
   }
 
   /** Where mining restarts: the resume SCN with the redo byte address when the position has one. */
@@ -268,7 +316,8 @@ public record Position(
         resumeRsId,
         resumeSsn,
         id.hasRba() ? id.rsId() : null,
-        id.hasRba() ? id.ssn() : 0);
+        id.hasRba() ? id.ssn() : 0,
+        threads);
   }
 
   /** {@code extras} with {@code key} set to {@code value}; null removes it. */
@@ -295,7 +344,8 @@ public record Position(
         resumeRsId,
         resumeSsn,
         lastCommitRsId,
-        lastCommitSsn);
+        lastCommitSsn,
+        threads);
   }
 
   /** PRD-02 SNAP-3: the snapshot block, null when no snapshot was ever started. */
@@ -316,7 +366,8 @@ public record Position(
         resumeRsId,
         resumeSsn,
         lastCommitRsId,
-        lastCommitSsn);
+        lastCommitSsn,
+        threads);
   }
 
   public Position withJournalGeneration(long generation) {
@@ -336,7 +387,8 @@ public record Position(
         resumeRsId,
         resumeSsn,
         lastCommitRsId,
-        lastCommitSsn);
+        lastCommitSsn,
+        threads);
   }
 
   public Position withReleased(List<String> xids) {
@@ -356,6 +408,34 @@ public record Position(
         resumeRsId,
         resumeSsn,
         lastCommitRsId,
-        lastCommitSsn);
+        lastCommitSsn,
+        threads);
+  }
+
+  /** ADR-0026: the per-thread block; empty for a single-thread position. */
+  public Position withThreads(java.util.SortedMap<Integer, ThreadMark> marks) {
+    return new Position(
+        version,
+        resumeScn,
+        lastCommitScn,
+        lastCommitKey,
+        lastCommitThread,
+        eventIndex,
+        journalGeneration,
+        schemaEpoch,
+        identity,
+        released,
+        snapshot,
+        extras,
+        resumeRsId,
+        resumeSsn,
+        lastCommitRsId,
+        lastCommitSsn,
+        marks);
+  }
+
+  /** True when the position carries a mark per redo thread (ADR-0026). */
+  public boolean perThread() {
+    return !threads.isEmpty();
   }
 }

@@ -153,4 +153,63 @@ class PositionCodecTest {
         .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> p.withResumeScn(-1)).isInstanceOf(IllegalArgumentException.class);
   }
+
+  // ADR-0026: the per-thread block
+
+  static final DatabaseIdentity IDENT = new DatabaseIdentity(42, 7);
+
+  static sh.oso.connect.oracle.core.model.RedoRecordId rba(long scn, long block) {
+    return new sh.oso.connect.oracle.core.model.RedoRecordId(
+        scn, String.format(" 0x%06x.%08x.%04x ", 1, block, 0), 0);
+  }
+
+  static Position twoThreads() {
+    TxKey k1 = new TxKey(0, Xid.parse("0001.002.00000003"));
+    TxKey k2 = new TxKey(0, Xid.parse("0004.005.00000006"));
+    java.util.SortedMap<Integer, ThreadMark> marks = new java.util.TreeMap<>();
+    marks.put(1, new ThreadMark(rba(100, 9), rba(120, 12), k1));
+    marks.put(2, new ThreadMark(rba(90, 3), rba(130, 5), k2));
+    return Position.initial(90, IDENT).withCommit(rba(130, 5), 2, k2, 4).withThreads(marks);
+  }
+
+  @Test
+  void aSingleThreadPositionWritesNoThreadsKey() {
+    Position p =
+        Position.initial(100, IDENT)
+            .withCommit(rba(120, 12), 1, new TxKey(0, Xid.parse("0001.002.00000003")), 2)
+            .withResume(rba(110, 10));
+    Map<String, Object> written = PositionCodec.write(p);
+    assertThat(written).doesNotContainKey("threads");
+    assertThat(PositionCodec.write(PositionCodec.read(written))).isEqualTo(written);
+  }
+
+  @Test
+  void thePerThreadBlockRoundTrips() {
+    Position p = twoThreads();
+    Map<String, Object> written = PositionCodec.write(p);
+    assertThat(written).containsKey("threads");
+    Position back = PositionCodec.read(written);
+    assertThat(back.threads()).isEqualTo(p.threads());
+    assertThat(back.extras()).doesNotContainKey("threads");
+    assertThat(PositionCodec.write(back)).isEqualTo(written);
+  }
+
+  @Test
+  void aBlockThatDisagreesWithTheLegacyKeysIsIgnored() {
+    Map<String, Object> written = new HashMap<>(PositionCodec.write(twoThreads()));
+    // an older version advanced the legacy commit and carried the block along unchanged
+    written.put("last_commit_xid", "0:0009.009.00000009");
+    assertThat(PositionCodec.read(written).perThread()).isFalse();
+    Map<String, Object> moved = new HashMap<>(PositionCodec.write(twoThreads()));
+    moved.put("resume_scn", 95L);
+    assertThat(PositionCodec.read(moved).perThread()).isFalse();
+  }
+
+  @Test
+  void anUnreadableBlockStopsTheTask() {
+    Map<String, Object> written = new HashMap<>(PositionCodec.write(twoThreads()));
+    written.put("threads", "{not json");
+    assertThatThrownBy(() -> PositionCodec.read(written))
+        .isInstanceOf(OracleCdcCorruptionException.class);
+  }
 }
