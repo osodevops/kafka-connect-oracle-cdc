@@ -42,6 +42,14 @@ public interface LogMinerSource extends AutoCloseable {
   /** END_LOGMNR and forget the added logs, so the next {@link #setLogs} adds them again. */
   void reset() throws SQLException;
 
+  /**
+   * True when Oracle chooses the logs from the SCN range and nothing is added (range mode,
+   * ADR-0027); a dictionary from the redo is then unavailable.
+   */
+  default boolean rangeOnly() {
+    return false;
+  }
+
   /** PGA bytes of the mining session's server process, or -1 when not readable. */
   long pgaUsedBytes() throws SQLException;
 

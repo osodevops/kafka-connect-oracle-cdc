@@ -165,6 +165,32 @@ class RulesTest {
   }
 
   @Test
+  void aLocalUserInsideAPdbNeedsRangeModeNotACommonUser() {
+    FakeDoctorCatalog cat = new FakeDoctorCatalog();
+    cat.connectedContainerId = 3;
+    cat.common = false;
+    cat.containerDataAll = false;
+    // ADR-0027: auto mining mode mines the PDB in range mode; no common-user finding
+    assertThat(doc4(cat, Map.of())).isEmpty();
+    assertThat(doc4(cat, Map.of(CoreConfig.MINING_MODE, "logs")))
+        .extracting(Finding::message)
+        .singleElement()
+        .asString()
+        .contains("ORA-65040");
+    // at CDB$ROOT the common-user rule still holds
+    cat.connectedContainerId = 1;
+    assertThat(doc4(cat, Map.of()))
+        .extracting(Finding::message)
+        .anyMatch(m -> m.contains("common user"));
+  }
+
+  private List<Finding> doc4(FakeDoctorCatalog cat, Map<String, String> extra) {
+    return new Doctor(List.of(Rules.privileges()))
+        .run(new DoctorContext(config(extra), cat, List.of(".*"), List.of(), "fail"))
+        .findings();
+  }
+
+  @Test
   void aCleanDatabaseHasNoFindings() {
     FakeDoctorCatalog cat = new FakeDoctorCatalog();
     cat.tables.add(table("ORDERS", true, true, List.of(ID)));

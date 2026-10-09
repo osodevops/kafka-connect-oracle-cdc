@@ -80,6 +80,9 @@ public final class LogMinerEventSource implements EventSource {
       public EventCursor open(sh.oso.connect.oracle.core.mining.step.StepCursor from, long endScn)
           throws SQLException {
         long start = startScn(from, inventory.forRange(from.scn(), endScn));
+        if (session.rangeOnly()) {
+          throw sh.oso.connect.oracle.core.errors.DictionaryUnavailableException.inRangeMode(start);
+        }
         sh.oso.connect.oracle.core.logs.DictionaryBuild build =
             inventory
                 .dictionaryBuildBefore(start)

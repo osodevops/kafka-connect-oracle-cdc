@@ -82,33 +82,39 @@ public final class EngineDriver implements AutoCloseable {
       EngineSettings settings,
       java.util.function.Function<SchemaRegistry, EventSink> sink,
       List<String> pdbs,
-      CaptureMode captureMode) {
+      CaptureMode captureMode,
+      boolean rangeMode) {
 
     public static Options defaults() {
       return new Options(
-          Duration.ofMinutes(5), null, null, List.of("FREEPDB1"), CaptureMode.ONLINE);
+          Duration.ofMinutes(5), null, null, List.of("FREEPDB1"), CaptureMode.ONLINE, false);
     }
 
     public Options withQueryTimeout(Duration d) {
-      return new Options(d, settings, sink, pdbs, captureMode);
+      return new Options(d, settings, sink, pdbs, captureMode, rangeMode);
     }
 
     public Options withSettings(EngineSettings s) {
-      return new Options(queryTimeout, s, sink, pdbs, captureMode);
+      return new Options(queryTimeout, s, sink, pdbs, captureMode, rangeMode);
     }
 
     public Options withSink(java.util.function.Function<SchemaRegistry, EventSink> f) {
-      return new Options(queryTimeout, settings, f, pdbs, captureMode);
+      return new Options(queryTimeout, settings, f, pdbs, captureMode, rangeMode);
     }
 
     /** The PDBs to capture; empty on a non-CDB (the qualification tier's external targets). */
     public Options withPdbs(List<String> p) {
-      return new Options(queryTimeout, settings, sink, List.copyOf(p), captureMode);
+      return new Options(queryTimeout, settings, sink, List.copyOf(p), captureMode, rangeMode);
     }
 
     /** CORE-LOG-6: in archive-only mode the safe end is the archived frontier. */
     public Options withCaptureMode(CaptureMode m) {
-      return new Options(queryTimeout, settings, sink, pdbs, m);
+      return new Options(queryTimeout, settings, sink, pdbs, m, rangeMode);
+    }
+
+    /** ADR-0027: no log is added; Oracle chooses them from the SCN range (a PDB connection). */
+    public Options withRangeMode(boolean r) {
+      return new Options(queryTimeout, settings, sink, pdbs, captureMode, r);
     }
   }
 
@@ -161,7 +167,7 @@ public final class EngineDriver implements AutoCloseable {
     source =
         new LogMinerEventSource(
             inventory,
-            new JdbcLogMinerSession(mining, 2000, options.queryTimeout()),
+            new JdbcLogMinerSession(mining, 2000, options.queryTimeout(), options.rangeMode()),
             objects,
             objects.filter(Set.of(), 1000),
             DictionaryMode.ONLINE_CATALOG);

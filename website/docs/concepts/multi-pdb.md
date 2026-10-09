@@ -36,3 +36,26 @@ signal. A table made by a plain `CREATE TABLE` starts empty, and streaming captu
 written to it, so it is not snapshotted. Until that snapshot
 has started, the offsets record the table as pending, so a restart does not lose it. A table that
 is dropped or renamed away produces a `table-removed` event.
+
+## Mining from inside a PDB
+
+Mining at `CDB$ROOT` as a common user is the normal form, and the only one that captures several
+PDBs from one connector. Where the root is out of reach, as on Amazon RDS with the CDB architecture
+or on Autonomous Database, the connector can mine one PDB from inside it, connected to the PDB as
+a local user. That is **range mode** (`cdc.mining.mode=range`, or `auto`, the default, which
+chooses it whenever the connection is to a PDB):
+
+- LogMiner refuses to add log files inside a PDB, so the connector starts each step with the SCN
+  range only and Oracle chooses the logs. The connector still lists those logs from
+  `V$ARCHIVED_LOG` and `V$LOG` and checks them for gaps, so a missing or purged log stops it as in
+  the normal form.
+- LogMiner cannot use a dictionary from the redo inside a PDB. Rows written before a DDL the
+  connector has not mined yet (the lag case in [schema and DDL](schema-and-ddl.md)) therefore stop
+  the task with CDC-6001 instead of being replayed, and dictionary builds are switched off. Keep the
+  connector's lag short where DDL is frequent.
+- The user needs `CREATE SESSION`, `LOGMINING`, `SELECT ANY TRANSACTION` and `EXECUTE ON
+  DBMS_LOGMNR` in that PDB, and the fixed views the doctor checks (DOC-4). It is a local user, with
+  no `C##` prefix and no `CONTAINER_DATA`.
+
+Range mode is in development and not yet qualified on Amazon RDS or Autonomous Database.
+

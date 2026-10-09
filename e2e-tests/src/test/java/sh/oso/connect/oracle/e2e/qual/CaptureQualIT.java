@@ -73,6 +73,16 @@ class CaptureQualIT {
             w,
             "CREATE TABLE q (id NUMBER PRIMARY KEY, name VARCHAR2(40))",
             "ALTER TABLE q ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS");
+        if (!db.rangeMode()) {
+          // the rows before the DDL are mined after it (the lag case), which in logs mode replays
+          // them from a dictionary build in the archived redo; write one rather than depend on
+          // another suite having done so
+          try (Statement s = meta.createStatement()) {
+            s.execute(
+                "BEGIN DBMS_LOGMNR_D.BUILD(OPTIONS => DBMS_LOGMNR_D.STORE_IN_REDO_LOGS); END;");
+          }
+        }
+        ev.param("lagReplay", !db.rangeMode());
         db.archiveLogCurrent();
         try (EngineDriver d =
             new EngineDriver(
@@ -83,21 +93,22 @@ class CaptureQualIT {
                 LogMinerHelper.currentScn(meta),
                 LobAssembler.Mode.SKIP,
                 new InMemorySchemaStore(),
-                EngineDriver.Options.defaults().withPdbs(db.pdbs()).withCaptureMode(mode))) {
+                EngineDriver.Options.defaults()
+                    .withPdbs(db.pdbs())
+                    .withCaptureMode(mode)
+                    .withRangeMode(db.rangeMode()))) {
           exec(w, "INSERT INTO q VALUES (1, 'one')", "INSERT INTO q VALUES (2, 'two')");
           exec(w, "UPDATE q SET name = 'uno' WHERE id = 1");
           exec(w, "DELETE FROM q WHERE id = 2");
+          if (db.rangeMode()) {
+            // ADR-0027: inside a PDB LogMiner has no dictionary from the redo, so rows written
+            // before a DDL are mined before it (the lag case stops the task,
+            // PdbLocalCaptureEngineIT)
+            mineTo(d, mode, LogMinerHelper.currentScn(meta));
+          }
           exec(w, "ALTER TABLE q ADD (note VARCHAR2(20))");
           exec(w, "INSERT INTO q VALUES (3, 'three', 'after ddl')");
-          long end = LogMinerHelper.currentScn(meta);
-          if (mode == CaptureMode.ARCHIVE_ONLY) {
-            d.runTo(end);
-            assertThat(d.committed)
-                .as("nothing is mined before the log holding it is archived")
-                .isEmpty();
-            db.archiveLogCurrent();
-          }
-          d.runTo(end);
+          mineTo(d, mode, LogMinerHelper.currentScn(meta));
           List<RowChange> rows = new ArrayList<>();
           d.committed.forEach(tx -> rows.addAll(tx.events()));
           ev.count("rows", rows.size()).count("transactions", d.committed.size());
@@ -118,6 +129,19 @@ class CaptureQualIT {
       ev.write();
       db.dropSchema(schema);
     }
+  }
+
+  /** In archive-only mode nothing new is mined until the log holding it is archived. */
+  private void mineTo(EngineDriver d, CaptureMode mode, long end) throws Exception {
+    if (mode == CaptureMode.ARCHIVE_ONLY) {
+      int before = d.committed.size();
+      d.runTo(end);
+      assertThat(d.committed)
+          .as("nothing is mined before the log holding it is archived")
+          .hasSize(before);
+      db.archiveLogCurrent();
+    }
+    d.runTo(end);
   }
 
   private static void exec(Connection c, String... sql) throws SQLException {

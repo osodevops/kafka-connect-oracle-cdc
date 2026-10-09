@@ -256,6 +256,11 @@ public final class JdbcDoctorCatalog implements DoctorCatalog {
   }
 
   @Override
+  public int connectedContainerId() throws SQLException {
+    return count("SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'CON_ID')) FROM dual");
+  }
+
+  @Override
   public boolean containerDataAll() throws SQLException {
     if (!base.database().cdb()) {
       return true;

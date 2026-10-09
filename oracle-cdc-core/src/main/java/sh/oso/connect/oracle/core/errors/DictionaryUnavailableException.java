@@ -26,4 +26,20 @@ public final class DictionaryUnavailableException extends OracleCdcException {
   public DictionaryUnavailableException(String message, String operatorAction, Throwable cause) {
     super(ErrorCode.DICTIONARY_UNAVAILABLE, message, operatorAction, cause);
   }
+
+  /**
+   * ADR-0027: in range mode LogMiner cannot use a dictionary from the redo (ORA-01371), so rows
+   * written before a DDL the connector has not mined yet cannot be decoded.
+   */
+  public static DictionaryUnavailableException inRangeMode(long scn) {
+    return new DictionaryUnavailableException(
+        "Rows before SCN "
+            + scn
+            + " were written before a DDL the connector has not mined yet. Decoding them needs a"
+            + " dictionary from the redo, which LogMiner cannot use from inside a pluggable"
+            + " database (range mode, ORA-01371).",
+        "Resnapshot the affected tables (oracle-cdc-admin resnapshot), or move the offset past the"
+            + " DDL, in which case the table's rows in between are not delivered. Keep the"
+            + " connector's lag short where DDL is frequent (ADR-0027).");
+  }
 }

@@ -43,7 +43,7 @@ class CoreConfigTest {
       assertThat(k.displayName).as(k.name).isNotBlank();
       assertThat(k.documentation).as(k.name).isNotBlank();
     }
-    assertThat(CoreConfig.configDef().names()).hasSize(58);
+    assertThat(CoreConfig.configDef().names()).hasSize(59);
   }
 
   @Test
@@ -51,6 +51,7 @@ class CoreConfigTest {
     CoreConfig c = new CoreConfig(minimal());
     assertThat(c.getInt(CoreConfig.DATABASE_PORT)).isEqualTo(1521);
     assertThat(c.captureMode()).isEqualTo(CoreConfig.CaptureMode.ONLINE);
+    assertThat(c.miningMode()).isEqualTo(CoreConfig.MiningMode.AUTO);
     assertThat(c.getLong(CoreConfig.MINING_TARGET_LATENCY_MS)).isEqualTo(2000L);
     assertThat(c.getInt(CoreConfig.MINING_MAX_LOGS_PER_STEP)).isEqualTo(8);
     assertThat(c.getLong(CoreConfig.BUFFER_MEMORY_MAX_BYTES)).isEqualTo(268435456L);

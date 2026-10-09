@@ -74,4 +74,7 @@ public interface DoctorCatalog extends CatalogSource {
    * user cannot read it or the database is not RDS.
    */
   String rdsConfiguration(String name) throws SQLException;
+
+  /** The session's container id: 0 on a non-CDB, 1 at CDB$ROOT, above 2 inside a PDB. */
+  int connectedContainerId() throws SQLException;
 }

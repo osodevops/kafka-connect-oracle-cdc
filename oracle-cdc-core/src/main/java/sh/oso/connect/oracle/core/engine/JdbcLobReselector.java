@@ -79,6 +79,14 @@ public final class JdbcLobReselector implements LobReselector {
       container = null;
     }
     String pdb = schema.table().pdb();
+    if (pdb != null && container == null) {
+      // a PDB-local session is already in its container (ADR-0027)
+      try (Statement st = c.createStatement();
+          java.sql.ResultSet rs =
+              st.executeQuery("SELECT SYS_CONTEXT('USERENV', 'CON_NAME') FROM dual")) {
+        container = rs.next() ? rs.getString(1) : null;
+      }
+    }
     if (pdb != null && !pdb.equals(container)) {
       try (Statement st = c.createStatement()) {
         st.execute("ALTER SESSION SET CONTAINER = " + quote(pdb));

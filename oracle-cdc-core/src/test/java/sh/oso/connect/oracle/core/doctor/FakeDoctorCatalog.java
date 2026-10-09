@@ -48,6 +48,7 @@ public final class FakeDoctorCatalog implements DoctorCatalog {
   public sh.oso.connect.oracle.core.topology.Platform platform =
       sh.oso.connect.oracle.core.topology.Platform.ONPREM;
   public final Map<String, String> rdsConfiguration = new HashMap<>();
+  public int connectedContainerId = 1;
 
   @Override
   public List<CapturedTable> capturedTables(
@@ -78,6 +79,11 @@ public final class FakeDoctorCatalog implements DoctorCatalog {
   @Override
   public String rdsConfiguration(String name) {
     return rdsConfiguration.get(name);
+  }
+
+  @Override
+  public int connectedContainerId() {
+    return connectedContainerId;
   }
 
   @Override

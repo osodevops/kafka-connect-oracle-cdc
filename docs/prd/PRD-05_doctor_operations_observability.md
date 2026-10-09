@@ -28,7 +28,7 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | DOC-1 | ARCHIVELOG mode enabled | Blocking |
 | DOC-2 | Minimal supplemental logging at database level (or per-PDB on 26ai local undo) | Blocking |
 | DOC-3 | `ALL` column supplemental logging on each captured table (PK-only is a warning with partial before images) | Blocking or warning |
-| DOC-4 | Required privileges and views accessible; in a CDB the common user has `CONTAINER_DATA=ALL` (otherwise `V$PDBS`, `V$SESSION` and `V$LOGMNR_CONTENTS` show only `CDB$ROOT` rows) | Blocking |
+| DOC-4 | Required privileges and views accessible; in a CDB the common user has `CONTAINER_DATA=ALL` (otherwise `V$PDBS`, `V$SESSION` and `V$LOGMNR_CONTENTS` show only `CDB$ROOT` rows) | Blocking; a local user inside a PDB is accepted in range mode, and `cdc.mining.mode=logs` there is blocking (ADR-0027) |
 | DOC-5 | Captured tables containing BFILE, nested tables, identity columns, temporal validity, PKREF or PKOID (LogMiner ignores the whole table), or BOOLEAN, JSON or VECTOR columns (on 23ai Free every DML row of such a table is `UNSUPPORTED`, see `reference/sql-redo-shapes.md`) | Blocking |
 | DOC-6 | Captured table or column names over 30 characters | Blocking |
 | DOC-7 | Captured tables without primary or usable unique key | Blocking unless `cdc.key.missing` allows |

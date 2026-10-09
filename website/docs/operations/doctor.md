@@ -54,7 +54,7 @@ worker to validate the configuration.
 | DOC-1 | Database in ARCHIVELOG mode | blocking | yes |
 | DOC-2 | Minimal supplemental logging at database level | blocking | yes |
 | DOC-3 | Table-level supplemental logging on every captured table | blocking when absent, warning for primary-key-only | yes |
-| DOC-4 | Grant profile, readable fixed views, common user and `CONTAINER_DATA=ALL` in a CDB | blocking | yes |
+| DOC-4 | Grant profile, readable fixed views, common user and `CONTAINER_DATA=ALL` at the root of a CDB; inside a PDB, a local user in range mode (`cdc.mining.mode=logs` is blocking there) | blocking | yes |
 | DOC-5 | Identity columns and BOOLEAN, JSON, VECTOR, BFILE or nested-table columns | blocking | yes |
 | DOC-6 | Table or column names over 30 characters | blocking | yes |
 | DOC-7 | Primary key or NOT NULL unique index, honouring `cdc.key.missing`; ROW MOVEMENT on a keyless table | blocking, warning or info | yes |

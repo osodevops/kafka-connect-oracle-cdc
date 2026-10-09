@@ -65,6 +65,7 @@ public class CoreConfig extends AbstractConfig {
   public static final String DATABASE_FAN_ENABLED = "cdc.database.fan.enabled";
 
   public static final String CAPTURE_MODE = "cdc.capture.mode";
+  public static final String MINING_MODE = "cdc.mining.mode";
   public static final String ARCHIVE_DESTINATION = "cdc.archive.destination";
   public static final String START_SCN = "cdc.start.scn";
 
@@ -118,6 +119,13 @@ public class CoreConfig extends AbstractConfig {
   public static final String RETRY_MAX_TIME_MS = "cdc.retry.max.time.ms";
   public static final String RETRY_EXTRA_ERROR_CODES = "cdc.retry.extra.error.codes";
   public static final String LOG_SENSITIVE_DATA = "cdc.log.sensitive.data";
+
+  /** ADR-0027: how redo logs reach the LogMiner session. */
+  public enum MiningMode {
+    AUTO,
+    LOGS,
+    RANGE
+  }
 
   public enum CaptureMode {
     ONLINE,
@@ -194,6 +202,10 @@ public class CoreConfig extends AbstractConfig {
 
   private static boolean notBlank(String s) {
     return s != null && !s.isBlank();
+  }
+
+  public MiningMode miningMode() {
+    return MiningMode.valueOf(getString(MINING_MODE).toUpperCase(Locale.ROOT));
   }
 
   public CaptureMode captureMode() {
@@ -459,6 +471,23 @@ public class CoreConfig extends AbstractConfig {
         ++o,
         Width.SHORT,
         "Capture mode");
+    def.define(
+        MINING_MODE,
+        Type.STRING,
+        "auto",
+        caseInsensitiveEnum(MiningMode.class),
+        Importance.LOW,
+        "How redo logs reach the LogMiner session. logs: the connector lists the logs of each step"
+            + " and adds them. range: START_LOGMNR with the SCN range only and Oracle chooses the"
+            + " logs, the only form when connected to a pluggable database (Amazon RDS with the CDB"
+            + " architecture, Autonomous Database), where adding logs is refused; a dictionary from"
+            + " the redo is not available there, so rows written before a DDL the connector has not"
+            + " mined yet stop it (CDC-6001). auto: range when connected to a pluggable database,"
+            + " logs otherwise.",
+        GROUP_CAPTURE,
+        ++o,
+        Width.SHORT,
+        "Mining mode");
     def.define(
         START_SCN,
         Type.LONG,

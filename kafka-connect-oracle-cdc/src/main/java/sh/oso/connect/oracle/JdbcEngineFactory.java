@@ -86,6 +86,7 @@ public final class JdbcEngineFactory implements EngineFactory {
     private final JdbcCatalogSource catalog;
     private DatabaseInfo info;
     private volatile Topology topology;
+    private volatile boolean rangeMode; // ADR-0027: decided when the engine is built
     private final SchemaRegistry schemas;
     private volatile LogMinerEventSource source;
     private volatile ResolvedObjects objects;
@@ -144,7 +145,8 @@ public final class JdbcEngineFactory implements EngineFactory {
           new JdbcLogMinerSession(
               mining,
               core.getInt(CoreConfig.MINING_FETCH_SIZE),
-              Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS))),
+              Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS)),
+              rangeMode),
           objects,
           objects.filter(excludedUsers, inlistMax),
           DictionaryMode.ONLINE_CATALOG);
@@ -153,6 +155,33 @@ public final class JdbcEngineFactory implements EngineFactory {
     @Override
     public DatabaseIdentity identity() {
       return new DatabaseIdentity(info.dbid(), info.resetlogsChangeScn());
+    }
+
+    /**
+     * ADR-0027: range mode when configured, or with {@code auto} when the connection is to a
+     * pluggable database, where ADD_LOGFILE is refused (ORA-65040). Logs mode on a PDB connection
+     * could never mine, so it stops the start instead.
+     */
+    private boolean rangeMode() throws SQLException {
+      boolean inPdb;
+      try (java.sql.Statement s = meta.createStatement();
+          java.sql.ResultSet rs =
+              s.executeQuery("SELECT TO_NUMBER(SYS_CONTEXT('USERENV', 'CON_ID')) FROM dual")) {
+        inPdb = rs.next() && rs.getInt(1) > 1;
+      }
+      CoreConfig.MiningMode mode = core.miningMode();
+      if (inPdb && mode == CoreConfig.MiningMode.LOGS) {
+        throw new sh.oso.connect.oracle.core.errors.TopologyException(
+            "cdc.mining.mode=logs, but the connection is to a pluggable database, where LogMiner"
+                + " refuses to add logs (ORA-65040).",
+            "Set cdc.mining.mode=auto or range, or connect to CDB$ROOT as a common user.");
+      }
+      boolean range =
+          mode == CoreConfig.MiningMode.RANGE || (inPdb && mode == CoreConfig.MiningMode.AUTO);
+      if (range) {
+        LOG.info("Mining in range mode: Oracle chooses the logs for each SCN range (ADR-0027)");
+      }
+      return range;
     }
 
     /** Probed once per session: V$DATABASE, V$THREAD, V$PDBS and the archive destination. */
@@ -241,6 +270,7 @@ public final class JdbcEngineFactory implements EngineFactory {
         Position start, EventSink sink, sh.oso.connect.oracle.journal.BufferSetup setup)
         throws Exception {
       Topology shape = topology();
+      rangeMode = rangeMode();
       int destId = shape.archiveDestId();
       LogInventory inventory = new LogInventory(catalog, core.captureMode(), destId);
       ObjectIdResolver resolver =
@@ -414,6 +444,14 @@ public final class JdbcEngineFactory implements EngineFactory {
           java.sql.ResultSet rs = s.executeQuery("SELECT SYSDATE FROM dual")) {
         rs.next();
         databaseNow = rs.getTimestamp(1).toLocalDateTime();
+      }
+      if (rangeMode) {
+        String message =
+            "Dictionary builds are off: in range mode (a pluggable database) LogMiner cannot use a"
+                + " dictionary from the redo (ADR-0027).";
+        LOG.info(message);
+        events.disabled(message);
+        return;
       }
       // ADR-0025: a physical standby cannot write a build; builds run on the primary when the
       // dictionary URL names it, and are off (with an ops event) when it does not

@@ -31,10 +31,12 @@ The doctor detects RDS (the `RDSADMIN` schema exists) and gives every fix in the
 
 ## Architecture
 
-Only the non-CDB architecture is covered: Oracle Database 19c created as a non-CDB. With the CDB
-architecture, which every RDS release from 21c uses and 19c offers, the client always connects to
-the tenant database as a local user and cannot reach `CDB$ROOT`. Capturing there needs per-PDB
-mining, which the connector does not have yet; doctor rule DOC-4 reports the local user.
+The preview covers Oracle Database 19c created as a non-CDB. With the CDB architecture, which every
+RDS release from 21c uses and 19c offers, the client always connects to the tenant database as a
+local user and cannot reach `CDB$ROOT`. The connector then mines that tenant database in
+[range mode](../concepts/multi-pdb.md#mining-from-inside-a-pdb) (`cdc.mining.mode=auto` chooses it):
+LogMiner chooses the logs and the connector still checks them. This is in development, not yet
+qualified on RDS, and not in a published release.
 
 ## The setup script
 

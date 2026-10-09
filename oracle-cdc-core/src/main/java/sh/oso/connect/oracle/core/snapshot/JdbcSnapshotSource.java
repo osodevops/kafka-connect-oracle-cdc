@@ -435,6 +435,9 @@ public final class JdbcSnapshotSource implements SnapshotSource {
 
   private void use(TableId t) throws SQLException {
     String pdb = t.pdb();
+    if (pdb != null && container == null) {
+      container = currentContainer(c); // a PDB-local session is already there (ADR-0027)
+    }
     if (pdb != null && !pdb.equals(container)) {
       try (Statement st = c.createStatement()) {
         st.execute("ALTER SESSION SET CONTAINER = " + quote(pdb));
@@ -443,6 +446,15 @@ public final class JdbcSnapshotSource implements SnapshotSource {
       SessionInitializer.apply(c, ConnectionRole.SNAPSHOT);
       binarySort();
       container = pdb;
+    }
+  }
+
+  /** The session's container name, upper case. */
+  static String currentContainer(Connection c) throws SQLException {
+    try (Statement st = c.createStatement();
+        java.sql.ResultSet rs =
+            st.executeQuery("SELECT SYS_CONTEXT('USERENV', 'CON_NAME') FROM dual")) {
+      return rs.next() ? rs.getString(1) : null;
     }
   }
 

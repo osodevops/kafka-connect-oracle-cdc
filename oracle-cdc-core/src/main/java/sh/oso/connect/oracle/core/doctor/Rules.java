@@ -192,6 +192,18 @@ public final class Rules {
           if (inaccessible.contains("V$DATABASE")) {
             return out; // container checks need V$DATABASE; the grant above comes first
           }
+          if (cdb && ctx.catalog().connectedContainerId() > 2) {
+            // ADR-0027: a local user inside a PDB mines that PDB in range mode
+            if (ctx.config().miningMode() == CoreConfig.MiningMode.LOGS) {
+              out.add(
+                  Finding.blocking(
+                      "DOC-4",
+                      "The connection is to a pluggable database, where LogMiner refuses to add"
+                          + " logs (ORA-65040), but cdc.mining.mode=logs. Use auto or range.",
+                      null));
+            }
+            return out;
+          }
           if (cdb) {
             if (!ctx.catalog().commonUser()) {
               out.add(

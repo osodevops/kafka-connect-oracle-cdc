@@ -63,6 +63,11 @@ public interface TestDatabase {
   /** The connector configuration for this database, as the doctor and the task read it. */
   CoreConfig coreConfig();
 
+  /** ADR-0027: the connection is to a PDB as a local user, so the engine mines in range mode. */
+  default boolean rangeMode() {
+    return false;
+  }
+
   /** What the evidence file records about the target: never a credential. */
   String describe();
 }

@@ -43,8 +43,11 @@ import sh.oso.connect.oracle.core.topology.Platform;
  *       capture user
  *   <li>{@code e2e.external.admin.user} and env {@code CDC_E2E_ADMIN_PASSWORD}: a user that may
  *       create users and switch logs (the RDS master user)
- *   <li>{@code e2e.external.platform}: {@code rds} or {@code onprem} (default), the platform the
- *       doctor must detect
+ *   <li>{@code e2e.external.platform}: {@code rds}, {@code rds-cdb} (the tenant database of an RDS
+ *       CDB, mined in range mode, ADR-0027) or {@code onprem} (default), the platform the doctor
+ *       must detect
+ *   <li>{@code e2e.external.pdb}: with {@code rds-cdb}, the tenant database's name (default: the
+ *       service name in the URL)
  *   <li>{@code e2e.external.apply.setup=true}: run {@code setup-sql} for the platform as the admin
  *       user first, so the run proves the script as well
  * </ul>
@@ -59,6 +62,7 @@ final class ExternalTestDatabase implements TestDatabase {
   private final String adminUser;
   private final String adminPassword;
   private final Platform platform;
+  private final String pdb; // null for a non-CDB; the tenant database when connected to a PDB
   private final Map<String, String> schemaPasswords = new ConcurrentHashMap<>();
 
   private ExternalTestDatabase(
@@ -67,29 +71,38 @@ final class ExternalTestDatabase implements TestDatabase {
       String password,
       String adminUser,
       String adminPassword,
-      Platform platform) {
+      Platform platform,
+      String pdb) {
     this.url = url;
     this.user = user;
     this.password = password;
     this.adminUser = adminUser;
     this.adminPassword = adminPassword;
     this.platform = platform;
+    this.pdb = pdb;
   }
 
   static ExternalTestDatabase fromSystemProperties() {
     if (instance == null) {
       synchronized (ExternalTestDatabase.class) {
         if (instance == null) {
+          String url = System.getProperty("e2e.external.url");
+          String kind =
+              System.getProperty("e2e.external.platform", "onprem").toLowerCase(Locale.ROOT);
+          boolean inPdb = kind.endsWith("-cdb");
           ExternalTestDatabase db =
               new ExternalTestDatabase(
-                  System.getProperty("e2e.external.url"),
+                  url,
                   System.getProperty("e2e.external.user", "CDC"),
                   required("CDC_E2E_PASSWORD"),
                   System.getProperty("e2e.external.admin.user"),
                   System.getenv("CDC_E2E_ADMIN_PASSWORD"),
-                  Platform.valueOf(
-                      System.getProperty("e2e.external.platform", "onprem")
-                          .toUpperCase(Locale.ROOT)));
+                  Platform.valueOf(kind.replace("-cdb", "").toUpperCase(Locale.ROOT)),
+                  inPdb
+                      ? System.getProperty(
+                              "e2e.external.pdb", url.substring(url.lastIndexOf('/') + 1))
+                          .toUpperCase(Locale.ROOT)
+                      : null);
           if (Boolean.getBoolean("e2e.external.apply.setup")) {
             db.applySetup();
           }
@@ -235,12 +248,17 @@ final class ExternalTestDatabase implements TestDatabase {
 
   @Override
   public List<String> pdbs() {
-    return List.of();
+    return pdb == null ? List.of() : List.of(pdb);
   }
 
   @Override
   public String include(String schema, String table) {
-    return schema + "\\." + table;
+    return (pdb == null ? "" : pdb + "\\.") + schema + "\\." + table;
+  }
+
+  @Override
+  public boolean rangeMode() {
+    return pdb != null;
   }
 
   /**
@@ -296,11 +314,14 @@ final class ExternalTestDatabase implements TestDatabase {
             CoreConfig.DATABASE_PASSWORD,
             password,
             CoreConfig.DATABASE_PDBS,
-            ""));
+            pdb == null ? "" : pdb));
   }
 
   @Override
   public String describe() {
-    return platform.name().toLowerCase(Locale.ROOT) + " " + url;
+    return platform.name().toLowerCase(Locale.ROOT)
+        + (pdb == null ? "" : " cdb pdb " + pdb)
+        + " "
+        + url;
   }
 }

@@ -11,5 +11,6 @@ Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not 
 | Property | Type | Default | Importance | Description |
 |---|---|---|---|---|
 | `cdc.capture.mode` | string | `online` | medium | online mines online and archived logs; archive_only mines archived logs only and never adds online logs. |
+| `cdc.mining.mode` | string | `auto` | low | How redo logs reach the LogMiner session. logs: the connector lists the logs of each step and adds them. range: START_LOGMNR with the SCN range only and Oracle chooses the logs, the only form when connected to a pluggable database (Amazon RDS with the CDB architecture, Autonomous Database), where adding logs is refused; a dictionary from the redo is not available there, so rows written before a DDL the connector has not mined yet stop it (CDC-6001). auto: range when connected to a pluggable database, logs otherwise. |
 | `cdc.start.scn` | long | none | low | SCN to start streaming from when the connector has no stored offset, for example when it takes over from another connector; ignored once an offset exists. Every archived log from it onwards must still exist, or the task stops with CDC-2002. Empty starts at the current SCN. |
 | `cdc.archive.destination` | string | none | low | Archive destination name (for example LOG_ARCHIVE_DEST_1). Default: the lowest valid local destination. |

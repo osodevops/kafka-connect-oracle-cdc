@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import sh.oso.connect.oracle.core.errors.DictionaryUnavailableException;
 import sh.oso.connect.oracle.core.logs.RedoLog;
 import sh.oso.connect.oracle.core.model.Xid;
 
@@ -59,10 +60,24 @@ public final class JdbcLogMinerSession implements LogMinerSource {
   private final Set<String> added = new LinkedHashSet<>();
   private boolean started;
 
+  /** ADR-0027: Oracle chooses the logs from the SCN range; nothing is added. */
+  private final boolean rangeOnly;
+
   public JdbcLogMinerSession(Connection miningConnection, int fetchSize, Duration queryTimeout) {
+    this(miningConnection, fetchSize, queryTimeout, false);
+  }
+
+  /**
+   * With {@code rangeOnly} the session never adds a log: inside a pluggable database ADD_LOGFILE is
+   * refused (ORA-65040) and START_LOGMNR with an SCN range lets Oracle choose the logs. The
+   * inventory still lists and checks them, so a gap stops the task as before.
+   */
+  public JdbcLogMinerSession(
+      Connection miningConnection, int fetchSize, Duration queryTimeout, boolean rangeOnly) {
     this.c = miningConnection;
     this.fetchSize = Math.max(1, fetchSize);
     this.queryTimeoutSeconds = (int) Math.max(0, queryTimeout.toSeconds());
+    this.rangeOnly = rangeOnly;
   }
 
   @Override
@@ -76,6 +91,11 @@ public final class JdbcLogMinerSession implements LogMinerSource {
     }
     if (started) {
       end();
+    }
+    if (rangeOnly) {
+      added.clear();
+      added.addAll(wanted);
+      return;
     }
     boolean first = true;
     for (String path : wanted) {
@@ -103,7 +123,18 @@ public final class JdbcLogMinerSession implements LogMinerSource {
   }
 
   @Override
+  public boolean rangeOnly() {
+    return rangeOnly;
+  }
+
+  @Override
   public void start(long startScn, long endScn, DictionaryMode mode) throws SQLException {
+    if (rangeOnly && mode == DictionaryMode.REDO_LOGS_WITH_DDL_TRACKING) {
+      throw DictionaryUnavailableException.inRangeMode(startScn);
+    }
+    if (rangeOnly && started) {
+      end(); // a new range: START_LOGMNR again from a clean session
+    }
     try (CallableStatement cs =
         c.prepareCall(mode == DictionaryMode.ONLINE_CATALOG ? START_ONLINE : START_REDO_DICT)) {
       cs.setLong(1, startScn);
