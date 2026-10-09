@@ -335,7 +335,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Build for the runner and smoke test before pushing
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: oracle-cdc-doctor
           file: oracle-cdc-doctor/src/main/docker/Dockerfile
@@ -358,7 +358,7 @@ jobs:
           password: ${{ github.token }}
       - name: Build and push (amd64 and arm64) with SBOM and provenance
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: oracle-cdc-doctor
           file: oracle-cdc-doctor/src/main/docker/Dockerfile
