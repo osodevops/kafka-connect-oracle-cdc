@@ -211,6 +211,25 @@ class OracleCdcSourceTaskTest {
           .hasMessageContaining("2 enabled redo threads (thread 1 OPEN, thread 2 OPEN)");
     }
     try (TaskHarness h = new TaskHarness()) {
+      // ADR-0025: online mode on an Active Data Guard standby is refused before any offset is read
+      h.catalog.database =
+          new sh.oso.connect.oracle.core.topology.DatabaseInfo(
+              77,
+              "FREE",
+              true,
+              "ARCHIVELOG",
+              "READ ONLY WITH APPLY",
+              "PHYSICAL STANDBY",
+              "19.0.0.0.0",
+              1,
+              true,
+              "Linux");
+      assertThatThrownBy(h::start)
+          .isInstanceOf(ConnectException.class)
+          .hasMessageContaining("CDC-5001")
+          .hasMessageContaining("cdc.capture.mode=online needs a PRIMARY");
+    }
+    try (TaskHarness h = new TaskHarness()) {
       // a disabled thread is an instance that left the cluster: a single-thread database
       h.catalog.threads.add(
           new sh.oso.connect.oracle.core.topology.ThreadInfo(2, false, "CLOSED", 3));

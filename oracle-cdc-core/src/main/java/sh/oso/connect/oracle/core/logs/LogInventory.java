@@ -174,7 +174,12 @@ public final class LogInventory {
     return java.util.Optional.ofNullable(best);
   }
 
-  /** Archive-only safe end: the highest SCN every enabled thread has archived to (CORE-LOG-6). */
+  /**
+   * Archive-only safe end: the highest SCN every enabled thread has archived to (CORE-LOG-6), and
+   * never past the database's current SCN. On a primary that bound never binds; on a physical
+   * standby the current SCN is the applied one, and redo received but not applied would be decoded
+   * against a dictionary that does not have its DDL yet (ADR-0025).
+   */
   public long archiveOnlySafeEnd(long fromScn) throws SQLException {
     long safe = Long.MAX_VALUE;
     boolean any = false;
@@ -191,6 +196,9 @@ public final class LogInventory {
       safe = Math.min(safe, threadMax);
       any = true;
     }
-    return any ? Math.max(fromScn, safe - 1) : fromScn;
+    if (!any) {
+      return fromScn;
+    }
+    return Math.max(fromScn, Math.min(safe - 1, catalog.currentScn()));
   }
 }

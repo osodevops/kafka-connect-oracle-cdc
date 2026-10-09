@@ -38,7 +38,7 @@ Remove most of the DBA back-and-forth and day-two guesswork: check every prerequ
 | DOC-11 | `UNDO_RETENTION` below the longest expected chunk read | Warning |
 | DOC-12 | Archive destination valid and readable for all threads | Blocking |
 | DOC-13 | RAC: more than one enabled redo thread is refused until the per-thread position exists (ADR-0023); FAN availability | Blocking (RAC), Info otherwise |
-| DOC-14 | Database role and open mode match `cdc.capture.mode` | Blocking |
+| DOC-14 | Database role and open mode match `cdc.capture.mode` (ADR-0025): online needs a primary open read-write; archive_only also takes a physical standby open read-only; a mounted, logical or snapshot standby is refused | Blocking; warning for a standby open read-only without apply |
 | DOC-15 | Version and RU supported (matrix in docs); per-PDB mining needs 19c RU10 or later | Blocking |
 | DOC-16 | Fixed-object statistics present (affects LogMiner view performance) | Warning |
 | DOC-17 | Kafka: internal topics exist with correct cleanup policy, or topic creation allowed | Blocking |

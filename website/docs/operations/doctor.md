@@ -64,7 +64,7 @@ worker to validate the configuration.
 | DOC-11 | `UNDO_RETENTION` of at least 120 seconds, the longest a snapshot chunk read is expected to take | warning | no |
 | DOC-12 | A valid local archive destination (or the configured one) | blocking | yes |
 | DOC-13 | RAC: more than one enabled redo thread, which the task refuses at start; `cdc.database.fan.enabled` | blocking | yes |
-| DOC-14 | PRIMARY and READ WRITE for online capture mode | blocking | yes |
+| DOC-14 | Role and open mode fit `cdc.capture.mode`: online needs the primary open read-write; archive-only also takes a physical standby open read-only; a mounted, logical or snapshot standby is refused | blocking; warning for a standby open read-only without redo apply | yes |
 | DOC-15 | Oracle Database 19c or later | blocking | yes |
 | DOC-16 | Fixed-object statistics present | warning | no |
 | DOC-17 | Internal topics exist with the right cleanup policy, or the connector may create them | blocking, warning or info | no |

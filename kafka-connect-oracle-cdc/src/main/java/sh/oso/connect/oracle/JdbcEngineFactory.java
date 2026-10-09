@@ -354,11 +354,21 @@ public final class JdbcEngineFactory implements EngineFactory {
               start.released()));
       // ADR-0023: redo from a thread the start did not qualify stops the task
       engine.withExpectedThreads(TopologyGuard.qualifiedThreads(shape));
-      // ADR-0023 amendment: after a reconnect the database must be the same incarnation
+      // ADR-0023 amendment and ADR-0025: after a reconnect the database must be the same
+      // incarnation, and still a shape this capture mode may mine (a switchover changes roles)
+      String startRole = shape.database().databaseRole();
       engine.withIdentityCheck(
           () -> {
-            DatabaseInfo d = catalog.database();
-            return new DatabaseIdentity(d.dbid(), d.resetlogsChangeScn());
+            Topology now =
+                new TopologyProbe(catalog, core.getString(CoreConfig.ARCHIVE_DESTINATION)).probe();
+            if (!java.util.Objects.equals(startRole, now.database().databaseRole())) {
+              LOG.warn(
+                  "The database role changed from {} to {} while the task ran",
+                  startRole,
+                  now.database().databaseRole());
+            }
+            TopologyGuard.requireQualified(now, core.captureMode());
+            return new DatabaseIdentity(now.database().dbid(), now.database().resetlogsChangeScn());
           });
       return engine;
     }

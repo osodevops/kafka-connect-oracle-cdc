@@ -30,6 +30,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0022 | Rows with a partial XID belong to the open transaction of their undo slot | Accepted |
 | 0023 | Unqualified database shapes are refused at start | Accepted |
 | 0024 | The platform is detected, not configured; RDS setup runs through rdsadmin | Accepted |
+| 0025 | Standby capture is archive-only on an open physical standby, bounded by the applied SCN | Accepted |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 

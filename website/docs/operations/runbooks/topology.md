@@ -27,6 +27,10 @@ One of these, and the message says which:
   them; compare before you resnapshot.
 - **No archive destination to mine.** `cdc.archive.destination` names a destination that is not
   active, or, with the setting empty, no valid local archive destination exists.
+- **A role or open mode the capture mode cannot mine.** "cdc.capture.mode=online needs a PRIMARY
+  database open READ WRITE", or a mounted, logical or snapshot standby in archive-only mode. Point
+  the connector at the primary, or use `cdc.capture.mode=archive_only` on a physical standby open
+  read-only. After a switchover the check runs again on reconnect.
 - **More than one enabled redo thread (RAC).** "The database has N enabled redo threads (thread 1
   OPEN, thread 2 OPEN)" at start, or "Redo from thread N appeared" during the run when an
   instance's thread was enabled after the start. This release captures a single redo thread: the

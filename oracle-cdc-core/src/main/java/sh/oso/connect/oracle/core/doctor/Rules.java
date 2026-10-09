@@ -472,16 +472,26 @@ public final class Rules {
         ctx -> {
           DatabaseInfo db = ctx.database();
           CaptureMode mode = ctx.config().captureMode();
-          if (mode == CaptureMode.ONLINE && !(db.primary() && "READ WRITE".equals(db.openMode()))) {
+          String refusal = sh.oso.connect.oracle.core.topology.TopologyGuard.roleRefusal(db, mode);
+          if (refusal != null) {
             return List.of(
                 Finding.blocking(
                     "DOC-14",
-                    "cdc.capture.mode=online needs a PRIMARY database open READ WRITE; this one is "
-                        + db.databaseRole()
-                        + " "
-                        + db.openMode()
-                        + ". Use archive_only for a standby.",
+                    refusal
+                        + (mode == CaptureMode.ONLINE
+                            ? " Use archive_only for an Active Data Guard standby open read-only."
+                            : ""),
                     null));
+          }
+          if (mode == CaptureMode.ARCHIVE_ONLY
+              && sh.oso.connect.oracle.core.topology.TopologyGuard.applyStopped(db)) {
+            return List.of(
+                Finding.warning(
+                    "DOC-14",
+                    "The physical standby is open READ ONLY without redo apply: archived logs"
+                        + " arrive but are not applied, so the connector's safe end does not move"
+                        + " until apply runs (READ ONLY WITH APPLY needs Active Data Guard).",
+                    "ALTER DATABASE RECOVER MANAGED STANDBY DATABASE DISCONNECT FROM SESSION;"));
           }
           return List.of();
         });

@@ -101,7 +101,8 @@ public class OracleCdcSourceTask extends SourceTask {
       session = factory.open(config, schemaStore);
       DatabaseIdentity identity = session.identity();
       // ADR-0023: a shape this release cannot mine is refused before any offset is read
-      sh.oso.connect.oracle.core.topology.TopologyGuard.requireQualified(session.topology());
+      sh.oso.connect.oracle.core.topology.TopologyGuard.requireQualified(
+          session.topology(), config.core().captureMode());
       Map<String, Object> partition = Map.of("server", config.topicPrefix());
       Map<String, Object> stored =
           context == null || context.offsetStorageReader() == null

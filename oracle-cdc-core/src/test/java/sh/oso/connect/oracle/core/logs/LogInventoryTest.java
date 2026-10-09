@@ -42,6 +42,12 @@ class LogInventoryTest {
     FakeCatalog cat = new FakeCatalog().archivedRun(1, 10, 3, 1000, 100).onlineCurrent(1, 13, 1300);
     LogInventory inv = new LogInventory(cat, CaptureMode.ARCHIVE_ONLY, 1);
     assertThat(inv.archiveOnlySafeEnd(1000)).isEqualTo(1299);
+    // ADR-0025: on a physical standby the current SCN is the applied one; redo received but not
+    // applied is not mined yet, because the dictionary does not have its DDL
+    cat.currentScn = 1150;
+    assertThat(inv.archiveOnlySafeEnd(1000)).isEqualTo(1150);
+    cat.currentScn = 900;
+    assertThat(inv.archiveOnlySafeEnd(1000)).as("never below the start").isEqualTo(1000);
     assertThatThrownBy(() -> inv.forRange(1050, 1350))
         .isInstanceOf(OracleCdcGapException.class)
         .hasMessageContaining("before the end SCN");

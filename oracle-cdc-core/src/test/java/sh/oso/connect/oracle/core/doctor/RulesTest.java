@@ -273,30 +273,57 @@ class RulesTest {
   }
 
   @Test
-  void standbyNeedsArchiveOnlyMode() {
+  void standbyNeedsArchiveOnlyModeAndAnOpenDatabase() {
     FakeDoctorCatalog cat = new FakeDoctorCatalog();
-    cat.base.database =
-        new DatabaseInfo(
-            1,
-            "FREE",
-            true,
-            "ARCHIVELOG",
-            "MOUNTED",
-            "PHYSICAL STANDBY",
-            "19.0.0.0.0",
-            1,
-            true,
-            "Linux");
-    Report online = new Doctor(List.of(Rules.roleAndOpenMode())).run(ctx(cat, "fail"));
-    assertThat(online.findings()).extracting(Finding::rule).containsExactly("DOC-14");
-    DoctorContext archiveOnly =
-        new DoctorContext(
-            config(Map.of(CoreConfig.CAPTURE_MODE, "archive_only")),
-            cat,
-            List.of(".*"),
-            List.of(),
-            "fail");
-    assertThat(new Doctor(List.of(Rules.roleAndOpenMode())).run(archiveOnly).findings()).isEmpty();
+    // DoctorContext caches the database facts, so every case gets a fresh one
+    // an Active Data Guard standby: archive_only only
+    cat.base.database = standby("READ ONLY WITH APPLY");
+    assertThat(doc14(ctx(cat, "fail")))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.BLOCKING);
+    assertThat(doc14(archiveOnly(cat))).isEmpty();
+    // read only without apply: accepted, but the safe end stands still
+    cat.base.database = standby("READ ONLY");
+    assertThat(doc14(archiveOnly(cat)))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.WARNING);
+    // mounted: no dictionary to read, in either mode
+    cat.base.database = standby("MOUNTED");
+    assertThat(doc14(ctx(cat, "fail")))
+        .extracting(Finding::severity)
+        .containsExactly(Severity.BLOCKING);
+    assertThat(doc14(archiveOnly(cat)))
+        .extracting(Finding::message)
+        .singleElement()
+        .asString()
+        .contains("no dictionary to read");
+  }
+
+  private DoctorContext archiveOnly(FakeDoctorCatalog cat) {
+    return new DoctorContext(
+        config(Map.of(CoreConfig.CAPTURE_MODE, "archive_only")),
+        cat,
+        List.of(".*"),
+        List.of(),
+        "fail");
+  }
+
+  private static DatabaseInfo standby(String openMode) {
+    return new DatabaseInfo(
+        1,
+        "FREE",
+        true,
+        "ARCHIVELOG",
+        openMode,
+        "PHYSICAL STANDBY",
+        "19.0.0.0.0",
+        1,
+        true,
+        "Linux");
+  }
+
+  private static List<Finding> doc14(DoctorContext ctx) {
+    return new Doctor(List.of(Rules.roleAndOpenMode())).run(ctx).findings();
   }
 
   @Test
