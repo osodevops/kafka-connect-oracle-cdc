@@ -48,7 +48,7 @@ jobs:
       fail-fast: false
       matrix:
         oracle: ['23.26.3-slim-faststart', '23.9-faststart']
-        tier: [nightly, engine, connector]
+        tier: [nightly, engine, connector, qual]
         include:
           - tier: nightly
             label: t2
@@ -59,6 +59,9 @@ jobs:
           - tier: connector
             label: t1-connector
             timeout: 75
+          - tier: qual
+            label: t4-qual-container
+            timeout: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -93,6 +96,7 @@ jobs:
             nightly) suffix=NightlyIT ;;
             engine) suffix=EngineIT ;;
             connector) suffix=ConnectorIT ;;
+            qual) suffix=QualIT ;;
             *) echo "::error::unknown tier ${TIER}"; exit 1 ;;
           esac
           count=$(find e2e-tests/src/test/java -name "*${suffix}.java" | wc -l | tr -d ' ')

@@ -14,7 +14,7 @@
 | T1 Integration | Every PR | Under 20 minutes | Oracle Database Free 23ai (`gvenzl/oci-oracle-free:23.26.3-faststart` or the current tag) plus Kafka via Testcontainers; DML, DDL, LOBs, snapshots, signals, multi-PDB, `oracle-cdc-doctor` fixtures, `FaultyJdbc` injections |
 | T2 Fault and correctness | Nightly | About 3 hours | Correctness oracle under random fault schedules, worker kills, Kafka broker restarts, log switch storms, archive deletion, long transactions; 26ai image as second version |
 | T3 Soak and performance | Weekly and before release | 72 hours | Sustained workload, memory and latency tracking, comparison with Debezium on the same workload |
-| T4 Extended lab | Before release | Days | 19c and 21c EE, two-node RAC on Podman and Active Data Guard on the workstation or the AWS dev RAC host; RDS SE2 non-CDB (Phase 2) and CDB (Phase 3) in the AWS dev account; Autonomous Database on OCI Always Free (Phase 3). See `07_test_lab_and_budget.md` |
+| T4 Extended lab | Before release | Days | 19c and 21c EE, two-node RAC on Podman and Active Data Guard on the workstation or the AWS dev RAC host; RDS SE2 non-CDB (Phase 2) and CDB (Phase 3) in the AWS dev account; Autonomous Database on OCI Always Free (Phase 3). See `07_test_lab_and_budget.md`. Platform runs use the `*QualIT` suites (`-De2e.groups=qual` with `-De2e.external.url`), which also run nightly against the container |
 
 ### T3 soak harness
 

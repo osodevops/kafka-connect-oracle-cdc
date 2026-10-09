@@ -51,6 +51,7 @@ import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.core.testkit.InMemorySchemaStore;
 import sh.oso.connect.oracle.core.topology.JdbcCatalogSource;
+import sh.oso.connect.oracle.core.topology.TopologyProbe;
 
 /**
  * The real engine over Oracle for engine-tier suites, wired as the connector wires it (online mode,
@@ -79,22 +80,35 @@ public final class EngineDriver implements AutoCloseable {
   public record Options(
       Duration queryTimeout,
       EngineSettings settings,
-      java.util.function.Function<SchemaRegistry, EventSink> sink) {
+      java.util.function.Function<SchemaRegistry, EventSink> sink,
+      List<String> pdbs,
+      CaptureMode captureMode) {
 
     public static Options defaults() {
-      return new Options(Duration.ofMinutes(5), null, null);
+      return new Options(
+          Duration.ofMinutes(5), null, null, List.of("FREEPDB1"), CaptureMode.ONLINE);
     }
 
     public Options withQueryTimeout(Duration d) {
-      return new Options(d, settings, sink);
+      return new Options(d, settings, sink, pdbs, captureMode);
     }
 
     public Options withSettings(EngineSettings s) {
-      return new Options(queryTimeout, s, sink);
+      return new Options(queryTimeout, s, sink, pdbs, captureMode);
     }
 
     public Options withSink(java.util.function.Function<SchemaRegistry, EventSink> f) {
-      return new Options(queryTimeout, settings, f);
+      return new Options(queryTimeout, settings, f, pdbs, captureMode);
+    }
+
+    /** The PDBs to capture; empty on a non-CDB (the qualification tier's external targets). */
+    public Options withPdbs(List<String> p) {
+      return new Options(queryTimeout, settings, sink, List.copyOf(p), captureMode);
+    }
+
+    /** CORE-LOG-6: in archive-only mode the safe end is the archived frontier. */
+    public Options withCaptureMode(CaptureMode m) {
+      return new Options(queryTimeout, settings, sink, pdbs, m);
     }
   }
 
@@ -139,14 +153,11 @@ public final class EngineDriver implements AutoCloseable {
     JdbcCatalogSource catalog = new JdbcCatalogSource(() -> meta);
     ObjectIdResolver resolver =
         new ObjectIdResolver(
-            new JdbcObjectCatalog(() -> meta),
-            List.of(include),
-            List.of(),
-            List.of("FREEPDB1"),
-            false);
+            new JdbcObjectCatalog(() -> meta), List.of(include), List.of(), options.pdbs(), false);
     objects = resolver.resolve();
     var info = catalog.database();
-    LogInventory inventory = new LogInventory(catalog, CaptureMode.ONLINE, 1);
+    int destId = new TopologyProbe(catalog, null).probe().archiveDestId();
+    LogInventory inventory = new LogInventory(catalog, options.captureMode(), destId);
     source =
         new LogMinerEventSource(
             inventory,
@@ -196,7 +207,11 @@ public final class EngineDriver implements AutoCloseable {
     java.util.function.Supplier<Long> safeEnd =
         () -> {
           try {
-            return Math.min(safeEndCap, catalog.currentScn());
+            return Math.min(
+                safeEndCap,
+                options.captureMode() == CaptureMode.ARCHIVE_ONLY
+                    ? inventory.archiveOnlySafeEnd(startScn)
+                    : catalog.currentScn());
           } catch (SQLException e) {
             throw new OraErrorClassifier().toException(e, "safe end");
           }

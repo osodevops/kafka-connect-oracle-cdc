@@ -146,7 +146,12 @@ public final class Evidence {
       doc.put("finishedAt", Instant.now().toString());
       ObjectNode versions = doc.putObject("versions");
       versions.put("project", System.getProperty("project.version", "unknown"));
-      versions.put("oracleImageTag", System.getProperty("oracle.image.tag", "unknown"));
+      String external = System.getProperty("e2e.external.url");
+      versions.put(
+          "oracleImageTag",
+          external == null || external.isBlank()
+              ? System.getProperty("oracle.image.tag", "unknown")
+              : "external");
       versions.put("kafkaImage", ConnectCluster.KAFKA_IMAGE);
       versions.put("java", System.getProperty("java.version"));
       doc.set("parameters", MAPPER.valueToTree(parameters));

@@ -43,7 +43,9 @@ needs on JDK 17; the pinned formatter version must stay the newest Spotless allo
 Test tiers (docs/testing_strategy.md): `*Test` under surefire in every module (FakeLogMiner, no
 Docker); `*IT` under failsafe only in `e2e-tests`. The tier is the class-name suffix:
 `*EngineIT` (Oracle only), `*ConnectorIT` (Oracle, Kafka and a Connect worker), `*NightlyIT`
-(faults and long runs), kept in matching packages `e2e/engine`, `e2e/connector`, `e2e/nightly`.
+(faults and long runs), `*QualIT` (qualification: the container, or an external database such as
+RDS with `-De2e.external.url`), kept in matching packages `e2e/engine`, `e2e/connector`,
+`e2e/nightly`, `e2e/qual`.
 `-De2e.groups=<tier>` selects a tier and fails the build if nothing matches. Do not rely on
 surefire's `groups` tag filter or directory include patterns: the forked JVM re-filters classes
 and only the plain suffix form survives. One Oracle container per JVM; tests isolate by schema,

@@ -302,6 +302,32 @@
       </build>
     </profile>
     <profile>
+      <!-- T4 qualification: the container by default, an external database with -De2e.external.url
+           (Amazon RDS in the temporary dev-account lab); the same suites run on both -->
+      <id>e2e-qual</id>
+      <activation>
+        <property>
+          <name>e2e.groups</name>
+          <value>qual</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <includes>
+                <!-- the forked JVM re-filters test classes and accepts only the plain suffix form -->
+                <include>**/*QualIT.java</include>
+              </includes>
+              <failIfNoTests>true</failIfNoTests>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
       <!-- T1 connector: Oracle plus Kafka plus a real Connect worker -->
       <id>e2e-connector</id>
       <activation>
