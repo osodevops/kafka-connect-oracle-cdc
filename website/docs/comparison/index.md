@@ -90,9 +90,9 @@ database under its own licence.
 
 ```bash
 java -jar bench/target/bench-*-cli.jar workload --url jdbc:oracle:thin:@//db:1521/PDB1 \
-  --user workload --password '<password>' --spec bench/src/main/resources/workloads/long-tx.json --reset
+  --user workload --password-env WORKLOAD_PASSWORD --spec bench/src/main/resources/workloads/long-tx.json --reset
 java -jar bench/target/bench-*-cli.jar check --bootstrap-servers kafka:9092 \
-  --url jdbc:oracle:thin:@//db:1521/PDB1 --user workload --password '<password>' \
+  --url jdbc:oracle:thin:@//db:1521/PDB1 --user workload --password-env WORKLOAD_PASSWORD \
   --topic-prefix cdc --pdb PDB1 --tables WL_T1,WL_T2,WL_T3 --out evidence.json
 ```
 

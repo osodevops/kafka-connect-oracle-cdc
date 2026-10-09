@@ -13,7 +13,7 @@ Conditions, reproduced in `doc/licenses/`. Jars the Connect worker provides itse
 Connect API and the Kafka clients, are not bundled.
 
 Releases are on the [GitHub release page](https://github.com/osodevops/kafka-connect-oracle-cdc/releases);
-the current one is 0.1.1. Each release attaches:
+the current one is 0.1.2. Each release attaches:
 
 | File | Contents |
 |---|---|
@@ -25,7 +25,7 @@ the current one is 0.1.1. Each release attaches:
 Download the ZIP and check it against the release's checksums:
 
 ```bash
-VERSION=0.1.1
+VERSION=0.1.2
 BASE=https://github.com/osodevops/kafka-connect-oracle-cdc/releases/download/v$VERSION
 curl -fsSLO "$BASE/osodevops-kafka-connect-oracle-cdc-$VERSION.zip"
 curl -fsSLO "$BASE/SHA256SUMS"

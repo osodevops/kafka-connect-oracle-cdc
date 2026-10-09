@@ -3,7 +3,7 @@
 Open-source (Apache-2.0) change data capture source connector for Apache Kafka Connect that
 reads Oracle Database redo through LogMiner.
 
-**Status: preview.** The current release is 0.1.1, on
+**Status: preview.** The current release is 0.1.2, on
 [Maven Central](https://central.sonatype.com/namespace/sh.oso) (group `sh.oso`) and the
 [GitHub releases](https://github.com/osodevops/kafka-connect-oracle-cdc/releases) page, which carries
 the plugin ZIP. Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single

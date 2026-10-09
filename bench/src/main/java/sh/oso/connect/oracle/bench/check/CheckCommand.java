@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.concurrent.Callable;
+import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -45,8 +46,8 @@ public final class CheckCommand implements Callable<Integer> {
   @Option(names = "--user", required = true, description = "Schema owner of the tables.")
   String user;
 
-  @Option(names = "--password", required = true, description = "Password.")
-  String password;
+  @ArgGroup(exclusive = true, multiplicity = "1")
+  sh.oso.connect.oracle.bench.PasswordOption password;
 
   @Option(names = "--topic-prefix", required = true, description = "Connector topic prefix.")
   String prefix;
@@ -99,7 +100,7 @@ public final class CheckCommand implements Callable<Integer> {
   public Integer call() throws Exception {
     Properties props = new Properties();
     props.setProperty("user", user);
-    props.setProperty("password", password);
+    props.setProperty("password", password.resolve(System::getenv));
     String owner = user.toUpperCase(Locale.ROOT);
     List<String> upper = tables.stream().map(t -> t.trim().toUpperCase(Locale.ROOT)).toList();
     List<String> topics = topics(prefix, pdb, owner, upper);

@@ -34,6 +34,7 @@ mvn -pl e2e-tests verify -De2e.groups=engine      # T1 against Oracle Database F
 mvn -pl e2e-tests verify -De2e.groups=connector   # T1 with Kafka and a Connect worker as well
 mvn clean package -DskipTests                     # plugin ZIP in kafka-connect-oracle-cdc/target
 mvn spotless:apply                                # format before committing
+gitleaks dir . --config .gitleaks.toml --redact   # secret scan; must be clean before every push
 ```
 
 Build on JDK 17 or 21. `.mvn/jvm.config` adds the `jdk.compiler` exports that google-java-format
@@ -63,6 +64,17 @@ never by restarting the database.
 - Every data-loss bug gets a regression test before the fix merges. Regression tests are
   named by invariant and tagged with the public issue (`@Tag("dbz-2504")`).
 - No GPL or AGPL dependencies (JMH included); the licence allowlist in the build enforces it.
+- No secrets, and nothing that looks like one. The repository is public: whatever is pushed is
+  published and scanned (GitGuardian flagged a lab `--password` value on 8 October 2026). Real
+  credentials (tokens, keys, passwords, AWS account secrets, signing material) never enter a file,
+  commit message, PR, issue, evidence file or log. Even throwaway lab credentials are never
+  written as a command-line option value or inside a JDBC URL or `user/password@` connect
+  string: use `--password-env` or an environment variable, and `sqlplus / as sysdba` inside a
+  container. Deliberately fake values in tests are named `CANARY-...` and marked
+  `gitleaks:allow`, or live in the allowlisted paths of `.gitleaks.toml`. Run
+  `gitleaks dir . --config .gitleaks.toml --redact` before every push; CI runs it too, and a
+  finding blocks the push. Never rewrite published history to hide a value: rotate it if it is
+  real, then fix forward.
 - Never weaken or delete a failing regression test without explicit approval.
 
 ## Releasing

@@ -24,7 +24,7 @@ services:
     ports:
       - "1521:1521"
     healthcheck:
-      test: ["CMD-SHELL", "sqlplus -s -L c##cdc/cdc@//localhost:1521/FREE <<< 'SELECT 1 FROM dual;' | grep -q 1"]
+      test: ["CMD-SHELL", "sqlplus -s -L / as sysdba <<< \"SELECT 'READY' FROM dba_users WHERE username = 'C##CDC';\" | grep -q READY"]
       interval: 10s
       timeout: 10s
       retries: 60

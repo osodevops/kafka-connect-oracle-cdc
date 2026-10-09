@@ -92,7 +92,7 @@ chaos-rollout: ## Strimzi-driven rolling update of the Connect cluster
 chaos-oracle-restart: ## delete the database pod gracefully; it must come back from the PVC with ARCHIVELOG intact
 	$(KUBECTL) delete pod oracle-0 --grace-period=120
 	$(KUBECTL) rollout status statefulset/oracle --timeout=900s
-	$(KUBECTL) exec oracle-0 -- bash -c "echo \"SELECT log_mode FROM v\\\$$database;\" | sqlplus -s c##cdc/cdc@//localhost:1521/FREE" | grep ARCHIVELOG
+	$(KUBECTL) exec oracle-0 -- bash -c "echo \"SELECT log_mode FROM v\\\$$database;\" | sqlplus -s / as sysdba" | grep ARCHIVELOG
 
 chaos-partition: ## deny Connect to Oracle traffic (needs a policy-enforcing CNI: minikube start --cni=calico)
 	$(KUBECTL) apply -f chaos/deny-connect-to-oracle.yaml

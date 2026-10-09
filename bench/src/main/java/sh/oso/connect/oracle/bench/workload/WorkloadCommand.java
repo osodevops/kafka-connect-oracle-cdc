@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.concurrent.Callable;
+import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -35,8 +36,8 @@ public final class WorkloadCommand implements Callable<Integer> {
   @Option(names = "--user", required = true, description = "Schema owner that holds the tables.")
   String user;
 
-  @Option(names = "--password", required = true, description = "Password.")
-  String password;
+  @ArgGroup(exclusive = true, multiplicity = "1")
+  sh.oso.connect.oracle.bench.PasswordOption password;
 
   @Option(names = "--spec", description = "Workload spec JSON; defaults apply when omitted.")
   Path spec;
@@ -74,7 +75,7 @@ public final class WorkloadCommand implements Callable<Integer> {
       s.durationSeconds = duration;
       s.transactionsPerSession = 0;
     }
-    WorkloadGenerator g = new WorkloadGenerator(s, url, user, password);
+    WorkloadGenerator g = new WorkloadGenerator(s, url, user, password.resolve(System::getenv));
     if (reset) {
       g.reset();
     }

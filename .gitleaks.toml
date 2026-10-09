@@ -1,0 +1,39 @@
+# Secret scan for the OSO CDC Connector (CLAUDE.md, "No secrets"). CI runs
+#   gitleaks dir . --config .gitleaks.toml --redact
+# on every push and pull request; run the same before every push.
+title = "oso-cdc-connector"
+
+[extend]
+useDefault = true
+
+# GitGuardian flagged "--password workload" in a lab command on 8 October 2026; gitleaks' defaults
+# skip a low-entropy value, so these rules catch credentials by where they are written instead.
+[[rules]]
+id = "credential-as-cli-option"
+description = "A credential given as a command-line option value; use --password-env or an environment variable"
+regex = '''(?i)--(?:password|passwd|pwd|secret|token|api-key|apikey|access-key|secret-key|client-secret)[ =]+['"]?([^\s'"$<{\[\\.-][^\s'"]*)'''
+secretGroup = 1
+keywords = ["--password", "--passwd", "--pwd", "--secret", "--token", "--api-key", "--apikey", "--access-key", "--secret-key", "--client-secret"]
+
+[[rules]]
+id = "credential-in-connect-string"
+description = "A password inside a JDBC URL or an Oracle connect string (user/password@host); use OS authentication or a variable"
+regex = '''(?i)(?:thin:@?|sqlplus(?:\s+-\w+)*\s+['"]?)[a-z0-9#_]+/([^\s/@'"$<{]+)@'''
+secretGroup = 1
+keywords = ["thin:", "sqlplus"]
+
+[allowlist]
+description = "Deliberately fake values in tests that prove secrets are never printed, and third-party licence text"
+paths = [
+  '''^tools/migration/tests/''',
+  '''^bench/src/test/java/sh/oso/connect/oracle/bench/soak/SoakTest\.java$''',
+  '''^kafka-connect-oracle-cdc/src/assembly/licenses/''',
+  '''^tools/migration/src/oso_cdc_migration/redact\.py$''',
+  # build outputs, never committed (gitignored); listed so a local scan of the tree is clean
+  '''(^|/)target/''',
+  '''^website/build/''',
+  '''^website/node_modules/''',
+  '''^lab/local/compose/plugins/''',
+  '''^lab/local/k8s/connect-image/plugin/''',
+  '''^tools/migration/\.venv/''',
+]

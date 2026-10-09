@@ -69,8 +69,9 @@ The `bench` tool from the same build runs a seeded workload of inserts, updates,
 writes, savepoint rollbacks and DDL against the `WORKLOAD` schema:
 
 ```bash
+export WORKLOAD_PASSWORD=workload   # the lab image's local test user
 java -jar bench/target/bench-*-cli.jar workload \
-  --url jdbc:oracle:thin:@//localhost:1521/FREEPDB1 --user workload --password workload \
+  --url jdbc:oracle:thin:@//localhost:1521/FREEPDB1 --user workload --password-env WORKLOAD_PASSWORD \
   --spec bench/src/main/resources/workloads/simple.json --transactions 30 --reset
 make -C lab/local/compose topics
 make -C lab/local/compose consume TOPIC=cdc.FREEPDB1.WORKLOAD.WL_T1

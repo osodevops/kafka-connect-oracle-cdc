@@ -4,6 +4,8 @@
 # recovered (Connect Ready, connector RUNNING, Oracle READ WRITE in ARCHIVELOG mode) and every
 # committed transaction in the bench ledger reached Kafka (no silent loss). Usage: ./edge-cases.sh [case ...]   (default: all)
 set -Euo pipefail
+# The test image's throwaway workload user, passed by environment (CLAUDE.md, secrets rule)
+export WORKLOAD_PASSWORD="${WORKLOAD_PASSWORD:-workload}"
 cd "$(dirname "$0")"
 # shellcheck disable=SC1091
 source versions.env
@@ -37,7 +39,7 @@ wait_connector_running() {
 }
 wait_oracle_ready() {
   $K rollout status statefulset/oracle --timeout=900s >/dev/null
-  $K exec oracle-0 -- bash -c "echo \"SELECT log_mode FROM v\\\$database;\" | sqlplus -s c##cdc/cdc@//localhost:1521/FREE" | grep -q ARCHIVELOG
+  $K exec oracle-0 -- bash -c "echo \"SELECT log_mode FROM v\\\$database;\" | sqlplus -s / as sysdba" | grep -q ARCHIVELOG
 }
 connect_rest() { local path=$1; shift; $K exec connect-connect-0 -- curl -s "$@" "http://localhost:8083$path"; }
 verify_platform() { wait_connect_ready && wait_connector_running && wait_oracle_ready && log "verify: platform recovered"; }
@@ -81,7 +83,7 @@ workload_begin() {
  "savepointRollbackProbability": 0.1, "fullRollbackProbability": 0.1, "lobWeight": 0, "keyChangeWeight": 0}
 JSON
   java -jar "$BENCH_JAR" workload --url "jdbc:oracle:thin:@//localhost:${PF_PORT}/FREEPDB1" \
-    --user workload --password workload --spec /tmp/edge-workload.json --duration "$WORKLOAD_SECONDS" $reset \
+    --user workload --password-env WORKLOAD_PASSWORD --spec /tmp/edge-workload.json --duration "$WORKLOAD_SECONDS" $reset \
     > /tmp/edge-workload.out 2>&1 &
   wl_pid=$!
   log "workload: started for ${WORKLOAD_SECONDS}s (pid $wl_pid, tables reset)"
@@ -92,7 +94,7 @@ JSON
   log "workload: $(ledger_xids | wc -l | tr -d ' ') transactions committed before the fault"
 }
 ledger_xids() {
-  $K exec oracle-0 -- bash -c "printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nSELECT xid FROM wl_ledger WHERE ops > 0;\n' | sqlplus -s workload/workload@//localhost:1521/FREEPDB1" | tr -d ' \r' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -u
+  $K exec oracle-0 -- bash -c "printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nSELECT xid FROM wl_ledger WHERE ops > 0;\n' | sqlplus -s workload/${WORKLOAD_PASSWORD}@//localhost:1521/FREEPDB1" | tr -d ' \r' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -u
 }
 kafka_xids() {
   $K exec lab-dual-0 -- bin/kafka-console-consumer.sh --bootstrap-server lab-kafka-bootstrap:9092 \
@@ -287,7 +289,7 @@ case_operator_restart_during_change() {
   verify_platform && verify_data
 }
 workload_sql() {
-  $K exec oracle-0 -- bash -c "printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nWHENEVER SQLERROR EXIT 1\n%s\n' \"$1\" | sqlplus -s workload/workload@//localhost:1521/FREEPDB1"
+  $K exec oracle-0 -- bash -c "printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF\nWHENEVER SQLERROR EXIT 1\n%s\n' \"$1\" | sqlplus -s workload/${WORKLOAD_PASSWORD}@//localhost:1521/FREEPDB1"
 }
 # Strimzi rolls the workers after a resources change; wait until every one runs with the limit
 wait_connect_limit() {

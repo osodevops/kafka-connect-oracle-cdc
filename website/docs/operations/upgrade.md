@@ -5,7 +5,12 @@ description: What the connector stores between runs, how each store is versioned
 
 # Upgrade guide
 
-0.1.1 is the first release, so no upgrade between releases has been needed yet. This page says how
+From 0.1.1 to 0.1.2 nothing stored changes: the offset format and the internal topics are the
+same, so replacing the plugin and restarting the workers is the whole upgrade. One behaviour
+change to check first: 0.1.2 refuses to start (CDC-5001) on a database with more than one enabled
+redo thread (RAC), in online mode on a standby, and on a mounted, logical or snapshot standby,
+where 0.1.1 would have started; `oracle-cdc-doctor check` reports the same as DOC-13 and DOC-14.
+This page says how
 the connector's stored state is versioned, which is what makes upgrades and one-step downgrades
 safe, and how to replace the plugin on a running worker.
 

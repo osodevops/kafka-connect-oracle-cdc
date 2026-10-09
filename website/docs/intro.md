@@ -15,7 +15,7 @@ silently.
 
 ## Status
 
-The current release is 0.1.1, on [Maven Central](https://central.sonatype.com/namespace/sh.oso)
+The current release is 0.1.2, on [Maven Central](https://central.sonatype.com/namespace/sh.oso)
 and the [GitHub release page](https://github.com/osodevops/kafka-connect-oracle-cdc/releases). It
 is a preview: releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
 instance, and the 19c and 21c qualification and a 72-hour soak come before 1.0. Everything this

@@ -28,7 +28,7 @@ public final class Redactor {
 
   static final String MASK = "***";
 
-  /** {@code jdbc:oracle:thin:user/password@...}: credentials inside a thin URL. */
+  /** {@code jdbc:oracle:thin:<user>/<password>@...}: credentials inside a thin URL. */
   private static final Pattern THIN_CREDENTIALS =
       Pattern.compile("(?i)(jdbc:oracle:thin:)[^@/\\s]*/[^@\\s]*@");
 

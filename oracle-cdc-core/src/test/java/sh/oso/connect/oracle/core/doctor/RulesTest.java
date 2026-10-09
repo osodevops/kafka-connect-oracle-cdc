@@ -334,11 +334,12 @@ class RulesTest {
                 CoreConfig.CAPTURE_MODE,
                 "archive_only",
                 CoreConfig.DICTIONARY_DATABASE_URL,
-                "jdbc:oracle:thin:scott/tiger@//primary:1521/ORCL"));
+                // a deliberately fake credential: the test proves it is never echoed
+                "jdbc:oracle:thin:scott/CANARY-doc24@//primary:1521/ORCL")); // gitleaks:allow
     assertThat(withUrl).extracting(Finding::severity).containsExactly(Severity.INFO);
     assertThat(withUrl.get(0).message())
         .as("the URL is never echoed: a thin URL can carry a password")
-        .doesNotContain("tiger")
+        .doesNotContain("CANARY-doc24")
         .contains("must be the primary");
   }
 

@@ -156,13 +156,15 @@ class SoakCommandTest {
 
   @Test
   void credentialsInsideUrlsAreMasked() {
-    Redactor r = new Redactor().add("pw-123");
-    assertThat(r.scrub("jdbc:oracle:thin:workload/pw-123@//db:1521/FREEPDB1"))
+    Redactor r = new Redactor().add("CANARY-pw-123");
+    // a deliberately fake credential: the test proves it is masked (CLAUDE.md, secrets rule)
+    assertThat(
+            r.scrub("jdbc:oracle:thin:workload/CANARY-pw-123@//db:1521/FREEPDB1")) // gitleaks:allow
         .isEqualTo("jdbc:oracle:thin:***@//db:1521/FREEPDB1");
     assertThat(r.scrub("http://admin:secret@connect:8083/connectors"))
         .isEqualTo("http://***@connect:8083/connectors");
     assertThat(r.scrub("jdbc:oracle:thin:@//db:1521/FREEPDB1"))
         .isEqualTo("jdbc:oracle:thin:@//db:1521/FREEPDB1");
-    assertThat(r.scrub("ORA-01017 for pw-123")).isEqualTo("ORA-01017 for ***");
+    assertThat(r.scrub("ORA-01017 for CANARY-pw-123")).isEqualTo("ORA-01017 for ***");
   }
 }

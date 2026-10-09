@@ -1,5 +1,5 @@
 # OSO CDC Connector for Oracle Database
-> Open-source (Apache-2.0) Kafka Connect source connector that captures change data from Oracle Database through LogMiner, by OSO. Built for correctness and operability: no silent data loss, a durable transaction journal, bounded memory, resumable snapshots, multi-PDB capture, exactly-once delivery, a preflight doctor and drop-in migration from Confluent and Debezium. Current release: 0.1.1 (preview), on Maven Central under the group sh.oso.
+> Open-source (Apache-2.0) Kafka Connect source connector that captures change data from Oracle Database through LogMiner, by OSO. Built for correctness and operability: no silent data loss, a durable transaction journal, bounded memory, resumable snapshots, multi-PDB capture, exactly-once delivery, a preflight doctor and drop-in migration from Confluent and Debezium. Current release: 0.1.2 (preview), on Maven Central under the group sh.oso.
 
 ## Core documentation
 - [Introduction](https://kafkacdcconnector.com/): what the connector is and the status of each capability

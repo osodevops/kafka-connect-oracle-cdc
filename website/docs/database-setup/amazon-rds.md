@@ -39,10 +39,11 @@ mining, which the connector does not have yet; doctor rule DOC-4 reports the loc
 ## The setup script
 
 ```bash
-java -jar oracle-cdc-doctor-cli.jar setup-sql --platform rds --user cdc --password '<password>'
+java -jar oracle-cdc-doctor-cli.jar setup-sql --platform rds --user cdc > setup-rds.sql
 ```
 
-Review it, then run it as the master user. It:
+The script carries a `<change-me>` placeholder password: put the real one in before you run it,
+and keep the edited file out of version control. Review it, then run it as the master user. It:
 
 1. creates the capture user (`cdc` by default; a local user, no `C##` prefix);
 2. grants `CREATE SESSION`, `LOGMINING`, `EXECUTE_CATALOG_ROLE`, `SELECT ANY TABLE`,

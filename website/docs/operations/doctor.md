@@ -176,7 +176,7 @@ image. The image runs as an unprivileged user with `/work` as its working direct
 Oracle Database software, so mount the directory that holds the connector configuration:
 
 ```bash
-docker run --rm -v "$PWD:/work" ghcr.io/osodevops/oracle-cdc-doctor:0.1.1 check --config connector.json
+docker run --rm -v "$PWD:/work" ghcr.io/osodevops/oracle-cdc-doctor:0.1.2 check --config connector.json
 ```
 
 Add `--network host` when the database listens only on the host's loopback address. Exit codes
