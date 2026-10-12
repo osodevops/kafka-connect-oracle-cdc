@@ -1,0 +1,41 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "ConfluentCutoverQualIT",
+  "scenario" : "Confluent Oracle CDC to OSO cutover",
+  "startedAt" : "2026-10-12T07:53:48.883680Z",
+  "finishedAt" : "2026-10-12T07:55:55.369408Z",
+  "versions" : {
+    "project" : "0.1.5-SNAPSHOT",
+    "oracleImageTag" : "external",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "target" : "rds jdbc:oracle:thin:@//localhost:15210/CDCLAB",
+    "confluentWorkerImage" : "confluentinc/cp-server-connect:7.9.2",
+    "confluentTopic" : "CDCLAB.T_CONFLUENTCUTOVERQUALIT.ORDERS",
+    "confluentOffsets" : "{\"offsets\":[{\"partition\":{\"schema\":\"T_CONFLUENTCUTOVERQUALIT\",\"catalog\":\"CDCLAB\",\"table\":\"ORDERS\"},\"offset\":{\"def\":\"ID Decimal scale:0 key,NAME STRING optional,QTY Decimal scale:0 optional\",\"rps\":\"15\",\"cscn\":\"548446\",\"rows\":\"-1\",\"scn\":\"548445\"}},{\"partition\":{\"sidPdb\":\"CDCLAB\"},\"offset\":{\"tablePlacement\":\"\",\"scn\":\"548379\"}}]}",
+    "translatedTopicTemplate" : "${prefix}.${database}.${schema}.${table}",
+    "translatedInclude" : "T_CONFLUENTCUTOVERQUALIT[.]ORDERS",
+    "takeoverExit" : 0,
+    "takeover" : "{\"tool\":\"takeover_scn.py\",\"tool_version\":\"0.1.0.dev0\",\"exit_code\":0,\"source\":\"confluent\",\"old_connector\":\"confluent-orders\",\"old_connector_state\":\"STOPPED\",\"start_scn\":548379,\"start_scn_field\":\"scn (transactions that began at or after it were still to be delivered)\",\"old_commit_scn\":548446,\"old_commit_scn_raw\":\"548446\",\"old_offsets\":[{\"partition\":{\"schema\":\"T_CONFLUENTCUTOVERQUALIT\",\"catalog\":\"CDCLAB\",\"table\":\"ORDERS\"},\"offset\":{\"def\":\"ID Decimal scale:0 key,NAME STRING optional,QTY Decimal scale:0 optional\",\"rps\":\"15\",\"cscn\":\"548446\",\"rows\":\"-1\",\"scn\":\"548445\"}},{\"partition\":{\"sidPdb\":\"CDCLAB\"},\"offset\":{\"tablePlacement\":\"\",\"scn\":\"548379\"}}],\"notes\":[\"2 offset partitions carry an SCN; the lowest is used.\",\"Changes committed between the start SCN and the last commit Confluent delivered (the highest table `cscn`) reach the new topics again: an overlap, never a gap.\"],\"database\":{\"dbid\":1667204676,\"resetlogs_scn\":484345,\"current_scn\":548567,\"name\":\"CDCLAB\",\"log_mode\":\"ARCHIVELOG\"},\"redo\":{\"ok\":true,\"threads\":[{\"thread\":1,\"first_sequence\":23,\"last_sequence\":23,\"missing\":[],\"problem\":null}]},\"new_connector\":\"oso-orders\",\"settings\":{\"cdc.start.scn\":\"548379\",\"cdc.snapshot.mode\":\"none\"},\"output\":\"/var/folders/jm/53jml75s3qd57snfq8t9cmnr0000gn/T/junit-15683734216206609742/oso-connector-takeover.json\",\"problems\":[],\"follow_ups\":[],\"next_steps\":[\"Create `oso-orders` from `/var/folders/jm/53jml75s3qd57snfq8t9cmnr0000gn/T/junit-15683734216206609742/oso-connector-takeover.json`, with `cdc.start.scn=548379` and `cdc.snapshot.mode=none`. It starts streaming at that SCN because it has no stored offset yet.\",\"Changes committed after SCN 548379 up to the old connector's last commit at SCN 548446 are delivered again (bounded duplicates during the overlap; consumers that upsert by key are unaffected). There is no gap.\",\"After the overlap has passed, run `verify_cutover.py` and archive the evidence file.\"]}",
+    "osoTopic" : "osocut.CDCLAB.T_CONFLUENTCUTOVERQUALIT.ORDERS",
+    "sampleConfluentRecord" : "key=1 value={\"ID\":1,\"NAME\":\"seed 1\",\"QTY\":1,\"table\":\"CDCLAB.T_CONFLUENTCUTOVERQUALIT.ORDERS\",\"scn\":\"548221\",\"op_type\":\"R\",\"op_ts\":null,\"current_ts\":\"1791791650761\",\"row_id\":null,\"username\":null}",
+    "verifyExit" : 0,
+    "verification" : "{\"table\":\"T_CONFLUENTCUTOVERQUALIT.ORDERS\",\"topic\":\"osocut.CDCLAB.T_CONFLUENTCUTOVERQUALIT.ORDERS\",\"status\":\"PASS\",\"reason\":\"row count and hash equal\",\"key_columns\":[\"ID\"],\"compared_columns\":[\"ID\",\"NAME\",\"QTY\"],\"ignored_columns\":{},\"records\":{\"records\":159,\"applied\":159,\"tombstones\":0,\"after_check_scn\":0,\"snapshot_after_check_scn\":0,\"without_commit_scn\":0,\"other\":0,\"error_count\":0,\"errors\":[],\"confluent_records\":81,\"confluent_deletes\":0,\"confluent_after_check_scn\":0,\"confluent_key_only\":59},\"database_rows\":218,\"topic_rows\":218,\"database_hash\":\"10855b292ca0b8ca2cfcab636e63aba205b27257dcf7f551b200beb86edf4380\",\"topic_hash\":\"10855b292ca0b8ca2cfcab636e63aba205b27257dcf7f551b200beb86edf4380\",\"only_in_database\":0,\"only_in_topics\":0,\"different\":0,\"samples\":[]}"
+  },
+  "faults" : [ ],
+  "counts" : {
+    "committedRows" : 218,
+    "inConfluentTopic" : 81,
+    "inOsoTopic" : 159,
+    "inBothTopics" : 22,
+    "missing" : 0
+  },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "ae2bbf0cf5d63967c93b5d31cc4ed9b07c330a0ba48e086667ec56c02c72ba2a"
+}

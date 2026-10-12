@@ -10,8 +10,9 @@ position without a new snapshot, and verify the result against the database. The
 this page was run end to end with Confluent's connector 2.15.2 on a Confluent Platform 7.9 Connect
 worker, under a live workload, with a transaction left open across the switch: every committed row
 reached Kafka, the open transaction was delivered by the new connector, and
-`verify_cutover.py` matched the table to the topics by count and hash. The qualification suite
-`ConfluentCutoverQualIT` repeats it.
+`verify_cutover.py` matched the table to the topics by count and hash. It ran against Oracle
+Database Free and against Amazon RDS for Oracle 19c (non-CDB) on 12 October 2026; the
+qualification suite `ConfluentCutoverQualIT` repeats it.
 
 ## Before you start
 
@@ -105,7 +106,8 @@ uv run python takeover_scn.py --connect-url http://connect:8083 \
 ```
 
 **How the start is chosen.** Confluent's connector stores two kinds of offset partition: one per
-database, `{"sidPdb": "CDB.PDB1"}`, with `scn` (where its mining resumes) and `tablePlacement`;
+database, `{"sidPdb": "CDB.PDB1"}` (just the SID on a non-CDB, for example `{"sidPdb": "ORCL"}`),
+with `scn` (where its mining resumes) and `tablePlacement`;
 and one per captured table, `{"catalog", "schema", "table"}`, with `scn`, `cscn` (the commit SCN
 of the last change it delivered for the table), `rows`, `rps` and `def` (the column definitions).
 Because Confluent starts each mining session at the oldest open transaction

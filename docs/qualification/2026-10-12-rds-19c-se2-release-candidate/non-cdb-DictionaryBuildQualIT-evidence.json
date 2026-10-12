@@ -1,0 +1,25 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "DictionaryBuildQualIT",
+  "scenario" : "dictionary build",
+  "startedAt" : "2026-10-12T07:53:01.190720Z",
+  "finishedAt" : "2026-10-12T07:53:08.927644Z",
+  "versions" : {
+    "project" : "0.1.5-SNAPSHOT",
+    "oracleImageTag" : "external",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "target" : "rds jdbc:oracle:thin:@//localhost:15210/CDCLAB",
+    "buildFirstScn" : 546670
+  },
+  "faults" : [ ],
+  "counts" : { },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "f896c3f7a7ed42411c6856ba636f858049c5597d73ee6812e495bdb7c49193ca"
+}

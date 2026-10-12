@@ -31,6 +31,10 @@ SYSDBA, no `ALTER SYSTEM` and no `ALTER DATABASE`.
 
 The doctor detects RDS (the `RDSADMIN` schema exists) and gives every fix in the form above.
 
+Moving from Confluent's Oracle CDC Source connector on an RDS non-CDB? The cutover in
+[Migrating from Confluent Oracle CDC Source](../migration/from-confluent.md) was run on RDS for
+Oracle 19c on 12 October 2026.
+
 ## Architecture
 
 The preview covers Oracle Database 19c in both architectures. With the CDB architecture, which every

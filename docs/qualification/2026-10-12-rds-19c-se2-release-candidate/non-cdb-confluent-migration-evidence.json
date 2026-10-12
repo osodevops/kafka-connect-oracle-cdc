@@ -1,0 +1,75 @@
+{
+  "tool": "verify_cutover.py",
+  "tool_version": "0.1.0.dev0",
+  "started_at": "2026-10-12T07:55:42Z",
+  "finished_at": "2026-10-12T07:55:54Z",
+  "result": "PASS",
+  "inputs": {
+    "database": {
+      "dsn": "localhost:15210/CDCLAB",
+      "user": "CDC"
+    },
+    "bootstrap_servers": "localhost:60969",
+    "connector_config": "/var/folders/jm/53jml75s3qd57snfq8t9cmnr0000gn/T/junit-15683734216206609742/oso-connector-registered.json",
+    "connector_kind": "oso",
+    "tables": [
+      "T_CONFLUENTCUTOVERQUALIT.ORDERS"
+    ],
+    "check_scn": 549417,
+    "check_scn_source": "given",
+    "position_check": {
+      "checked": true,
+      "connector": "oso-orders",
+      "position_scn": 549488,
+      "passed": true
+    },
+    "decimal_mode": "precise",
+    "temporal_mode": "adaptive",
+    "unavailable_placeholder": "__cdc_unavailable_value",
+    "lob_columns": "skip",
+    "ignored_columns": [],
+    "batch_rows": 50000,
+    "show_values": false
+  },
+  "tables": [
+    {
+      "table": "T_CONFLUENTCUTOVERQUALIT.ORDERS",
+      "topic": "osocut.CDCLAB.T_CONFLUENTCUTOVERQUALIT.ORDERS",
+      "status": "PASS",
+      "reason": "row count and hash equal",
+      "key_columns": [
+        "ID"
+      ],
+      "compared_columns": [
+        "ID",
+        "NAME",
+        "QTY"
+      ],
+      "ignored_columns": {},
+      "records": {
+        "records": 159,
+        "applied": 159,
+        "tombstones": 0,
+        "after_check_scn": 0,
+        "snapshot_after_check_scn": 0,
+        "without_commit_scn": 0,
+        "other": 0,
+        "error_count": 0,
+        "errors": [],
+        "confluent_records": 81,
+        "confluent_deletes": 0,
+        "confluent_after_check_scn": 0,
+        "confluent_key_only": 59
+      },
+      "database_rows": 218,
+      "topic_rows": 218,
+      "database_hash": "10855b292ca0b8ca2cfcab636e63aba205b27257dcf7f551b200beb86edf4380",
+      "topic_hash": "10855b292ca0b8ca2cfcab636e63aba205b27257dcf7f551b200beb86edf4380",
+      "only_in_database": 0,
+      "only_in_topics": 0,
+      "different": 0,
+      "samples": []
+    }
+  ],
+  "sha256": "c63ae5f658d17f3f65eae7714a9e4fc860c0cb74cc5960bc646529b46dc541a3"
+}

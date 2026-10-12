@@ -1,0 +1,29 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "CaptureQualIT",
+  "case" : "archive-only",
+  "scenario" : "DML and DDL captured in archive-only mode",
+  "startedAt" : "2026-10-12T08:00:49.053438Z",
+  "finishedAt" : "2026-10-12T08:05:06.370472Z",
+  "versions" : {
+    "project" : "0.1.5-SNAPSHOT",
+    "oracleImageTag" : "external",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "target" : "rds cdb pdb CDCPDB jdbc:oracle:thin:@//localhost:15210/CDCPDB",
+    "lagReplay" : false
+  },
+  "faults" : [ ],
+  "counts" : {
+    "rows" : 5,
+    "transactions" : 5
+  },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "fa11e02cbf2b4a03b9fed035adb697cc6c2cf84cd9a5b959769f8c0d4ae2a6dd"
+}

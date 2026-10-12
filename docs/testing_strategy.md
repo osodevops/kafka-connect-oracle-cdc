@@ -108,8 +108,8 @@ A scheduled job lists new Oracle issues weekly and opens a triage ticket in our 
 | 19c EE and 21c EE, non-CDB and CDB | T4 | 1 |
 | 19c two-node RAC | T4 | 2 |
 | Active Data Guard physical standby (archive-only) | T4 | 2 |
-| Amazon RDS for Oracle 19c non-CDB | T4 | 2 (qualified 9 October 2026, `docs/qualification/2026-10-09-rds-19c-se2-non-cdb`; Connect worker kill and restart in `2026-10-09-rds-19c-se2-connect-worker`) |
-| Amazon RDS for Oracle 19c CDB (range mode) | T4 | 3 (qualified 9 October 2026, `docs/qualification/2026-10-09-rds-19c-se2-cdb`; Connect worker kill and restart in `2026-10-09-rds-19c-se2-connect-worker`) |
+| Amazon RDS for Oracle 19c non-CDB | T4 | 2 (qualified 9 October 2026, `docs/qualification/2026-10-09-rds-19c-se2-non-cdb`; Connect worker kill and restart in `2026-10-09-rds-19c-se2-connect-worker`; release candidate and the Confluent cutover in `2026-10-12-rds-19c-se2-release-candidate`) |
+| Amazon RDS for Oracle 19c CDB (range mode) | T4 | 3 (qualified 9 October 2026, `docs/qualification/2026-10-09-rds-19c-se2-cdb`; Connect worker kill and restart in `2026-10-09-rds-19c-se2-connect-worker`; release candidate in `2026-10-12-rds-19c-se2-release-candidate`) |
 | Autonomous Database (range mode) | T4 | 3 |
 | Kafka Connect 3.6, 3.9, 4.x; Confluent Platform 7.6 and later; Strimzi; MSK Connect | T1 (Apache), T2 (Strimzi on the local minikube lab, `lab/local/k8s`, with the edge-case matrix), T4 (others) | 1 and 2 |
 | Java 17 and 21 | T0, T1 | 1 |

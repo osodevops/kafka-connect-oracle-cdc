@@ -1,0 +1,29 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "ConnectorQualIT",
+  "scenario" : "connect worker, kill and restart",
+  "startedAt" : "2026-10-12T07:53:09.992298Z",
+  "finishedAt" : "2026-10-12T07:53:48.452905Z",
+  "versions" : {
+    "project" : "0.1.5-SNAPSHOT",
+    "oracleImageTag" : "external",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "target" : "rds jdbc:oracle:thin:@//localhost:15210/CDCLAB",
+    "topic" : "ql.T_CONNECTORQUALIT.Q"
+  },
+  "faults" : [ ],
+  "counts" : {
+    "committedRows" : 150,
+    "distinctRowsSeen" : 150,
+    "records" : 150
+  },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "33cb461d5b4d3f4a4cea5152f30ec9f0bfddcde63ba8457d8cf187ea4e4db6cd"
+}
