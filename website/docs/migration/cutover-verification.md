@@ -29,6 +29,10 @@ uv run python verify_cutover.py --input oso-connector.json \
   `decimal.handling.mode` and `time.precision.mode`), the LOB mode, the unavailable placeholder,
   key overrides and the connector's name. Without it, give `--topic-prefix` or topics per table,
   and the modes on the command line.
+- **Confluent's topics.** After a cutover from Confluent's Oracle CDC Source connector,
+  `--confluent-topic OWNER.TABLE=TOPIC` (or just `TOPIC` with one `--table`) names Confluent's
+  table topic. It is read before this connector's topics, by key: see
+  [Migrating from Confluent Oracle CDC Source](from-confluent.md#4-verify).
 - **Database.** `--db-dsn` names the PDB (or non-CDB) that holds the tables. The user needs
   `SELECT` and `FLASHBACK` on the tables, or `FLASHBACK ANY TABLE`.
 - **Kafka.** `--bootstrap-servers`, and `--kafka-config` for a properties file with further client
@@ -113,6 +117,9 @@ uv run python verify_cutover.py --check-evidence cutover-evidence.json
 - Compaction removes history. On a compacted topic, choose a check SCN close to the present, or
   values overwritten after the check SCN are missing from the topic side.
 - The tool reads only topics written with the JSON converter. Topics written with Avro or
-  Protobuf converters, and Confluent's flat record format, are not read yet.
+  Protobuf converters are not read yet.
+- Confluent's flat-row topics (`--confluent-topic`, after a cutover from Confluent's Oracle CDC
+  Source connector) are verified by key only: a row whose last change Confluent delivered counts as
+  present when the table has its key, and its values are not compared.
 - Duplicates and ordering are not checked; a repeated change during a takeover overlap leaves the
   same state and passes.
