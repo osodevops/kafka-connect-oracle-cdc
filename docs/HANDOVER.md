@@ -122,14 +122,26 @@ transaction.
 - Release 0.1.4 (9 October 2026): 3a below, and ORA-00604 classified by the error it wraps (a
   missing log in range mode is CDC-2002). `ConnectorQualIT` (a Connect worker killed mid-stream)
   then passed on both RDS architectures (`docs/qualification/2026-10-09-rds-19c-se2-connect-worker`).
-- Phase 3 (RAC, ADR-0026): 3a, the step cursor with a mark per thread, is on `main` since 0.1.4,
-  green on T0 and on both T1 tiers. 3b-1 (the optional `threads` block in the offset) and 3b-2
-  (the per-thread skip rule) are on branch `feat/rac-per-thread-position` (worktree
-  `../kafka-connect-oracle-cdc-rac`), T0 only; nothing writes the block yet. The RAC refusal stays
-  until 3d. Next: 3b-3, the per-thread resume vector through `CaptureEngine` and
-  `RecordQueueSink`, then 3b, the per-thread position (`threads` block in the `v=1` offset,
-  per-thread `SkipRule` and `ResumeCalculator`), then 3c (closed and disabled threads,
-  `cdc.rac.safety.lag.ms`, CDC-7003). 3d lifts the refusal and needs a RAC lab.
+- 12 October 2026 (goal set by Sion: work through the plan, test on AWS, publish, docs live, and
+  capture what people need to migrate off Confluent):
+  - The nightly checker counts a re-delivered event as a duplicate, not an order violation
+    (issue #17).
+  - Confluent migration tested for real: Confluent's connector 2.15.2 (30-day evaluation licence,
+    kept in `~/.cache/oso-cdc-lab/confluent`, never committed) on a Confluent Platform 7.9
+    worker (`ConnectCluster.confluentPlatform`). `ConfluentCutoverQualIT` (runs only with
+    `-De2e.confluent.plugin=<dir>`) cuts over under load with a transaction open across the
+    switch. Fixes from it: new prefixed topics, the takeover reports Confluent's last commit
+    (`cscn`), `verify_cutover.py --confluent-topic`. The guide was rewritten around it.
+  - RAC 3b (per-thread position, skip rule, resume vector) is on `main`; 3c (thread states,
+    per-thread windows, `cdc.rac.safety.lag.ms`, CDC-7003 only with several threads) is on
+    `main`, green on T0 and both T1 tiers. The e2e test
+    network has a fixed subnet: two Docker test runs cannot overlap.
+- Phase 3 (RAC, ADR-0026): the RAC refusal stays until 3d, which needs a RAC lab. Open for 3d
+  (recorded in ADR-0026): a thread with no applied row is read by SCN from the step start, so a
+  first transaction written late below an SCN already passed could be missed (the safety lag
+  narrows it); whether CDC-7003 must tell a re-mined step apart on RAC; the per-thread
+  `JdbcCatalogSource.archivedLog` SQL and Oracle's behaviour for disabled, re-enabled and crashed
+  threads are unverified without RAC.
 - Blocked on Sion: the Data Guard and RAC labs need an Oracle account for the Enterprise Edition
   images at container-registry.oracle.com; Autonomous Database needs an OCI account. The
   qualification runner for the AWS lab is a shell script kept outside the repository; the stack
