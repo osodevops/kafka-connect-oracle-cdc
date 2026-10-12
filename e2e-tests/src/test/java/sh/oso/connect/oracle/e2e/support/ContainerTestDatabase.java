@@ -95,6 +95,15 @@ final class ContainerTestDatabase implements TestDatabase {
   }
 
   @Override
+  public String tablesDsn() {
+    return db.container().getHost()
+        + ":"
+        + db.container().getMappedPort(1521)
+        + "/"
+        + OracleTestDatabase.PDB1;
+  }
+
+  @Override
   public String hostDsn() {
     return db.container().getHost()
         + ":"

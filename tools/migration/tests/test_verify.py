@@ -457,3 +457,71 @@ def test_usage_errors_exit_one(flag):
     with pytest.raises(SystemExit) as e:
         main([flag])
     assert e.value.code == EXIT_FAILURE
+
+
+# Cutover from Confluent's connector: its flat-row topic is the old side, verified by key -------
+
+
+def confluent(topics, i, op, scn, offset, key_style="value", status="NEW"):
+    """A flat row as Confluent's connector 2.15.2 writes it (JSON converter, schemas off)."""
+    from oso_cdc_migration.records import KafkaRecord
+
+    value = {
+        "ID": i,
+        "STATUS": status,
+        "AMOUNT": 10.0,
+        "table": "PDB1.APP.ORDERS",
+        "scn": str(scn),
+        "op_type": op,
+        "op_ts": None,
+        "current_ts": "1791785532526",
+        "row_id": None,
+        "username": None,
+    }
+    if key_style == "base64":  # a NUMBER key as a Connect Decimal without decimal.format=NUMERIC
+        key = json.dumps(base64.b64encode(i.to_bytes(2, "big", signed=True)).decode()).encode()
+    else:
+        key = json.dumps(i).encode()
+    topics.add(KafkaRecord("PDB1.APP.ORDERS", 0, offset, key, json.dumps(value).encode()))
+
+
+def test_confluent_keys_and_new_topic_values_together_pass(tmp_path, capsys):
+    topics = FakeTopics()
+    confluent(topics, 1, "R", 90, 0)
+    confluent(topics, 2, "I", 95, 1, key_style="base64")
+    confluent(topics, 3, "I", 96, 2)
+    confluent(topics, 3, "D", 97, 3)
+    # the new connector takes over: row 1 changes, row 5 is new
+    w = TopicWriter(topics, "srv.APP.ORDERS")
+    w.change("u", {"ID": 1}, row(1, "NEW"), row(1, "SHIPPED"), 120)
+    w.change("c", {"ID": 5}, None, row(5, "NEW"), 130)
+    db = db_with([db_row(1, "SHIPPED"), db_row(2, "NEW"), db_row(5, "NEW")])
+    code, ev = run(tmp_path, db, topics, "--confluent-topic", "PDB1.APP.ORDERS")
+    assert code == EXIT_OK, ev
+    t = ev["tables"][0]
+    assert t["status"] == "PASS"
+    assert t["records"]["confluent_records"] == 4
+    assert t["records"]["confluent_deletes"] == 1
+    assert t["records"]["confluent_key_only"] == 1  # row 2: only Confluent delivered it
+
+
+def test_a_row_neither_connector_delivered_fails(tmp_path, capsys):
+    topics = FakeTopics()
+    confluent(topics, 1, "R", 90, 0)
+    TopicWriter(topics, "srv.APP.ORDERS").change("c", {"ID": 5}, None, row(5, "NEW"), 130)
+    db = db_with([db_row(1, "NEW"), db_row(4, "NEW"), db_row(5, "NEW")])
+    code, ev = run(tmp_path, db, topics, "--confluent-topic", "PDB1.APP.ORDERS")
+    assert code == EXIT_FAILURE
+    t = ev["tables"][0]
+    assert t["status"] == "FAIL"
+    assert t["only_in_database"] == 1  # row 4
+
+
+def test_a_confluent_row_the_database_no_longer_has_fails(tmp_path, capsys):
+    topics = FakeTopics()
+    confluent(topics, 1, "R", 90, 0)
+    confluent(topics, 2, "I", 95, 1)  # deleted later, but no delete reached either topic
+    db = db_with([db_row(1, "NEW")])
+    code, ev = run(tmp_path, db, topics, "--confluent-topic", "PDB1.APP.ORDERS")
+    assert code == EXIT_FAILURE
+    assert ev["tables"][0]["only_in_topics"] == 1

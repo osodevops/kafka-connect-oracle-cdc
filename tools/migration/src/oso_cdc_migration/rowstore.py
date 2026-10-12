@@ -30,6 +30,10 @@ SIDES = ("db", "kafka")
 _MOD = 1 << 256
 
 
+#: The topic-side row of a key only Confluent's topic delivered (verified by key, never parsed).
+KEY_ONLY = "\u0000confluent-key-only"
+
+
 def canonical(pairs: list[tuple[str, str | None]]) -> str:
     return json.dumps(pairs, separators=(",", ":"), ensure_ascii=False)
 

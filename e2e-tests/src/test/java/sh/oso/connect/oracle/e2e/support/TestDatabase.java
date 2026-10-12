@@ -88,6 +88,11 @@ public interface TestDatabase {
    */
   String hostDsn();
 
+  /** {@code host:port/service} of the database holding the tables (the PDB on the container). */
+  default String tablesDsn() {
+    return hostDsn();
+  }
+
   /** Host and port a Connect worker in Docker connects to, for the reachability check. */
   default String workerHost() {
     return connectorDatabaseProps().get("cdc.database.host");

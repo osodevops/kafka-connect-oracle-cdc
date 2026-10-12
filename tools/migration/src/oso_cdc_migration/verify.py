@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from . import __version__, configio
+from . import __version__, configio, confluent_topics
 from .common import (
     EXIT_FAILURE,
     EXIT_OK,
@@ -174,8 +174,8 @@ def target_from_config(cfg: configio.ConnectorConfig | None) -> Target:
         )
     if cls.startswith("io.confluent"):
         raise ToolError(
-            "Topics of the Confluent Oracle CDC Source connector use Confluent's flat record"
-            " format, which the verifier does not read."
+            "Give the new connector's configuration as --input. Confluent's table topics are"
+            " read with --confluent-topic, which verifies the keys only Confluent delivered."
         )
     cdb = bool((c.get("cdc.database.pdbs") or "").strip())
     template = c.get("cdc.topic.template") or (
@@ -262,6 +262,8 @@ class Settings:
     show_values: bool = False
     ignore_columns: set[str] = field(default_factory=set)
     pdb: str | None = None
+    #: OWNER.TABLE to Confluent's table topic, read first and verified by key
+    confluent_topics: dict[str, str] = field(default_factory=dict)
 
 
 def _spec(db: VerifyDatabase, req: TableRequest, s: Settings, database: str, pdb: str | None):
@@ -378,6 +380,22 @@ def verify(
         resolved.append((spec, batch_key, problems))
     specs = [r[0] for r in resolved]
     materialiser = Materialiser(store, normaliser, s.check_scn, s.target.placeholder, specs)
+    # Confluent's records first: the new connector's then overwrite or remove what they touch
+    for sp in specs:
+        old_topic = s.confluent_topics.get(sp.name)
+        if old_topic:
+            LOG.info("Reading %s (Confluent, by key)", old_topic)
+            try:
+                confluent_topics.apply_topic(
+                    topics.read(old_topic),
+                    sp,
+                    store,
+                    normaliser,
+                    s.check_scn,
+                    materialiser.stats[sp.name],
+                )
+            except RecordError as e:
+                materialiser.stats[sp.name].error(old_topic, str(e))
     for topic in sorted({sp.topic for sp in specs}):
         LOG.info("Reading %s", topic)
         for record in topics.read(topic):
@@ -396,6 +414,8 @@ def verify(
             problem = _scan_database(db, store, normaliser, spec, batch_key, s)
             if problem:
                 problems.append(problem)
+            if spec.name in s.confluent_topics:
+                stats.confluent_key_only = confluent_topics.resolve_key_only(store, spec.name)
         if stats.error_count:
             problems.append(f"{stats.error_count} records could not be read: {stats.errors[0]}")
         if stats.without_commit_scn:
@@ -576,6 +596,21 @@ examples:
 result: 0 when every table passes, 1 otherwise (FAIL or INCONCLUSIVE)."""
 
 
+def _confluent_topics(raw: list[str], tables: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for item in raw:
+        if "=" in item:
+            table, topic = item.split("=", 1)
+            t = parse_table(table)
+            out[f"{t.owner}.{t.table}"] = topic
+        elif len(tables) == 1:
+            t = parse_table(tables[0])
+            out[f"{t.owner}.{t.table}"] = item
+        else:
+            raise ToolError("With several --table, give --confluent-topic as OWNER.TABLE=TOPIC.")
+    return out
+
+
 def build_parser():
     p = parser(PROG, DESCRIPTION, EPILOG % {"prog": PROG})
     add_common_options(
@@ -614,6 +649,14 @@ def build_parser():
         " (default from --input, else ${prefix}.${schema}.${table})",
     )
     p.add_argument("--pdb", help="PDB name for ${pdb} (default: the connected container)")
+    p.add_argument(
+        "--confluent-topic",
+        action="append",
+        default=[],
+        metavar="[OWNER.TABLE=]TOPIC",
+        help="Confluent's table topic for a table cut over from Confluent's connector (JSON"
+        " converter); read before the new connector's topics and verified by key",
+    )
     p.add_argument("--decimal-mode", choices=("precise", "string", "double"))
     p.add_argument("--temporal-mode", choices=("adaptive", "iso_string"))
     p.add_argument("--unavailable-placeholder", metavar="TEXT")
@@ -763,6 +806,7 @@ def main(
             show_values=args.show_values,
             ignore_columns={c.upper() for c in args.ignore_column},
             pdb=args.pdb,
+            confluent_topics=_confluent_topics(args.confluent_topic, args.table),
         )
         with tempfile.TemporaryDirectory(dir=args.work_dir) as work:
             store = RowStore(str(Path(work) / "rows.sqlite"))

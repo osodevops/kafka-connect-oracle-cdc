@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 
 from .normalise import Column, NormaliseError, Normaliser
 from .records import ChangeRecord, RecordError
-from .rowstore import RowStore, canonical
+from .rowstore import KEY_ONLY, RowStore, canonical
 
 
 @dataclass
@@ -61,6 +61,11 @@ class TableStats:
     other: int = 0
     error_count: int = 0
     errors: list[str] = field(default_factory=list)
+    # read from Confluent's table topic (--confluent-topic), by key
+    confluent_records: int = 0
+    confluent_deletes: int = 0
+    confluent_after_check_scn: int = 0
+    confluent_key_only: int = 0
 
     def error(self, where: str, message: str) -> None:
         self.error_count += 1
@@ -187,7 +192,7 @@ class Materialiser:
         self.store.put("kafka", table, key, self._row(spec, rec, rec.after, previous))
 
     def _row(self, spec: TableSpec, rec: ChangeRecord, image: dict, previous: str | None) -> str:
-        before = dict(json.loads(previous)) if previous else {}
+        before = dict(json.loads(previous)) if previous and previous != KEY_ONLY else {}
         pairs: list[tuple[str, str | None]] = []
         for col in spec.columns:
             raw = image.get(col.name)

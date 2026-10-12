@@ -241,6 +241,59 @@ class ConfluentCutoverQualIT {
       ev.param("sampleConfluentRecord", sample(cluster, oldTopic));
       assertThat(missing).as("committed rows in neither topic").isEmpty();
       assertThat(inNew).as("the transaction that spanned the cutover").contains(SPANNING_ID);
+
+      // 9. the operator's verification: Confluent's topic by key, the new topic value by value
+      long checkScn;
+      try (Connection meta = db.capture()) {
+        checkScn = sh.oso.connect.oracle.e2e.support.LogMinerHelper.currentScn(meta);
+      }
+      Path registered = dir.resolve("oso-connector-registered.json");
+      Files.writeString(
+          registered,
+          JSON.writerWithDefaultPrettyPrinter()
+              .writeValueAsString(Map.of("name", NEW, "config", config)));
+      Path evidence = Cli.repoRoot().resolve("e2e-tests/target/confluent-migration-evidence.json");
+      Cli.Result verify =
+          Cli.migration(
+              "verify_cutover.py",
+              Map.of("ORACLE_PASSWORD", db.capturePassword()),
+              TOOL_TIMEOUT,
+              "--input",
+              registered.toString(),
+              "--table",
+              schema + ".ORDERS",
+              "--confluent-topic",
+              oldTopic,
+              "--db-dsn",
+              db.tablesDsn(),
+              "--db-user",
+              db.captureUser(),
+              "--db-password-env",
+              "ORACLE_PASSWORD",
+              "--bootstrap-servers",
+              cluster.bootstrapServers(),
+              "--connect-url",
+              cluster.restUrl(),
+              "--connector",
+              NEW,
+              "--check-scn",
+              Long.toString(checkScn),
+              "--wait-seconds",
+              "300",
+              "--output",
+              evidence.toString(),
+              "--report",
+              dir.resolve("verification.md").toString(),
+              "--json");
+      ev.param("verifyExit", verify.exit());
+      JsonNode doc = JSON.readTree(evidence.toFile());
+      JsonNode table = doc.path("tables").get(0);
+      ev.param("verification", table.toString());
+      assertThat(verify.exit()).as(verify.toString()).isZero();
+      assertThat(table.path("status").asText()).as(table.toPrettyString()).isEqualTo("PASS");
+      assertThat(table.path("records").path("confluent_key_only").asLong())
+          .as("rows only Confluent delivered, verified by key")
+          .isPositive();
     } catch (Throwable t) {
       ev.failed(t);
       throw t;
