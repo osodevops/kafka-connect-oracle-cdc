@@ -77,6 +77,17 @@ final class ScriptedEngine {
   }
 
   CaptureEngine engine(int maxConsecutiveRetries, Position start) {
+    return engine(maxConsecutiveRetries, start, registry -> recordingSink());
+  }
+
+  /**
+   * The engine with the sink {@code sinks} builds over the scenario's schema registry, for a
+   * scenario that reads what the Connect side makes of the commits (the records and their offsets).
+   */
+  CaptureEngine engine(
+      int maxConsecutiveRetries,
+      Position start,
+      java.util.function.Function<SchemaRegistry, EventSink> sinks) {
     InMemorySchemaStore store = new InMemorySchemaStore();
     store.save(
         new TableSchema(
@@ -98,32 +109,9 @@ final class ScriptedEngine {
             throw new IllegalStateException("the dictionary is not read: " + t);
           }
         };
-    EventSink sink =
-        new EventSink() {
-          public void committed(CommittedTransaction tx, int skip, RedoRecordId at) {
-            committed.add(
-                new CommittedTransaction(
-                    tx.key(),
-                    tx.firstCaptured(),
-                    tx.startId(),
-                    tx.commitId(),
-                    tx.commitTimestamp(),
-                    tx.thread(),
-                    tx.username(),
-                    tx.clientId(),
-                    new ArrayList<>(tx.events().subList(skip, tx.size()))));
-          }
-
-          public void stepApplied(long scn, RedoRecordId at) {
-            minedTo = scn;
-            resume = at;
-          }
-
-          @Override
-          public void idle(long scn, RedoRecordId at) {
-            stepApplied(scn, at);
-          }
-        };
+    SchemaRegistry registry =
+        new SchemaRegistry(
+            store, none, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
     return new CaptureEngine(
         start,
         fake,
@@ -131,10 +119,9 @@ final class ScriptedEngine {
             new FakeCatalog().archivedRun(1, 1, 40, 1000, 100), CoreConfig.CaptureMode.ONLINE, 1),
         () -> safeEnd,
         new HeapTransactionBuffer(),
-        new SchemaRegistry(
-            store, none, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL)),
+        registry,
         ChangeDecoder.rowDecoder(),
-        sink,
+        sinks.apply(registry),
         new EngineSettings(
             Duration.ofSeconds(2),
             8,
@@ -147,6 +134,35 @@ final class ScriptedEngine {
         () -> Set.of("APP"),
         cause -> reconnector.reconnect(cause),
         () -> Instant.EPOCH);
+  }
+
+  /** Copies each committed transaction and records the resume point of every step. */
+  private EventSink recordingSink() {
+    return new EventSink() {
+      public void committed(CommittedTransaction tx, int skip, RedoRecordId at) {
+        committed.add(
+            new CommittedTransaction(
+                tx.key(),
+                tx.firstCaptured(),
+                tx.startId(),
+                tx.commitId(),
+                tx.commitTimestamp(),
+                tx.thread(),
+                tx.username(),
+                tx.clientId(),
+                new ArrayList<>(tx.events().subList(skip, tx.size()))));
+      }
+
+      public void stepApplied(long scn, RedoRecordId at) {
+        minedTo = scn;
+        resume = at;
+      }
+
+      @Override
+      public void idle(long scn, RedoRecordId at) {
+        stepApplied(scn, at);
+      }
+    };
   }
 
   /** Steps until the engine is idle at the safe end. */

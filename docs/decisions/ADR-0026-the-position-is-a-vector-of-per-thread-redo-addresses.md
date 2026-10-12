@@ -1,9 +1,9 @@
 # ADR-0026: The position is a vector of per-thread redo addresses; commit order is per thread
 
-**Status:** Accepted. In progress: the step cursor (3a) is implemented. Still to come: the
-per-thread position and resume rule (3b), the inventory and safety rules for closed and disabled
-threads (3c), and lifting the RAC refusal of ADR-0023 with the RAC regression corpus and a RAC lab
-run (3d, blocked on a RAC lab).
+**Status:** Accepted. In progress: the step cursor (3a) and the per-thread position, skip rule
+and resume vector (3b) are implemented. Still to come: the inventory and safety rules for closed and
+disabled threads, with the CDC-7003 stop of decision 4 (3c), and lifting the RAC refusal of ADR-0023
+with the RAC regression corpus and a RAC lab run (3d, blocked on a RAC lab).
 **Context:** PRD-00 CORE-POS-1, CORE-POS-3, CORE-POS-4, CORE-MINE-4 and CORE-LOG-3; ADR-0014 (the
 redo byte address cursor); ADR-0023 (a second redo thread is refused).
 
@@ -46,11 +46,16 @@ exact is that the commits acknowledged on each thread are a prefix of that threa
 
 `StepCursorTest`, `LogMinerQueryTest` (per-thread form; the thread-less form is today's SQL),
 `StepRunnerTest.aSlowThreadsRowsAreNotHiddenByAnotherThreadsAddress` (with a single cursor the
-slow thread's rows are skipped; with a mark per thread they are mined).
+slow thread's rows are skipped; with a mark per thread they are mined). 3b: `PositionCodecTest`
+(the `threads` block and its agreement with the legacy keys), `ResumeAndSkipTest` (skip rule per
+thread), `PerThreadPositionTest` (one thread writes the offset of before, byte for byte),
+`ResumePointTest`, `RecordQueueSinkTest`, and `ResumesEachThreadFromItsOwnPositionTest` (tag
+`rac-per-thread-restart`: a restart from any acknowledged record of two interleaved threads delivers
+every change exactly once; with one resume address it loses the quiet thread's commits).
 
 ## PRD edits
 
-To follow with 3b: PRD-00 CORE-POS-1, CORE-POS-3, CORE-POS-4 and CORE-MINE-4.
+PRD-00 CORE-POS-1, CORE-POS-3, CORE-POS-4 and CORE-MINE-4 (with 3b).
 
 ## Amendments
 

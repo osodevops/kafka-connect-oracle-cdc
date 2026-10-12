@@ -69,6 +69,22 @@ public record StepCursor(long scn, SortedMap<Integer, RedoRecordId> marks, boole
         : new StepCursor(point.scn(), new TreeMap<>(Map.of(ANY_THREAD, point)), true);
   }
 
+  /**
+   * ADR-0026: a cursor from a per-thread position. Each thread whose resume record carries a redo
+   * byte address is re-read from that record inclusive; any other thread is read by SCN from {@code
+   * scn}, the lowest resume SCN. Without any address it is an SCN cursor.
+   */
+  public static StepCursor resume(long scn, Map<Integer, RedoRecordId> byThread) {
+    TreeMap<Integer, RedoRecordId> marks = new TreeMap<>();
+    byThread.forEach(
+        (t, id) -> {
+          if (id.hasRba() && t != ANY_THREAD) {
+            marks.put(t, id);
+          }
+        });
+    return marks.isEmpty() ? at(scn) : new StepCursor(scn, marks, true);
+  }
+
   /** A cursor after {@code id}, mined on {@code thread}, at {@code scn}; an SCN cursor if null. */
   public static StepCursor of(long scn, int thread, RedoRecordId id) {
     return id == null ? at(scn) : new StepCursor(scn, new TreeMap<>(Map.of(thread, id)), false);

@@ -106,7 +106,8 @@ public final class JournalTopicLoader {
     for (Map.Entry<JournalRecords.ChunkKey, JournalChunk> e : latest.entrySet()) {
       JournalRecords.ChunkKey k = e.getKey();
       if (k.generation() > position.journalGeneration()
-          || !before(e.getValue().first(), position.resumePoint())) {
+          || !before(e.getValue().first(), position.resumePointFor(e.getValue().thread()))) {
+        // ADR-0026: a chunk is compared with the resume point of its own redo thread
         stale.add(k); // never acknowledged before the position, or re-mined from the position
         continue;
       }
@@ -141,7 +142,7 @@ public final class JournalTopicLoader {
                   + " topic, then reset the offsets to a position before the transaction started.");
         }
         expected++;
-        JournalChunk trimmed = trim(c, position.resumePoint());
+        JournalChunk trimmed = trim(c, position.resumePointFor(c.thread()));
         if (trimmed != null) {
           ordered.add(trimmed);
         }

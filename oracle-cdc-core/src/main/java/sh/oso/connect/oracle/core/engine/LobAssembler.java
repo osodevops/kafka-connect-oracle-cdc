@@ -96,6 +96,18 @@ public final class LobAssembler {
 
   /** A decoded row change; returns the changes ready for the buffer, in order. */
   public List<RowChange> accept(TxKey key, RowChange change, TableSchema schema) {
+    return accept(key, UNKNOWN_THREAD, change, schema);
+  }
+
+  /** The key of changes held without a redo thread; never a THREAD# value. */
+  static final int UNKNOWN_THREAD =
+      sh.oso.connect.oracle.core.buffer.TransactionBuffer.UNKNOWN_THREAD;
+
+  /**
+   * A decoded row change mined from redo thread {@code thread}; returns the changes ready for the
+   * buffer, in order.
+   */
+  public List<RowChange> accept(TxKey key, int thread, RowChange change, TableSchema schema) {
     List<RowChange> out = new ArrayList<>(2);
     Open held = open.remove(key);
     if (held != null) {
@@ -111,7 +123,7 @@ public final class LobAssembler {
     }
     if ((change.op() == Operation.INSERT || change.op() == Operation.UPDATE)
         && RowIds.isPlaceholder(change.rowId())) {
-      open.put(key, new Open(key, change, change.after(), null, change.id(), schema));
+      open.put(key, new Open(key, thread, change, change.after(), null, change.id(), schema));
     } else {
       out.add(change);
     }
@@ -120,6 +132,11 @@ public final class LobAssembler {
 
   /** A decoded LOB row; returns the changes it closed, in order. */
   public List<RowChange> acceptLob(TxKey key, LobFragment f, TableSchema schema) {
+    return acceptLob(key, UNKNOWN_THREAD, f, schema);
+  }
+
+  /** A decoded LOB row mined from redo thread {@code thread}; returns the changes it closed. */
+  public List<RowChange> acceptLob(TxKey key, int thread, LobFragment f, TableSchema schema) {
     fragments++;
     List<RowChange> out = new ArrayList<>(1);
     Open held = open.get(key);
@@ -131,6 +148,7 @@ public final class LobAssembler {
       held =
           new Open(
               key,
+              thread,
               null,
               f.where(),
               RowIds.isPlaceholder(f.rowId()) ? null : f.rowId(),
@@ -165,6 +183,18 @@ public final class LobAssembler {
   /** Earliest held change, so the resume point never passes it (CORE-POS-2). */
   public Optional<RedoRecordId> oldestPending() {
     return open.values().stream().map(o -> o.id).min(RedoRecordId::compareTo);
+  }
+
+  /**
+   * ADR-0026: {@link #oldestPending()} per redo thread; changes held without a thread are under
+   * {@code 0}.
+   */
+  public java.util.SortedMap<Integer, RedoRecordId> oldestPendingByThread() {
+    java.util.SortedMap<Integer, RedoRecordId> oldest = new java.util.TreeMap<>();
+    for (Open o : open.values()) {
+      oldest.merge(o.thread, o.id, (had, id) -> id.compareTo(had) < 0 ? id : had);
+    }
+    return oldest;
   }
 
   public int pendingCount() {
@@ -277,6 +307,7 @@ public final class LobAssembler {
   /** A change being assembled: a row piece with its LOB rows, or LOB rows alone. */
   private final class Open {
     final TxKey tx;
+    final int thread;
     final RowChange piece;
     final Map<String, Object> image;
     final String realRowId;
@@ -288,12 +319,14 @@ public final class LobAssembler {
 
     Open(
         TxKey tx,
+        int thread,
         RowChange piece,
         Map<String, Object> image,
         String realRowId,
         RedoRecordId id,
         TableSchema schema) {
       this.tx = tx;
+      this.thread = thread;
       this.piece = piece;
       this.image = image == null ? Map.of() : image;
       this.realRowId = realRowId;

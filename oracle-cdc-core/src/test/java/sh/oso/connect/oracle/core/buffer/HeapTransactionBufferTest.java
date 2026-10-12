@@ -216,4 +216,59 @@ class HeapTransactionBufferTest {
     assertThat(c.startId()).isNull();
     assertThat(b.metrics().estimatedBytes()).isZero();
   }
+
+  /** A change at a given redo byte address of its thread (ADR-0026). */
+  private RowChange changeAt(TxKey k, long block) {
+    return new RowChange(
+        T,
+        Operation.INSERT,
+        null,
+        Map.of("ID", 1),
+        false,
+        "AAA" + block,
+        new RedoRecordId(scn++, String.format(" 0x%06x.%08x.%04x ", 1, block, 0), 0),
+        k,
+        Instant.EPOCH);
+  }
+
+  @Test
+  void theOldestOpenRecordIsKeptPerRedoThread() {
+    HeapTransactionBuffer b = new HeapTransactionBuffer();
+    TxKey busy = key(3, 1);
+    TxKey quiet = key(3, 2);
+    TxKey later = key(3, 3);
+    // no START rows: each entry takes the thread of its first change
+    b.add(busy, 1, changeAt(busy, 40)); // thread 1 is far ahead in its own redo
+    b.add(quiet, 2, changeAt(quiet, 6));
+    b.add(later, 1, changeAt(later, 45));
+    b.add(busy, 1, changeAt(busy, 46));
+    assertThat(b.oldestFirstCapturedByThread()).containsOnlyKeys(1, 2);
+    assertThat(b.oldestFirstCapturedByThread().get(1).rsId().trim())
+        .isEqualTo("0x000001.00000028.0000");
+    assertThat(b.oldestFirstCapturedByThread().get(2).rsId().trim())
+        .isEqualTo("0x000001.00000006.0000");
+
+    assertThat(
+            b.commit(new MiningEvent.Commit(busy, id(), 1, Instant.EPOCH)).orElseThrow().thread())
+        .isEqualTo(1);
+    assertThat(b.oldestFirstCapturedByThread().get(1).rsId().trim())
+        .isEqualTo("0x000001.0000002d.0000");
+    assertThat(
+            b.commit(new MiningEvent.Commit(quiet, id(), 2, Instant.EPOCH)).orElseThrow().thread())
+        .isEqualTo(2);
+    assertThat(b.oldestFirstCapturedByThread()).containsOnlyKeys(1);
+  }
+
+  @Test
+  void anEntryWithoutAThreadIsKeptAsUnknown() {
+    HeapTransactionBuffer b = new HeapTransactionBuffer();
+    TxKey k = key(3, 1);
+    b.add(k, change(k, Operation.INSERT, "AAA1", "a"));
+    assertThat(b.oldestFirstCapturedByThread()).containsOnlyKeys(TransactionBuffer.UNKNOWN_THREAD);
+    // a START row names the thread
+    TxKey s = key(3, 2);
+    b.start(start(s, "APP"));
+    b.add(s, 5, change(s, Operation.INSERT, "AAA2", "b"));
+    assertThat(b.oldestFirstCapturedByThread()).containsOnlyKeys(0, 1);
+  }
 }

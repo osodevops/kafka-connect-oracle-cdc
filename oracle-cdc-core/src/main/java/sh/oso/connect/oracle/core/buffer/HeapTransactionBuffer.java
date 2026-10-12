@@ -99,6 +99,11 @@ public final class HeapTransactionBuffer implements TransactionBuffer {
 
   @Override
   public void add(TxKey key, RowChange change) {
+    add(key, UNKNOWN_THREAD, change);
+  }
+
+  @Override
+  public void add(TxKey key, int thread, RowChange change) {
     if (key.xid().isZero()) {
       throw new IllegalArgumentException("a change cannot belong to the zero XID: " + change.id());
     }
@@ -106,6 +111,9 @@ public final class HeapTransactionBuffer implements TransactionBuffer {
     if (e == null) {
       e = new TransactionEntry(key, change, starts.get(key), clock.get());
       open.put(key, e);
+    }
+    if (e.thread == UNKNOWN_THREAD) {
+      e.thread = thread; // ADR-0026: no START row was mined; the change's thread is the entry's
     }
     long before = e.estimatedBytes();
     try {
@@ -262,6 +270,16 @@ public final class HeapTransactionBuffer implements TransactionBuffer {
       }
     }
     return Optional.ofNullable(oldest);
+  }
+
+  @Override
+  public java.util.SortedMap<Integer, RedoRecordId> oldestFirstCapturedByThread() {
+    java.util.SortedMap<Integer, RedoRecordId> oldest = new java.util.TreeMap<>();
+    for (TransactionEntry e : open.values()) {
+      oldest.merge(
+          e.thread, e.resumeBound(), (had, bound) -> bound.compareTo(had) < 0 ? bound : had);
+    }
+    return oldest;
   }
 
   @Override

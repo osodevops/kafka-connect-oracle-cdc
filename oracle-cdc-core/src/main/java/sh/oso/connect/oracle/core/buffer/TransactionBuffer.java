@@ -37,6 +37,15 @@ public interface TransactionBuffer {
   void add(TxKey key, RowChange change);
 
   /**
+   * Adds a captured change mined from redo thread {@code thread}. An entry whose START row was not
+   * mined takes the thread of its first change, so its resume bound is placed in that thread's redo
+   * (ADR-0026). By default the thread is not kept.
+   */
+  default void add(TxKey key, int thread, RowChange change) {
+    add(key, change);
+  }
+
+  /**
    * Applies a ROLLBACK=1 row: removes the latest earlier change of the same transaction with the
    * same ROWID (reference/operation-codes.md). An undo with no match is counted, not fatal: the
    * change it undoes predates what this connector buffered.
@@ -66,6 +75,16 @@ public interface TransactionBuffer {
    * {@code resume_scn} (CORE-POS-2).
    */
   Optional<RedoRecordId> oldestFirstCaptured();
+
+  /**
+   * ADR-0026: {@link #oldestFirstCaptured()} per redo thread, each compared only with records of
+   * its own thread. Entries whose thread is not known (no START row and no thread given with their
+   * changes) are under {@link #UNKNOWN_THREAD}.
+   */
+  java.util.SortedMap<Integer, RedoRecordId> oldestFirstCapturedByThread();
+
+  /** The key of entries whose redo thread is not known; never a THREAD# value. */
+  int UNKNOWN_THREAD = 0;
 
   /**
    * Journals what the policy says is due (CORE-TX-4): transactions crossing the age or size

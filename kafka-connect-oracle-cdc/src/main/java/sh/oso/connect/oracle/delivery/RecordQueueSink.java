@@ -32,6 +32,7 @@ import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.model.TxKey;
 import sh.oso.connect.oracle.core.position.Position;
+import sh.oso.connect.oracle.core.position.ResumePoint;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.envelope.DebeziumEnvelope;
@@ -74,7 +75,7 @@ public final class RecordQueueSink
   private final long heartbeatIntervalMs;
   private final LongSupplier clock;
   private volatile long lastMinedTo;
-  private volatile RedoRecordId lastResumeCandidate;
+  private volatile ResumePoint lastResumeCandidate;
   private long lastQueuedAt;
   private long lastHeartbeatAt;
   private Position lastEmittedCommit;
@@ -114,7 +115,7 @@ public final class RecordQueueSink
     this.heartbeatIntervalMs = heartbeatIntervalMs;
     this.clock = clock;
     this.lastEmittedCommit = base;
-    this.lastResumeCandidate = base.resumePoint();
+    this.lastResumeCandidate = base.resume();
     this.lastMinedTo = base.resumeScn();
   }
 
@@ -528,8 +529,19 @@ public final class RecordQueueSink
   }
 
   @Override
+  public void committed(CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate) {
+    committed(tx, skipped, ResumePoint.single(resumeCandidate));
+  }
+
+  /**
+   * Each record's offset is the position after the commits emitted before it (per redo thread, so a
+   * restart skips on each thread exactly the commits acknowledged there, ADR-0026) and after this
+   * record's change, with the resume candidate; until the transaction's last record, the
+   * transaction's own first record bounds its thread's resume point.
+   */
+  @Override
   public synchronized void committed(
-      CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate) {
+      CommittedTransaction tx, int skipped, ResumePoint resumeCandidate) {
     emitSnapshot(tx.commitScn());
     if (tx.commitTimestamp() != null) {
       lastCommitTimestamp = tx.commitTimestamp().toEpochMilli();
@@ -556,11 +568,13 @@ public final class RecordQueueSink
         throw new ConnectException("Reading the schema of " + c.table().fqn(), e);
       }
       // until the last record of the transaction is acknowledged, a restart must re-mine the
-      // transaction itself, so its first capture bounds the resume point (CORE-POS-2, CORE-POS-3)
-      RedoRecordId resume =
-          i + 1 < tx.size() ? earlier(resumeCandidate, tx.firstCaptured()) : resumeCandidate;
-      Position offset =
-          base.withCommit(tx.commitId(), tx.thread(), tx.key(), i + 1).withResume(resume);
+      // transaction itself, so its first capture bounds the resume point of its thread
+      // (CORE-POS-2, CORE-POS-3)
+      ResumePoint resume =
+          i + 1 < tx.size()
+              ? resumeCandidate.withEarlier(tx.thread(), tx.firstCaptured())
+              : resumeCandidate;
+      Position offset = after(tx, i + 1, resume);
       List<SourceRecord> records = envelope.records(tx, i, order, schema, offset);
       long bytes = sh.oso.connect.oracle.core.buffer.SizeEstimate.of(c);
       sinceRecords++;
@@ -581,8 +595,7 @@ public final class RecordQueueSink
       Map<String, Object> partly =
           records.size() > 1
               ? sh.oso.connect.oracle.core.position.PositionCodec.write(
-                  base.withCommit(tx.commitId(), tx.thread(), tx.key(), i)
-                      .withResume(earlier(resumeCandidate, tx.firstCaptured())))
+                  after(tx, i, resumeCandidate.withEarlier(tx.thread(), tx.firstCaptured())))
               : null;
       for (int r = 0; r < records.size(); r++) {
         SourceRecord rec = records.get(r);
@@ -608,9 +621,7 @@ public final class RecordQueueSink
       }
       lastQueuedAt = clock.getAsLong();
     }
-    lastEmittedCommit =
-        base.withCommit(tx.commitId(), tx.thread(), tx.key(), tx.size())
-            .withResume(resumeCandidate);
+    lastEmittedCommit = after(tx, tx.size(), resumeCandidate);
     if (splits > 0) {
       ops(
           OpsEvent.Type.TRANSACTION_SPLIT,
@@ -625,17 +636,22 @@ public final class RecordQueueSink
     }
   }
 
+  /**
+   * The position once {@code acknowledged} events of {@code tx} are acknowledged: the commits
+   * emitted before it (their per-thread marks accumulate in {@link #lastEmittedCommit}), then the
+   * resume point, then this commit. The resume point is applied first so that a position turning
+   * per-thread here seeds the previous commit's thread with it before this commit replaces the
+   * legacy last commit. With one thread this is the position before ADR-0026, field for field.
+   */
+  private Position after(CommittedTransaction tx, int acknowledged, ResumePoint resume) {
+    return lastEmittedCommit
+        .withResume(resume)
+        .withCommit(tx.commitId(), tx.thread(), tx.key(), acknowledged);
+  }
+
   /** The earlier of two resume points in redo order, with the lower SCN as its floor. */
   static RedoRecordId earlier(RedoRecordId a, RedoRecordId b) {
-    long scn = Math.min(a.scn(), b.scn());
-    if (!a.hasRba() || !b.hasRba()) {
-      return a.scn() <= b.scn()
-          ? new RedoRecordId(scn, a.rsId(), a.ssn())
-          : new RedoRecordId(scn, b.rsId(), b.ssn());
-    }
-    return a.compareTo(b) <= 0
-        ? new RedoRecordId(scn, a.rsId(), a.ssn())
-        : new RedoRecordId(scn, b.rsId(), b.ssn());
+    return ResumePoint.earlier(a, b);
   }
 
   /** SRC-EOS-4: split Oracle transactions above these sizes into several Kafka transactions. */
@@ -660,11 +676,21 @@ public final class RecordQueueSink
 
   @Override
   public void idle(long minedToScn, RedoRecordId resumeCandidate) {
+    stepApplied(minedToScn, ResumePoint.single(resumeCandidate));
+  }
+
+  @Override
+  public void idle(long minedToScn, ResumePoint resumeCandidate) {
     stepApplied(minedToScn, resumeCandidate);
   }
 
   @Override
-  public synchronized void stepApplied(long minedToScn, RedoRecordId resumeCandidate) {
+  public void stepApplied(long minedToScn, RedoRecordId resumeCandidate) {
+    stepApplied(minedToScn, ResumePoint.single(resumeCandidate));
+  }
+
+  @Override
+  public synchronized void stepApplied(long minedToScn, ResumePoint resumeCandidate) {
     lastMinedTo = minedToScn;
     lastResumeCandidate = resumeCandidate;
     emitSnapshot(minedToScn);
@@ -717,12 +743,15 @@ public final class RecordQueueSink
   }
 
   public long lastResumeCandidate() {
-    return lastResumeCandidate.scn();
+    return lastResumeCandidate.legacy().scn();
   }
 
-  /** The resume point every record queued so far allows, with its redo byte address. */
+  /**
+   * The resume point every record queued so far allows, with its redo byte address (the legacy
+   * point: the lowest SCN without an address when several threads are mined).
+   */
   public RedoRecordId lastResumePoint() {
-    return lastResumeCandidate;
+    return lastResumeCandidate.legacy();
   }
 
   public long heartbeatsSent() {

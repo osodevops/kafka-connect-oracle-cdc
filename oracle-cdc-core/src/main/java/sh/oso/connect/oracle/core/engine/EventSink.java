@@ -36,17 +36,41 @@ public interface EventSink {
   void committed(CommittedTransaction tx, int skipped, RedoRecordId resumeCandidate);
 
   /**
+   * ADR-0026: as {@link #committed(CommittedTransaction, int, RedoRecordId)} with the candidate per
+   * redo thread. The engine calls this form; by default the legacy point is handed on, which is the
+   * candidate before ADR-0026 whenever one thread is mined.
+   */
+  default void committed(
+      CommittedTransaction tx,
+      int skipped,
+      sh.oso.connect.oracle.core.position.ResumePoint resumeCandidate) {
+    committed(tx, skipped, resumeCandidate.legacy());
+  }
+
+  /**
    * A step was applied. {@code minedToScn} is where mining continues; {@code resumeCandidate} is
    * the resume SCN the position may advance to once every emitted record is acknowledged
    * (CORE-POS-2, CORE-POS-5).
    */
   void stepApplied(long minedToScn, RedoRecordId resumeCandidate);
 
+  /** ADR-0026: {@link #stepApplied(long, RedoRecordId)} with the candidate per redo thread. */
+  default void stepApplied(
+      long minedToScn, sh.oso.connect.oracle.core.position.ResumePoint resumeCandidate) {
+    stepApplied(minedToScn, resumeCandidate.legacy());
+  }
+
   /**
    * Nothing to mine: the cursor is at the safe end. Reported so the owner can heartbeat the
    * position on a quiet database (CORE-POS-5); {@code resumeCandidate} as for {@link #stepApplied}.
    */
   default void idle(long minedToScn, RedoRecordId resumeCandidate) {}
+
+  /** ADR-0026: {@link #idle(long, RedoRecordId)} with the candidate per redo thread. */
+  default void idle(
+      long minedToScn, sh.oso.connect.oracle.core.position.ResumePoint resumeCandidate) {
+    idle(minedToScn, resumeCandidate.legacy());
+  }
 
   /** A DDL on a captured owner was mined; informational until PRD-03 lands. */
   default void ddl(MiningEvent.Ddl ddl) {}

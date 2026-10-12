@@ -271,9 +271,95 @@ public record Position(
         threads);
   }
 
+  /**
+   * ADR-0026: the resume point of a restart, per redo thread. With at most one thread in {@code
+   * point} and no per-thread block this is exactly {@link #withResume(RedoRecordId)} with the
+   * legacy point, so a single-instance offset is unchanged. Otherwise each thread of {@code point}
+   * gets a mark (keeping its last acknowledged commit; a thread that had none takes the legacy last
+   * commit when that commit is on it), threads already in the block but not in {@code point} keep
+   * theirs, and the legacy keys carry the lowest resume SCN of the marks without a redo byte
+   * address, which no single address could give for several threads.
+   */
+  public Position withResume(ResumePoint point) {
+    if (!perThread() && !point.perThread()) {
+      return withResume(point.legacy());
+    }
+    if (point.byThread().isEmpty()) {
+      throw new IllegalArgumentException(
+          "A per-thread position needs a resume point per thread, not " + point.legacy());
+    }
+    java.util.SortedMap<Integer, ThreadMark> marks = new java.util.TreeMap<>(threads);
+    for (Map.Entry<Integer, RedoRecordId> e : point.byThread().entrySet()) {
+      int thread = e.getKey();
+      ThreadMark had = marks.get(thread);
+      marks.put(
+          thread,
+          had != null && had.hasCommit()
+              ? new ThreadMark(e.getValue(), had.commit(), had.commitKey())
+              : seeded(thread, e.getValue()));
+    }
+    if (hasCommit() && !marks.containsKey(lastCommitThread)) {
+      // the legacy last commit's thread has no point yet: it is read again from the lowest SCN
+      marks.put(lastCommitThread, seeded(lastCommitThread, lowestResume(marks)));
+    }
+    return new Position(
+        version,
+        lowestResume(marks).scn(),
+        lastCommitScn,
+        lastCommitKey,
+        lastCommitThread,
+        eventIndex,
+        journalGeneration,
+        schemaEpoch,
+        identity,
+        released,
+        snapshot,
+        extras,
+        null,
+        0,
+        lastCommitRsId,
+        lastCommitSsn,
+        marks);
+  }
+
+  /** A thread's first mark: its last commit is the legacy last commit when that is on it. */
+  private ThreadMark seeded(int thread, RedoRecordId resume) {
+    return hasCommit() && thread == lastCommitThread
+        ? new ThreadMark(resume, lastCommitId(), lastCommitKey)
+        : new ThreadMark(resume, null, null);
+  }
+
+  /** The lowest resume SCN of {@code marks}, without a redo byte address. */
+  private static RedoRecordId lowestResume(java.util.SortedMap<Integer, ThreadMark> marks) {
+    long lowest = Long.MAX_VALUE;
+    for (ThreadMark m : marks.values()) {
+      lowest = Math.min(lowest, m.resume().scn());
+    }
+    return new RedoRecordId(lowest, null, 0);
+  }
+
   /** Where mining restarts: the resume SCN with the redo byte address when the position has one. */
   public RedoRecordId resumePoint() {
     return new RedoRecordId(resumeScn, resumeRsId, resumeSsn);
+  }
+
+  /** ADR-0026: the resume point per redo thread; the legacy point alone for one thread. */
+  public ResumePoint resume() {
+    if (!perThread()) {
+      return ResumePoint.single(resumePoint());
+    }
+    java.util.SortedMap<Integer, RedoRecordId> by = new java.util.TreeMap<>();
+    threads.forEach((t, m) -> by.put(t, m.resume()));
+    return new ResumePoint(resumePoint(), by);
+  }
+
+  /**
+   * Where the redo of {@code thread} is read again from: its mark's resume record in a per-thread
+   * position, else the legacy point.
+   */
+  public RedoRecordId resumePointFor(int thread) {
+    ThreadMark m = threads.get(thread);
+    return m == null ? resumePoint() : m.resume();
   }
 
   /** The last acknowledged commit as a redo record, or null before any commit. */
@@ -300,6 +386,16 @@ public record Position(
       kept.remove(START_OPEN_SCN);
       kept.remove(START_OPEN_XIDS);
     }
+    java.util.SortedMap<Integer, ThreadMark> marks = threads;
+    if (perThread()) {
+      // ADR-0026: the commit is also the last acknowledged one of its own thread
+      marks = new java.util.TreeMap<>(threads);
+      ThreadMark had = marks.get(thread);
+      marks.put(
+          thread,
+          new ThreadMark(
+              had != null ? had.resume() : new RedoRecordId(resumeScn, null, 0), id, key));
+    }
     return new Position(
         version,
         resumeScn,
@@ -317,7 +413,7 @@ public record Position(
         resumeSsn,
         id.hasRba() ? id.rsId() : null,
         id.hasRba() ? id.ssn() : 0,
-        threads);
+        marks);
   }
 
   /** {@code extras} with {@code key} set to {@code value}; null removes it. */

@@ -152,7 +152,11 @@ public final class CaptureEngine {
     this.idRefresher = idRefresher;
     this.reconnector = reconnector;
     this.clock = clock;
-    this.cursor = StepCursor.resume(start.resumePoint());
+    // ADR-0026: a per-thread position resumes each thread from its own mark
+    this.cursor =
+        start.perThread()
+            ? StepCursor.resume(start.resumeScn(), start.resume().byThread())
+            : StepCursor.resume(start.resumePoint());
     this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
   }
 
@@ -475,7 +479,7 @@ public final class CaptureEngine {
     buffer.flushJournal(clock.get()); // CORE-TX-4: chunks for due and journaled transactions
     enforceTransactionAge();
     checkOrphans();
-    sink.stepApplied(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
+    sink.stepApplied(cursor.scn(), resumeAt(cursor.scn(), cursor, cursor.marks()));
     publishBuffer();
     return Progress.STEP_APPLIED;
   }
@@ -524,7 +528,7 @@ public final class CaptureEngine {
     buffer.flushJournal(clock.get()); // age-based journaling must not wait for new redo
     enforceTransactionAge();
     checkOrphans();
-    sink.idle(cursor.scn(), ResumeCalculator.resume(cursor, oldestOpen()));
+    sink.idle(cursor.scn(), resumeAt(cursor.scn(), cursor, cursor.marks()));
     publishBuffer();
     return Progress.IDLE;
   }
@@ -652,9 +656,36 @@ public final class CaptureEngine {
     }
   }
 
+  /**
+   * ADR-0026: while a step is applied, the last record applied on each redo thread, starting from
+   * the step's cursor, so a commit's resume candidate for the other threads covers exactly what was
+   * applied before it.
+   */
+  private java.util.SortedMap<Integer, sh.oso.connect.oracle.core.model.RedoRecordId> applied =
+      new java.util.TreeMap<>();
+
+  /** Advances the applied mark of the event's thread, as {@link StepRunner} does for the cursor. */
+  private void markApplied(MiningEvent e) {
+    if (e.id().zeroRsId()) {
+      return; // no redo byte address: never a cursor position
+    }
+    sh.oso.connect.oracle.core.model.RedoRecordId mark =
+        applied.containsKey(e.thread())
+            ? applied.get(e.thread())
+            : applied.get(StepCursor.ANY_THREAD);
+    if (mark == null || e.id().compareTo(mark) > 0) {
+      applied.put(e.thread(), e.id());
+      if (applied.size() > 1) {
+        applied.remove(StepCursor.ANY_THREAD); // a mark on a real thread supersedes it
+      }
+    }
+  }
+
   private void apply(StepOutcome outcome) throws SQLException {
+    applied = new java.util.TreeMap<>(cursor.marks());
     for (MiningEvent e : outcome.events()) {
       requireQualifiedThread(e);
+      markApplied(e);
       metrics.eventsApplied.incrementAndGet();
       if (e instanceof MiningEvent.TxStart s) {
         buffer.start(s);
@@ -663,7 +694,7 @@ public final class CaptureEngine {
           // 23ai: no SQL_REDO, and every LOB_WRITE row selects its own locator (ADR-0015)
           continue;
         } else if (d.undo() && !d.op().isLobOp()) {
-          lobs.flush(d.tx()).ifPresent(held -> add(d.tx(), held));
+          lobs.flush(d.tx()).ifPresent(held -> add(d.tx(), d.thread(), held));
           buffer.undo(d.tx(), d.id(), d.rowId(), d.table(), d.op());
         } else if (d.op().isLobOp()) {
           decodeLobAndBuffer(d);
@@ -684,7 +715,7 @@ public final class CaptureEngine {
                   + " so the transaction is re-mined whole, or resnapshot the affected tables;"
                   + " then raise cdc.transaction.orphan.check.interval.ms.");
         }
-        lobs.flush(c.tx()).ifPresent(held -> add(c.tx(), held));
+        lobs.flush(c.tx()).ifPresent(held -> add(c.tx(), c.thread(), held));
         Optional<LobAssembler.Oversize> over = lobs.takeOversize(c.tx());
         if (over.isPresent() && settings.lobOversizeFail()) {
           throw new sh.oso.connect.oracle.core.errors.LobTooLargeException(
@@ -839,8 +870,8 @@ public final class CaptureEngine {
       sink.decodeFailed(d, ex);
       return;
     }
-    for (RowChange ready : lobs.accept(d.tx(), change, schema)) {
-      add(d.tx(), ready);
+    for (RowChange ready : lobs.accept(d.tx(), d.thread(), change, schema)) {
+      add(d.tx(), d.thread(), ready);
     }
     metrics.lobInsertsMerged.set(lobs.merged());
   }
@@ -849,8 +880,8 @@ public final class CaptureEngine {
    * Every change enters the buffer through here. SRC-SEL-2: the decoder has already left the
    * excluded columns out; the projection is the guard for a substitute decoder.
    */
-  private void add(sh.oso.connect.oracle.core.model.TxKey tx, RowChange change) {
-    buffer.add(tx, excluded.project(change));
+  private void add(sh.oso.connect.oracle.core.model.TxKey tx, int thread, RowChange change) {
+    buffer.add(tx, thread, excluded.project(change));
   }
 
   /** CORE-DEC-6: a LOB_WRITE, LOB_TRIM or LOB_ERASE row joins the change of its statement. */
@@ -881,8 +912,8 @@ public final class CaptureEngine {
       sink.decodeFailed(d, ex);
       return;
     }
-    for (RowChange ready : lobs.acceptLob(d.tx(), f, schema)) {
-      add(d.tx(), ready);
+    for (RowChange ready : lobs.acceptLob(d.tx(), d.thread(), f, schema)) {
+      add(d.tx(), d.thread(), ready);
     }
     metrics.lobRowsApplied.set(lobs.fragments());
   }
@@ -950,6 +981,74 @@ public final class CaptureEngine {
     return oldest;
   }
 
+  /**
+   * ADR-0026: open work per redo thread (buffer entries and held LOB changes), each compared only
+   * within its thread; work whose thread is not known is under {@link
+   * TransactionBuffer#UNKNOWN_THREAD}.
+   */
+  private java.util.SortedMap<Integer, sh.oso.connect.oracle.core.model.RedoRecordId>
+      oldestOpenByThread() {
+    java.util.SortedMap<Integer, sh.oso.connect.oracle.core.model.RedoRecordId> oldest =
+        new java.util.TreeMap<>(buffer.oldestFirstCapturedByThread());
+    lobs.oldestPendingByThread()
+        .forEach(
+            (t, id) -> oldest.merge(t, id, (had, held) -> held.compareTo(had) < 0 ? held : had));
+    return oldest;
+  }
+
+  /**
+   * The resume candidate (CORE-POS-2) at {@code scn}, where {@code marks} hold the last record
+   * applied on each redo thread. While at most one thread is involved (marked, holding open work,
+   * or qualified at the start) it is the single point {@link ResumeCalculator} gives for {@code
+   * legacy}, exactly as before ADR-0026. With several threads each thread gets its own point: the
+   * earlier of its mark and the oldest open work on it, compared within the thread; a thread with
+   * neither is read again by SCN from {@code scn}. Open work of an unknown thread may be on any
+   * thread, so it bounds every thread's point.
+   */
+  private sh.oso.connect.oracle.core.position.ResumePoint resumeAt(
+      long scn,
+      StepCursor legacy,
+      java.util.Map<Integer, sh.oso.connect.oracle.core.model.RedoRecordId> marks) {
+    java.util.SortedMap<Integer, sh.oso.connect.oracle.core.model.RedoRecordId> open =
+        oldestOpenByThread();
+    java.util.SortedSet<Integer> threads = new java.util.TreeSet<>(marks.keySet());
+    threads.remove(StepCursor.ANY_THREAD);
+    for (int t : open.keySet()) {
+      if (t != TransactionBuffer.UNKNOWN_THREAD) {
+        threads.add(t);
+      }
+    }
+    java.util.Set<Integer> qualified = expectedThreads;
+    if (qualified != null && qualified.size() > 1) {
+      threads.addAll(qualified);
+    }
+    if (threads.size() <= 1) {
+      sh.oso.connect.oracle.core.model.RedoRecordId point =
+          ResumeCalculator.resume(legacy, oldestOpen());
+      return threads.isEmpty()
+          ? sh.oso.connect.oracle.core.position.ResumePoint.single(point)
+          : sh.oso.connect.oracle.core.position.ResumePoint.single(threads.first(), point);
+    }
+    sh.oso.connect.oracle.core.model.RedoRecordId unknown =
+        open.get(TransactionBuffer.UNKNOWN_THREAD);
+    java.util.SortedMap<Integer, sh.oso.connect.oracle.core.model.RedoRecordId> byThread =
+        new java.util.TreeMap<>();
+    for (int t : threads) {
+      sh.oso.connect.oracle.core.model.RedoRecordId mark =
+          marks.containsKey(t) ? marks.get(t) : marks.get(StepCursor.ANY_THREAD);
+      sh.oso.connect.oracle.core.model.RedoRecordId work = open.get(t);
+      if (unknown != null) {
+        work =
+            work == null
+                ? unknown
+                : sh.oso.connect.oracle.core.position.ResumePoint.earlier(work, unknown);
+      }
+      byThread.put(
+          t, ResumeCalculator.resume(StepCursor.of(scn, t, mark), Optional.ofNullable(work)));
+    }
+    return sh.oso.connect.oracle.core.position.ResumePoint.of(byThread);
+  }
+
   private void emit(CommittedTransaction tx) {
     if (settings.lobMode() == LobAssembler.Mode.RESELECT && reselector != null) {
       tx =
@@ -968,10 +1067,12 @@ public final class CaptureEngine {
       return;
     }
     metrics.transactionsCommitted.incrementAndGet();
-    // the candidate at this commit: the commit row itself bounds the cursor side of the rule
-    sh.oso.connect.oracle.core.model.RedoRecordId resume =
-        ResumeCalculator.resume(
-            StepCursor.of(tx.commitScn(), tx.thread(), tx.commitId()), oldestOpen());
-    sink.committed(tx, skip, resume);
+    // the candidate at this commit: the commit row itself bounds the cursor side of the rule; with
+    // several threads the others are bounded by what was applied on them before it (ADR-0026)
+    sink.committed(
+        tx,
+        skip,
+        resumeAt(
+            tx.commitScn(), StepCursor.of(tx.commitScn(), tx.thread(), tx.commitId()), applied));
   }
 }
