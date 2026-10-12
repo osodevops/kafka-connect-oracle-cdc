@@ -74,12 +74,18 @@ what was applied. The condition can therefore only arise from LogMiner returning
 redo order within a step or from a bug in the resume calculation: CDC-7003 is a defensive stop,
 not a case expected in operation.
 
+One case reaches the floor without a loss: a reconnect after a session dies part way through
+applying a step. Commits already emitted from that step raised the floor, the cursor did not
+advance, and the step is mined again, so its earlier rows come back below the floor; they are
+re-applied and delivered again, a duplicate. `ReconnectEngineIT` met this on Oracle Database Free
+(12 October 2026). The check therefore runs only when more than one redo thread is qualified;
+whether it needs to tell such a re-mined step apart on RAC is settled with the RAC lab (3d).
+
 ## Consequences
 
 - Single-instance capture is unchanged: same offsets, same resume points, and after the first
   step a query with one `THREAD# = n` term. The thread-state rules, the per-thread window and the
-  safety lag do nothing with one thread (3c); the CDC-7003 check compares each applied row and
-  emitted commit with the floor, which a single-instance task never reaches.
+  safety lag do nothing with one thread (3c), and the CDC-7003 check is not run with one thread.
 - RAC capture remains refused (ADR-0023) until 3d.
 - The inventory asks `V$ARCHIVED_LOG` for one log by thread and sequence only with more than one
   thread: for a CLOSED thread's last log, and when a gap would otherwise be raised.

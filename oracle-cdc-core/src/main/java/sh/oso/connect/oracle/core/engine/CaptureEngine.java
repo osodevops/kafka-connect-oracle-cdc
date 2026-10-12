@@ -183,6 +183,18 @@ public final class CaptureEngine {
   private volatile java.util.Set<Integer> expectedThreads; // set before start
 
   /**
+   * CDC-7003 is checked only when more than one redo thread is qualified. On one thread the redo
+   * byte address cursor already keeps every row; and a reconnect that re-mines a step whose apply
+   * was cut short re-applies rows below an address already handed over, which is a duplicate there,
+   * not a loss (ReconnectEngineIT on Oracle Database Free, 12 October 2026). Whether the check
+   * needs the same exception on RAC is settled with the RAC lab (ADR-0026, 3d).
+   */
+  private boolean severalThreads() {
+    java.util.Set<Integer> t = expectedThreads;
+    return t != null && t.size() > 1;
+  }
+
+  /**
    * ADR-0023: the enabled redo threads the start-time topology check accepted. A mined event from
    * another thread (one enabled after the start) stops the task before the event is buffered.
    */
@@ -708,7 +720,9 @@ public final class CaptureEngine {
     applied = new java.util.TreeMap<>(cursor.marks());
     for (MiningEvent e : outcome.events()) {
       requireQualifiedThread(e);
-      floor.checkRow(e); // CDC-7003: a restart from a position handed over would not see it
+      if (severalThreads()) {
+        floor.checkRow(e); // CDC-7003: a restart from a position handed over would not see it
+      }
       markApplied(e);
       metrics.eventsApplied.incrementAndGet();
       if (e instanceof MiningEvent.TxStart s) {
@@ -1090,7 +1104,9 @@ public final class CaptureEngine {
       metrics.transactionsSkipped.incrementAndGet();
       return;
     }
-    floor.checkCommit(tx); // CDC-7003: a restart from a position handed over would skip it
+    if (severalThreads()) {
+      floor.checkCommit(tx); // CDC-7003: a restart from a position handed over would skip it
+    }
     metrics.transactionsCommitted.incrementAndGet();
     // the candidate at this commit: the commit row itself bounds the cursor side of the rule; with
     // several threads the others are bounded by what was applied on them before it (ADR-0026)
