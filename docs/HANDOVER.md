@@ -84,11 +84,10 @@ them while the repository is private.
 
 0.1.0 was tagged before the partial-XID fixes and never published; 0.1.1 is the first release on
 Central. On 8 October 2026 the repository went public with `docs/` as it is (Sion's decision, as
-for the Salesforce connector), and the documentation site is on GitHub Pages at
-https://osodevops.github.io/kafka-connect-oracle-cdc/ through the repository variables `DOCS_URL`
-and `DOCS_BASE_URL`. When kafkacdcconnector.com is registered and points at GitHub Pages: set it as
-the Pages custom domain, delete those two variables, run `docs-deploy.yml`, and point the README
-back at the domain (`llms.txt` already uses it). The `oracle-cdc-doctor` package on GHCR is still
+for the Salesforce connector), and the documentation site is on GitHub Pages. Since 12 October 2026 it is served at
+https://kafkacdcconnector.com (registered in Route 53 in OSO's production account; the DNS records
+are managed in OSO's private infrastructure repository); the old github.io address redirects there,
+and the `DOCS_URL` and `DOCS_BASE_URL` repository variables are deleted. The `oracle-cdc-doctor` package on GHCR is still
 private; its visibility is changed in the package settings, which have no API. The release
 environment now requires Sion's review, and attestations run again now the repository is public. The release gate's T3 soak and T4
 qualification have not run; 0.1.x is a preview tested on Oracle Database Free 23ai and 26ai.
