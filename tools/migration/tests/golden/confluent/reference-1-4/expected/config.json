@@ -29,7 +29,7 @@
     "cdc.tables.include": "ORCLPDB1[.]C##MYUSER[.](ORDERS|CUSTOMERS)",
     "cdc.tombstones.on.delete": "false",
     "cdc.topic.prefix": "confluent-oracle-cdc",
-    "cdc.topic.template": "${pdb}.${schema}.${table}",
+    "cdc.topic.template": "${prefix}.${pdb}.${schema}.${table}",
     "cdc.users.exclude": "GGADMIN",
     "key.converter": "io.confluent.connect.avro.AvroConverter",
     "value.converter": "io.confluent.connect.avro.AvroConverter"

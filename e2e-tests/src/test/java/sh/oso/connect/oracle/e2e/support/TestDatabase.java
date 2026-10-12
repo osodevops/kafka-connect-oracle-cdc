@@ -75,6 +75,19 @@ public interface TestDatabase {
    */
   java.util.Map<String, String> connectorDatabaseProps();
 
+  /** The capture user, as the connector logs in. */
+  String captureUser();
+
+  /** The capture user's password; for child processes' environment only, never logged. */
+  String capturePassword();
+
+  /**
+   * {@code host:port/service} as a process on the workstation reaches the database where mining
+   * happens (the CDB root on the container, the database itself on an external target), for the
+   * migration tools' {@code --db-dsn}.
+   */
+  String hostDsn();
+
   /** Host and port a Connect worker in Docker connects to, for the reachability check. */
   default String workerHost() {
     return connectorDatabaseProps().get("cdc.database.host");

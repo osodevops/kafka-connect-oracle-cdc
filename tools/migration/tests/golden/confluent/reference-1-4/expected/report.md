@@ -16,7 +16,7 @@
 2. Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change. (`key.template`)
 3. DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change. (`oracle.date.mapping`)
 4. Part of Confluent's record format, which this release does not produce. See the record format follow-up. (`output.current.ts.field`, `output.op.ts.field`, `output.op.type.delete.value`, `output.op.type.field`, `output.op.type.insert.value`, `output.op.type.read.value`, `output.op.type.truncate.value`, `output.op.type.update.value`, `output.row.id.field`, `output.scn.field`, `output.table.name.field`, `output.username.field`)
-5. Confluent's documentation describes `${databaseName}` and `${fullyQualifiedTableName}` loosely. Compare the topic names the translated `cdc.topic.template` produces with the existing topics before cutting over.
+5. This connector writes Debezium-shaped change events (`before`, `after`, `source`, `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a dot, then the name Confluent used (for example `<prefix>.PDB1.APP.ORDERS` for `PDB1.APP.ORDERS`). Writing into Confluent's topics would mix two record shapes in one topic and one Schema Registry subject. Move consumers to the new topics; Confluent's topics stop receiving changes at the cutover.
 6. The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.
 7. Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.
 8. The target Connect cluster does not have exactly-once source support enabled (This worker does not have exactly-once source support enabled.), so the connector delivers at least once. To deliver exactly once, set `exactly.once.source.support=enabled` on every worker, then add `exactly.once.support=required` and `transaction.boundary=connector`.
@@ -27,7 +27,7 @@
 |---|---|---|
 | `name` | `confluent-oracle-cdc-oso` | The new connector's name. |
 | `cdc.output.format` | `debezium` | The only format in this release; Confluent's flat format is not built yet. |
-| `cdc.topic.prefix` | `confluent-oracle-cdc` | Names the connector's internal topics and its offset partition; Confluent table topic names do not use it. |
+| `cdc.topic.prefix` | `confluent-oracle-cdc` | Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's. |
 | `cdc.tables.case.sensitive` | `true` | Confluent matches table expressions case-sensitively (MIG-3). |
 | `cdc.lob.mode` | `skip` | LOB columns stay out of the records, as before. |
 
@@ -129,7 +129,7 @@
 | `table.inclusion.regex` | `ORCLPDB1[.]C##MYUSER[.](ORDERS\|CUSTOMERS)` | mapped-with-change | `cdc.tables.include` = `ORCLPDB1[.]C##MYUSER[.](ORDERS\|CUSTOMERS)` | Rewritten as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB); matching stays case-sensitive (`cdc.tables.case.sensitive=true`). |
 | `table.rps.logging.interval.ms` | `60000` | dropped |   | Per-table rates are JMX metrics. |
 | `table.task.reconfig.checking.interval.ms` | `300000` | dropped |   | One task captures every table, so there is no table placement to rebalance. |
-| `table.topic.name.template` | `${databaseName}.${schemaName}.${tableName}` | mapped-with-change | `cdc.topic.template` = `${pdb}.${schema}.${table}` | Template variables translated; check the result against the existing topic names. |
+| `table.topic.name.template` | `${databaseName}.${schemaName}.${tableName}` | mapped-with-change | `cdc.topic.template` = `${prefix}.${pdb}.${schema}.${table}` | Template variables translated; check the result against the existing topic names. |
 | `tasks.max` | `8` | mapped-with-change | `tasks.max` = `1` | Reduced to one (MIG-5). Confluent spread table topics over tasks that all read its redo log topic; this connector mines every table in one task with one LogMiner session, so more tasks would add nothing. A higher value is accepted and ignored. |
 | `use.transaction.begin.for.mining.session` | `true` | dropped |   | Always on: the connector restarts from the oldest open transaction. |
 | `value.converter` | `io.confluent.connect.avro.AvroConverter` | mapped | `value.converter` = `io.confluent.connect.avro.AvroConverter` | Kafka Connect framework property, copied unchanged. |

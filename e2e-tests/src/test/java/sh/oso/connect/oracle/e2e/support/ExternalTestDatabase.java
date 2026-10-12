@@ -308,6 +308,21 @@ final class ExternalTestDatabase implements TestDatabase {
    * workstation's loopback (the SSM port forward) is {@code host.docker.internal} from a container.
    */
   @Override
+  public String captureUser() {
+    return user;
+  }
+
+  @Override
+  public String capturePassword() {
+    return password;
+  }
+
+  @Override
+  public String hostDsn() {
+    return url.substring(url.indexOf("@//") + 3);
+  }
+
+  @Override
   public Map<String, String> connectorDatabaseProps() {
     java.util.regex.Matcher m =
         java.util.regex.Pattern.compile("@//([^:/]+):(\\d+)/(.+)$").matcher(url);

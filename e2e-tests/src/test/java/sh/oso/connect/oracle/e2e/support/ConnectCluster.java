@@ -76,6 +76,20 @@ public final class ConnectCluster implements AutoCloseable {
    * for example {@code exactly.once.source.support=disabled} for an at-least-once worker.
    */
   public ConnectCluster(Map<String, String> workerOverrides) {
+    this(workerOverrides, KAFKA_IMAGE, "/opt/kafka/bin/connect-distributed.sh");
+  }
+
+  /**
+   * A cluster whose worker runs a Confluent Platform image ({@code confluentinc/cp-server-connect})
+   * with the same worker properties, for suites that run a Confluent connector next to ours (the
+   * Confluent cutover qualification): Confluent's connectors need the licensing classes that only
+   * Confluent Platform workers carry. The broker stays the Apache Kafka image.
+   */
+  public static ConnectCluster confluentPlatform(String workerImage) {
+    return new ConnectCluster(Map.of(), workerImage, "/usr/bin/connect-distributed");
+  }
+
+  private ConnectCluster(Map<String, String> workerOverrides, String workerImage, String launcher) {
     kafka =
         new KafkaContainer(KAFKA_IMAGE)
             .withNetwork(OracleTestDatabase.NETWORK)
@@ -84,14 +98,12 @@ public final class ConnectCluster implements AutoCloseable {
             .withEnv("KAFKA_TRANSACTION_MAX_TIMEOUT_MS", "900000")
             .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("kafka"));
     connect =
-        new GenericContainer<>(KAFKA_IMAGE)
+        new GenericContainer<>(workerImage)
             .withNetwork(OracleTestDatabase.NETWORK)
             .withNetworkAliases("connect")
             .withExposedPorts(8083)
             .withCreateContainerCmdModifier(
-                cmd ->
-                    cmd.withEntrypoint(
-                        "/opt/kafka/bin/connect-distributed.sh", "/connect.properties"))
+                cmd -> cmd.withEntrypoint(launcher, "/connect.properties"))
             .withCopyToContainer(
                 Transferable.of(workerProperties(workerOverrides)), "/connect.properties")
             .withCopyFileToContainer(MountableFile.forHostPath(pluginDir()), "/plugins/oracle-cdc")

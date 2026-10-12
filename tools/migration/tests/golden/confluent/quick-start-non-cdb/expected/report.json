@@ -27,7 +27,7 @@
       ]
     },
     {
-      "text": "Confluent's documentation describes `${databaseName}` and `${fullyQualifiedTableName}` loosely. Compare the topic names the translated `cdc.topic.template` produces with the existing topics before cutting over.",
+      "text": "This connector writes Debezium-shaped change events (`before`, `after`, `source`, `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a dot, then the name Confluent used (for example `<prefix>.PDB1.APP.ORDERS` for `PDB1.APP.ORDERS`). Writing into Confluent's topics would mix two record shapes in one topic and one Schema Registry subject. Move consumers to the new topics; Confluent's topics stop receiving changes at the cutover.",
       "properties": []
     },
     {
@@ -61,7 +61,7 @@
     {
       "key": "cdc.topic.prefix",
       "value": "SimpleOracleCDC",
-      "reason": "Names the connector's internal topics and its offset partition; Confluent table topic names do not use it."
+      "reason": "Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's."
     },
     {
       "key": "cdc.tables.case.sensitive",
@@ -87,7 +87,7 @@
   "properties": [
     {
       "key": "_table.topic.name.template_",
-      "value": "Using template vars to set change event topic for each table",
+      "value": "a commented-out key, kept to check unknown keys are reported",
       "classification": "manual",
       "targets": {},
       "note": "The translator does not know this property. Check what it did in the source connector and set the corresponding `cdc.*` property by hand, or leave it out."
@@ -206,7 +206,7 @@
       "value": "${databaseName}.${schemaName}.${tableName}",
       "classification": "mapped-with-change",
       "targets": {
-        "cdc.topic.template": "${database}.${schema}.${table}"
+        "cdc.topic.template": "${prefix}.${database}.${schema}.${table}"
       },
       "note": "Template variables translated; check the result against the existing topic names."
     },
@@ -238,7 +238,7 @@
     "cdc.tables.include": "MYUSER[.](ORDERS|CUSTOMERS),MYUSER[.]INVOICES",
     "cdc.tombstones.on.delete": "false",
     "cdc.topic.prefix": "SimpleOracleCDC",
-    "cdc.topic.template": "${database}.${schema}.${table}"
+    "cdc.topic.template": "${prefix}.${database}.${schema}.${table}"
   },
   "next_steps": [
     "Resolve the follow-ups, above all the record format, then run `oracle-cdc-doctor check --config config.json`.",

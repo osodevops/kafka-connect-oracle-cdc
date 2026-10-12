@@ -18,6 +18,6 @@
     "cdc.tables.include": "MYUSER[.](ORDERS|CUSTOMERS),MYUSER[.]INVOICES",
     "cdc.tombstones.on.delete": "false",
     "cdc.topic.prefix": "SimpleOracleCDC",
-    "cdc.topic.template": "${database}.${schema}.${table}"
+    "cdc.topic.template": "${prefix}.${database}.${schema}.${table}"
   }
 }

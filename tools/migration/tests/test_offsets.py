@@ -92,3 +92,32 @@ def test_unknown_partition_shape_needs_source():
     with pytest.raises(ToolError, match="--source"):
         parse_offsets(doc)
     assert parse_offsets(doc, "confluent").start_scn == 1
+
+
+def test_confluent_offsets_as_its_connector_stores_them():
+    """The shape Confluent's connector 2.15.2 stored in a lab run on 12 October 2026: one
+    partition per database (``sidPdb``) and one per captured table, whose ``cscn`` is the commit
+    SCN of the last change delivered for it."""
+    document = {
+        "offsets": [
+            {
+                "partition": {"schema": "APP", "catalog": "PDB1", "table": "ORDERS"},
+                "offset": {
+                    "def": "ID Decimal scale:0 key,NAME STRING optional",
+                    "rps": "6",
+                    "cscn": "2156986",
+                    "rows": "-1",
+                    "scn": "2156985",
+                },
+            },
+            {
+                "partition": {"sidPdb": "CDB.PDB1"},
+                "offset": {"tablePlacement": "", "scn": "2156915"},
+            },
+        ]
+    }
+    old = parse_offsets(document)
+    assert old.source == "confluent"
+    assert old.start_scn == 2156915
+    assert old.last_commit_scn == 2156986
+    assert old.start_scn <= old.last_commit_scn

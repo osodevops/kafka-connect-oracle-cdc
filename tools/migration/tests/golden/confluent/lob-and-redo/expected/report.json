@@ -87,7 +87,7 @@
     {
       "key": "cdc.topic.prefix",
       "value": "orders",
-      "reason": "Names the connector's internal topics and its offset partition; Confluent table topic names do not use it."
+      "reason": "Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's."
     },
     {
       "key": "cdc.tables.case.sensitive",

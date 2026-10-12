@@ -29,7 +29,7 @@
 |---|---|---|
 | `name` | `orders-cdc-oso` | The new connector's name. |
 | `cdc.output.format` | `debezium` | The only format in this release; Confluent's flat format is not built yet. |
-| `cdc.topic.prefix` | `orders` | Names the connector's internal topics and its offset partition; Confluent table topic names do not use it. |
+| `cdc.topic.prefix` | `orders` | Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's. |
 | `cdc.tables.case.sensitive` | `true` | Confluent matches table expressions case-sensitively (MIG-3). |
 | `cdc.tombstones.on.delete` | `false` | Confluent's default (`emit.tombstone.on.delete=false`), pinned (MIG-3). |
 | `cdc.decimal.mode` | `precise` | Confluent's default `numeric.mapping=none` kept numbers exact; `precise` does too (MIG-3). NUMBER(p,0) up to 18 digits become integers rather than Decimal bytes. |

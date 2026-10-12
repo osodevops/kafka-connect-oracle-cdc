@@ -168,20 +168,40 @@ def parse_debezium(entries: list[dict[str, Any]]) -> OldPosition:
 
 
 def parse_confluent(entries: list[dict[str, Any]]) -> OldPosition:
+    """Confluent's connector (2.15.2, observed 12 October 2026) stores one partition per database,
+    ``{"sidPdb": "SID.PDB"}`` with ``scn`` (where its mining resumes: with
+    ``use.transaction.begin.for.mining.session``, its default, at or before the first change of
+    the oldest open transaction) and ``tablePlacement``, and one partition per captured table,
+    ``{"catalog", "schema", "table"}`` with ``scn``, ``cscn`` (the commit SCN of the last change it
+    delivered for the table), ``rows``, ``rps`` and ``def`` (the column definitions). The lowest
+    ``scn`` is the takeover start; the highest ``cscn`` bounds the overlap the new connector
+    re-delivers."""
     scns = []
+    commits = []
+    raws = []
     for e in entries:
         off = e["offset"]
         if "scn" in off and off["scn"] not in (None, ""):
             scns.append(_scn(off["scn"], "The Confluent offset's `scn`"))
+        if "cscn" in off and off["cscn"] not in (None, ""):
+            commits.append(_scn(off["cscn"], "The Confluent offset's `cscn`"))
+            raws.append(str(off["cscn"]))
     if not scns:
         raise ToolError("No Confluent offset partition carries an `scn`.")
     notes = []
     if len(scns) > 1:
         notes.append(f"{len(scns)} offset partitions carry an SCN; the lowest is used.")
+    if commits:
+        notes.append(
+            "Changes committed between the start SCN and the last commit Confluent delivered"
+            " (the highest table `cscn`) reach the new topics again: an overlap, never a gap."
+        )
     return OldPosition(
         source="confluent",
         start_scn=min(scns),
         start_field="scn (transactions that began at or after it were still to be delivered)",
+        commit_scns=[max(commits)] if commits else [],
+        commit_scn_raw=",".join(raws) or None,
         entries=entries,
         notes=notes,
     )

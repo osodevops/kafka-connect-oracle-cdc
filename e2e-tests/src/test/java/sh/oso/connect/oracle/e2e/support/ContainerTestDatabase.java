@@ -85,6 +85,25 @@ final class ContainerTestDatabase implements TestDatabase {
   }
 
   @Override
+  public String captureUser() {
+    return OracleTestDatabase.CAPTURE_USER;
+  }
+
+  @Override
+  public String capturePassword() {
+    return OracleTestDatabase.CAPTURE_PASSWORD;
+  }
+
+  @Override
+  public String hostDsn() {
+    return db.container().getHost()
+        + ":"
+        + db.container().getMappedPort(1521)
+        + "/"
+        + OracleTestDatabase.CDB_SERVICE;
+  }
+
+  @Override
   public Map<String, String> connectorDatabaseProps() {
     return ConnectCluster.oracleDatabaseProps(String.join(",", pdbs()));
   }

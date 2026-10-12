@@ -222,7 +222,7 @@ def test_confluent_connector_name_in_template_becomes_literal(tmp_path, capsys):
         "table.topic.name.template": "${connectorName}.${tableName}",
     }
     _, out, _ = run(CONFLUENT, tmp_path, {"name": "cx", "config": cfg}, capsys=capsys)
-    assert out["config"]["cdc.topic.template"] == "cx.${table}"
+    assert out["config"]["cdc.topic.template"] == "${prefix}.cx.${table}"
 
 
 def test_summary_mode_prints_counts(tmp_path, capsys):

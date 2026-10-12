@@ -176,11 +176,16 @@ def convert_template(ctx: Context, template: str) -> str:
         )
     if ctx.once("topic-names"):
         ctx.follow_up(
-            "Confluent's documentation describes `${databaseName}` and"
-            " `${fullyQualifiedTableName}` loosely. Compare the topic names the translated"
-            " `cdc.topic.template` produces with the existing topics before cutting over."
+            "This connector writes Debezium-shaped change events (`before`, `after`, `source`,"
+            " `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a"
+            " dot, then the name Confluent used (for example `<prefix>.PDB1.APP.ORDERS` for"
+            " `PDB1.APP.ORDERS`). Writing into Confluent's topics would mix two record shapes in"
+            " one topic and one Schema Registry subject. Move consumers to the new topics;"
+            " Confluent's topics stop receiving changes at the cutover."
         )
-    return _VARIABLE.sub(lambda m: mapping[m.group(1)], template)
+    # new topics, never Confluent's (verified against Confluent's connector 2.15.2, 12 October
+    # 2026: its default template gives PDB.SCHEMA.TABLE, which the unprefixed form reproduced)
+    return "${prefix}." + _VARIABLE.sub(lambda m: mapping[m.group(1)], template)
 
 
 def start_from(ctx: Context, key: str, value: str) -> Outcome:
@@ -519,8 +524,8 @@ def finalise_topics(ctx: Context) -> None:
     ctx.setting(
         "cdc.topic.prefix",
         prefix,
-        "Names the connector's internal topics and its offset partition; Confluent table topic"
-        " names do not use it.",
+        "Names the connector's internal topics and its offset partition, and starts every table"
+        " topic name, so the new topics never collide with Confluent's.",
     )
     if not ctx.has("table.topic.name.template"):
         try:

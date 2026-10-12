@@ -50,7 +50,7 @@
       ]
     },
     {
-      "text": "Confluent's documentation describes `${databaseName}` and `${fullyQualifiedTableName}` loosely. Compare the topic names the translated `cdc.topic.template` produces with the existing topics before cutting over.",
+      "text": "This connector writes Debezium-shaped change events (`before`, `after`, `source`, `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a dot, then the name Confluent used (for example `<prefix>.PDB1.APP.ORDERS` for `PDB1.APP.ORDERS`). Writing into Confluent's topics would mix two record shapes in one topic and one Schema Registry subject. Move consumers to the new topics; Confluent's topics stop receiving changes at the cutover.",
       "properties": []
     },
     {
@@ -80,7 +80,7 @@
     {
       "key": "cdc.topic.prefix",
       "value": "confluent-oracle-cdc",
-      "reason": "Names the connector's internal topics and its offset partition; Confluent table topic names do not use it."
+      "reason": "Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's."
     },
     {
       "key": "cdc.tables.case.sensitive",
@@ -807,7 +807,7 @@
       "value": "${databaseName}.${schemaName}.${tableName}",
       "classification": "mapped-with-change",
       "targets": {
-        "cdc.topic.template": "${pdb}.${schema}.${table}"
+        "cdc.topic.template": "${prefix}.${pdb}.${schema}.${table}"
       },
       "note": "Template variables translated; check the result against the existing topic names."
     },
@@ -866,7 +866,7 @@
     "cdc.tables.include": "ORCLPDB1[.]C##MYUSER[.](ORDERS|CUSTOMERS)",
     "cdc.tombstones.on.delete": "false",
     "cdc.topic.prefix": "confluent-oracle-cdc",
-    "cdc.topic.template": "${pdb}.${schema}.${table}",
+    "cdc.topic.template": "${prefix}.${pdb}.${schema}.${table}",
     "cdc.users.exclude": "GGADMIN",
     "key.converter": "io.confluent.connect.avro.AvroConverter",
     "value.converter": "io.confluent.connect.avro.AvroConverter"
