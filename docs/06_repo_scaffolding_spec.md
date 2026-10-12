@@ -147,7 +147,7 @@ Published at `kafkacdcconnector.com` (`website/static/CNAME`). Every page footer
 
 ## 6. `CONTRIBUTING.md` clean-room rules
 
-- Contributors must not use Confluent Oracle CDC source, binaries or non-public material, and must not install the Confluent connector on machines used for development.
+- Contributors must not use Confluent Oracle CDC source or non-public material, and must not install the Confluent connector into a development environment or a build. Its binaries may run only inside a disposable lab container started by a qualification suite, to compare its external output with ours (ADR-0028); they are never decompiled, read or committed, and never used in CI.
 - Property names and behaviour may be taken only from Confluent's public documentation, cited in `docs/research/`.
 - No GPL or AGPL code or dependencies.
 - DCO sign-off on every commit.

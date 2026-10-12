@@ -5,7 +5,7 @@
 **Connector class:** `sh.oso.connect.oracle.OracleCdcSourceConnector`
 **Replaces:** Confluent Oracle CDC Source (`io.confluent.connect.oracle.cdc.OracleCdcSourceConnector`) and Debezium Oracle (`io.debezium.connector.oracle.OracleConnector`) for LogMiner users
 **Depends on:** PRD-00 `oracle-cdc-core`, PRD-02 snapshots, PRD-03 schema
-**Clean-room note:** Confluent behaviour and property names are taken from public documentation only, for parity and migration. The Debezium-compatible envelope reproduces a documented, Apache-2.0 record format so existing consumers keep working.
+**Clean-room note:** Confluent behaviour and property names are taken from public documentation, for parity and migration; where it is silent, black-box comparison of Confluent's output in a lab settles the format (ADR-0028). The Debezium-compatible envelope reproduces a documented, Apache-2.0 record format so existing consumers keep working.
 
 ---
 
@@ -180,7 +180,7 @@ Structured JSON events: `startup`, `position-committed` (sampled), `log-switch-d
 - [ ] Quiet database for 48 hours: offsets advance, no ORA-01291 on restart, no writes to source.
 - [ ] Validation rejects: missing ARCHIVELOG, missing supplemental logging on a captured table, a captured table with an identity column, a captured name over 30 characters, missing privileges.
 - [ ] Signal-driven snapshot of one table works in archive-only mode with no source writes.
-- [ ] Phase 2: `confluent` format output is byte-identical (JSON converter) to recorded Confluent output fixtures derived from Confluent's documented examples.
+- [ ] Phase 2: `confluent` format output is byte-identical (JSON converter) to Confluent output fixtures recorded from Confluent's connector in the lab and consistent with its documented examples (ADR-0028).
 
 ## Appendix A: Debezium property mapping (for `migrate_from_debezium`)
 

@@ -58,7 +58,9 @@ never by restarting the database.
   `OracleCdcException`. Never add a config option that continues past missing redo,
   corruption or decode failure for captured tables.
 - Never read redo or archive files directly. LogMiner only.
-- Never copy code from Confluent or OpenLogReplicator. Debezium code may only be copied with
+- Never copy code from Confluent or OpenLogReplicator. Confluent's connector runs only in a
+  disposable lab container for black-box output comparison (ADR-0028): never in CI, never
+  decompiled, read or committed. Debezium code may only be copied with
   its Apache-2.0 header kept and an entry in NOTICE, and only after review.
 - Offsets only encode what the framework acknowledged.
 - Every data-loss bug gets a regression test before the fix merges. Regression tests are

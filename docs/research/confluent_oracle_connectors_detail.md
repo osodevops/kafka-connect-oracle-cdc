@@ -1,7 +1,7 @@
 # Confluent Oracle Connectors: Parity Reference
 
 **Status:** Research, source-linked. Collected 4 October 2026.
-**Clean-room note:** This file records Confluent's publicly documented behaviour and property names so that we can (a) define feature parity and (b) build the `migrate_from_confluent` config translator. We never read, decompile or copy Confluent code. Property names appear here only as migration inputs; our connector uses its own `cdc.*` namespace.
+**Clean-room note:** This file records Confluent's publicly documented behaviour and property names so that we can (a) define feature parity and (b) build the `migrate_from_confluent` config translator. We never read, decompile or copy Confluent code. Where the documentation is silent, ADR-0028 allows black-box comparison of the connector's external output with ours in a disposable lab container; the observed facts go to `oracle-cdc-core/src/main/resources/reference/confluent-record-format.md`. Property names appear here only as migration inputs; our connector uses its own `cdc.*` namespace.
 
 Sources: [Oracle CDC Source overview](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/overview.html), [Oracle CDC configuration reference](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/configuration-properties.html), [Oracle CDC best practices](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/best-practices.html), [Oracle CDC horizontal scaling](https://docs.confluent.io/cloud/current/connectors/cc-oracle-cdc-source/oracle-cdc-setup-includes/high-level-architecture.html), [Oracle XStream CDC overview](https://docs.confluent.io/kafka-connectors/oracle-xstream-cdc-source/current/overview.html).
 

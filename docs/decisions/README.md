@@ -33,6 +33,7 @@ link the evidence file under `oracle-cdc-core/src/main/resources/reference/`.
 | 0025 | Standby capture is archive-only on an open physical standby, bounded by the applied SCN | Accepted |
 | 0026 | The position is a vector of per-thread redo addresses; commit order is per thread | Accepted (in progress) |
 | 0027 | Per-PDB mining: Oracle chooses the logs, the connector keeps the stop conditions | Accepted |
+| 0028 | A Confluent-compatible record format, specified from documentation and verified black-box | Proposed |
 
 Template: Context, Decision, Consequences, Evidence, PRD edits.
 

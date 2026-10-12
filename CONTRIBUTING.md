@@ -61,8 +61,11 @@ to a local stand-in for the Central Portal and checks the bundle; everything it 
 
 ## Clean-room rules
 
-- Do not use Confluent Oracle CDC source code, binaries or non-public material, and do not
-  install the Confluent connector on machines used for development of this project.
+- Do not use Confluent Oracle CDC source code or non-public material, and do not install the
+  Confluent connector into a development environment or a build. Its binaries may run only
+  inside a disposable lab container started by a qualification suite, to compare its external
+  output with ours (ADR-0028); never decompile or read them, never commit them, never use them
+  in CI.
 - Property names and behaviour of other connectors may be taken only from their public
   documentation, cited in `docs/research/`.
 - Debezium is Apache-2.0. The default is to write our own code. If a Debezium source file is

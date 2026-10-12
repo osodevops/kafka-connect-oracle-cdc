@@ -4,7 +4,7 @@
 **Module:** `tools/migration` (Python 3.11, `python-oracledb`, `confluent-kafka`)
 **Replaces:** Manual migration runbooks
 **Depends on:** PRD-01 (`cdc.start.scn`, output formats), Connect offsets REST API from [KIP-875](https://cwiki.apache.org/confluence/display/KAFKA/KIP-875:%20First-class%20offsets%20support%20in%20Kafka%20Connect)
-**Clean-room note:** Built from public property documentation of Confluent and Debezium only. Follows the conventions of the Salesforce repo's `tools/confluent-migration` (exit codes, evidence JSON).
+**Clean-room note:** Built from public property documentation of Confluent and Debezium, verified black-box against Confluent's connector in a lab (ADR-0028). Follows the conventions of the Salesforce repo's `tools/confluent-migration` (exit codes, evidence JSON).
 
 ---
 
