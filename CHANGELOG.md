@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.5](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.4...v0.1.5) (2026-10-12)
+
+
+### Features
+
+* **migration:** verify_cutover reads Confluent's table topics, by key ([ae3c07f](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/ae3c07ffa3790e61a262061fc2b74033681678ea))
+* **position:** an optional per-thread block in the offset (Phase 3b-1, ADR-0026) ([4bcd6a5](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/4bcd6a59305f7fe250bf73bfa29c00a7ab4ad164))
+* **position:** per-thread resume vector through engine and sink (Phase 3b-3, ADR-0026) ([8aac226](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/8aac2268c4ef15ea1787dfae46ef67b6b5c0a4ad))
+* **position:** skip rule per redo thread (Phase 3b-2, ADR-0026) ([6e12c97](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/6e12c97a0376032a168e26f1e8caafe113ade9f1))
+* **rac:** thread states, per-thread windows, safety lag and CDC-7003 (Phase 3c, ADR-0026) ([8f9382c](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/8f9382c2cf98824e9354cfca578d9044e72d5652))
+
+
+### Bug Fixes
+
+* **bench:** a re-delivered event is a duplicate, not an order violation ([6252334](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/62523344c80bdd195435230a19e7e29201d5a6df))
+* **migration:** the Confluent translation writes to new topics; the takeover reports the overlap ([7a83ea4](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/7a83ea406269d2f0f4468e8a3bd51a06828b5fea))
+* **rac:** run the CDC-7003 check only with more than one qualified thread ([9ca4c07](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/9ca4c07eeb1c60b7965ad40605ffbad326d78aba))
+
+
+### Documentation
+
+* a Kafka Connect worker against RDS for Oracle 19c, killed mid-stream, loses no row ([27617d4](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/27617d42b038ebe9e4084003faf3258c0d19a2a3))
+* **handover:** 0.1.4, Connect worker qualified on RDS, Phase 3b progress ([2570a7f](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/2570a7f8818ab029db2a5192e550ece131f6da14))
+* **handover:** 12 October: checker fix, Confluent migration tested, RAC 3b and 3c on main ([2fb492d](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/2fb492d469e09fbf6c4db7faa3b12ef183365635))
+* **migration:** the Confluent guide follows the tested cutover ([3e222ec](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/3e222eca7d8e938096f2038a4cd537fc05aba2e2))
+* no cloud infrastructure in the public repository ([36dee17](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/36dee17aa7b79b86d3623af729f8b38e75e0d5ee))
+* release candidate qualified on RDS for Oracle 19c, Confluent cutover run there ([c122468](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/c122468c4d8b61df9922aeb4cb84d625f2c89331))
+
 ## [0.1.4](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.3...v0.1.4) (2026-10-09)
 
 
