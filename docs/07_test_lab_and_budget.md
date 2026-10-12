@@ -49,7 +49,10 @@ Running suites one topology at a time halves this.
 
 ## 3. AWS dev account design
 
-All infrastructure as code in `lab/aws/` (Terraform), so nothing is clicked by hand.
+All infrastructure as code (Terraform), so nothing is clicked by hand. Amendment, 9 October 2026:
+the cloud labs live in OSO's private infrastructure repository, never in this public one; each is
+temporary, created for a qualification run and destroyed afterwards, and reached by AWS Systems
+Manager port forwarding.
 
 | Resource | Spec | When it runs |
 |---|---|---|
@@ -107,17 +110,12 @@ lab/
     rac/                    Podman scripts for two-node RAC (19c, 21c, 26ai)
     dataguard/              primary and standby containers
     k8s/                    kind or k3s with the Oracle AI Database Operator
-  aws/
-    terraform/              RAC host, optional multi-host RAC, RDS, budgets, TTL stopper
-    Makefile                make up-rac, make down, make rds-qualify
-  oci/
-    terraform/              Always Free Autonomous Database pair
 ```
 
 ## 7. Acceptance criteria
 
 - [ ] `make -C lab/local up-all` brings up the full local matrix on the workstation from a clean machine in under two hours (images cached afterwards).
-- [ ] `make -C lab/aws up-rac` produces a working two-node RAC with archive logging and the capture user in under 90 minutes, and `make down` removes everything.
+- [ ] The private infrastructure repository's lab stack produces a working two-node RAC with archive logging and the capture user in under 90 minutes, and `make down` removes everything.
 - [ ] AWS Budgets alarm fires at 80 per cent of the agreed monthly limit; any resource past its `ttl` tag is stopped automatically.
 - [ ] No lab database is reachable from the internet.
 - [ ] `lab/README.md` records the licence basis for every environment.

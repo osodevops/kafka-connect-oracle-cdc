@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Targets | Amazon RDS for Oracle, `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, `db.t3.medium`, eu-west-2, temporary dev-account lab (`terraform/oracle-cdc-lab` in `oso_aws_infrastructure_resources`): engine `oracle-se2` as a non-CDB (service `CDCLAB`) and engine `oracle-se2-cdb` with the tenant database `CDCPDB` |
+| Targets | Amazon RDS for Oracle, `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, `db.t3.medium`, eu-west-2, temporary lab in OSO's development AWS account, provisioned from OSO's private infrastructure repository and destroyed after the run: engine `oracle-se2` as a non-CDB (service `CDCLAB`) and engine `oracle-se2-cdb` with the tenant database `CDCPDB` |
 | Access | AWS Systems Manager port forward through the lab bastion to `localhost:15210`; the Connect worker in Docker on the workstation reaches it as `host.docker.internal:15210` |
 | Connector | `main` at `6fa6eb7` (release 0.1.4 plus `ConnectorQualIT`), the plugin ZIP built from it |
 | Kafka | `apache/kafka:3.9.1`, one broker and one Connect worker in Docker |

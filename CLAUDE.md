@@ -21,7 +21,7 @@ publish database benchmark figures (Oracle development licence terms); publish t
 | `bench` | Workload generator, materialiser and correctness oracle (no repo dependencies) |
 | `tools/migration` | `migrate_from_debezium.py`, `migrate_from_confluent.py`, `takeover_scn.py`, `verify_cutover.py` |
 | `docker/test-oracle` | Derived Oracle Free test image (ARCHIVELOG, supplemental logging, FREEPDB2, capture user) |
-| `lab/` | Local compose stack, RAC and Data Guard scripts, AWS and OCI Terraform |
+| `lab/` | Local compose and Kubernetes stacks. Cloud labs (AWS RDS, RAC and Data Guard hosts, OCI) live in OSO's private infrastructure repository, never here |
 | `ops/` | JMX exporter config, Grafana dashboard, Prometheus alert rules |
 | `website/` | Docusaurus docs site |
 | `docs/` | PRD package and `docs/decisions/` ADRs (kept in repo, not published) |
@@ -75,6 +75,9 @@ never by restarting the database.
   `gitleaks dir . --config .gitleaks.toml --redact` before every push; CI runs it too, and a
   finding blocks the push. Never rewrite published history to hide a value: rotate it if it is
   real, then fix forward.
+- No cloud infrastructure in this public repository: no Terraform, cloud lab scripts, account IDs,
+  endpoints or internal repository and stack names. Cloud labs live in OSO's private
+  infrastructure repository; qualification evidence here describes a lab only in general terms.
 - Never weaken or delete a failing regression test without explicit approval.
 
 ## Releasing

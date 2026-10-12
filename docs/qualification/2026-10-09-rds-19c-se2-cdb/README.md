@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Target | Amazon RDS for Oracle, engine `oracle-se2-cdb` `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, CDB architecture with tenant database `CDCPDB`, `db.t3.medium`, eu-west-2, temporary dev-account lab (`terraform/oracle-cdc-lab` in `oso_aws_infrastructure_resources`) |
+| Target | Amazon RDS for Oracle, engine `oracle-se2-cdb` `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, CDB architecture with tenant database `CDCPDB`, `db.t3.medium`, eu-west-2, temporary lab in OSO's development AWS account, provisioned from OSO's private infrastructure repository and destroyed after the run |
 | Access | AWS Systems Manager port forward through the lab bastion to `localhost:15210`, service `CDCPDB` (the tenant database; `CDB$ROOT` is not reachable on RDS) |
 | Connector | `main` at `6364a0b` (range mode, ADR-0027), plus the range-mode skip in `DictionaryBuildQualIT` committed with this evidence |
 | Mining mode | `cdc.mining.mode=auto`, which chose range mode because the session is in a PDB |

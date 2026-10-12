@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Target | Amazon RDS for Oracle, engine `oracle-se2` `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, non-CDB, `db.t3.medium`, eu-west-2, temporary dev-account lab (`terraform/oracle-cdc-lab` in `oso_aws_infrastructure_resources`) |
+| Target | Amazon RDS for Oracle, engine `oracle-se2` `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, non-CDB, `db.t3.medium`, eu-west-2, temporary lab in OSO's development AWS account, provisioned from OSO's private infrastructure repository and destroyed after the run |
 | Access | AWS Systems Manager port forward through the lab bastion to `localhost:15210` |
 | Connector | `main` at `261fdbb` (after release 0.1.1) |
 | Setup | `oracle-cdc-doctor setup-sql --platform rds` applied by the master user (`-De2e.external.apply.setup=true`) |

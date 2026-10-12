@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Targets | Amazon RDS for Oracle `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, `db.t3.medium`, eu-west-2, temporary dev-account lab (`terraform/oracle-cdc-lab` in `oso_aws_infrastructure_resources`): `oracle-se2` as a non-CDB (service `CDCLAB`) and `oracle-se2-cdb` with the tenant database `CDCPDB` |
+| Targets | Amazon RDS for Oracle `19.0.0.0.ru-2026-07.mrp-2026-07.r1`, License Included, `db.t3.medium`, eu-west-2, temporary lab in OSO's development AWS account, provisioned from OSO's private infrastructure repository and destroyed after the run: `oracle-se2` as a non-CDB (service `CDCLAB`) and `oracle-se2-cdb` with the tenant database `CDCPDB` |
 | Access | AWS Systems Manager port forward through the lab bastion to `localhost:15210`; Connect workers in Docker on the workstation reach it as `host.docker.internal:15210` |
 | Connector | `main` at `2fb492d`: the release candidate after 0.1.4 (RAC position and thread states behind the refusal, the Confluent migration tooling) |
 | Confluent | Confluent's Oracle CDC Source connector 2.15.2 on a Confluent Platform 7.9.2 worker (`confluentinc/cp-server-connect`), used under Confluent's evaluation licence in this test environment only and not distributed |
