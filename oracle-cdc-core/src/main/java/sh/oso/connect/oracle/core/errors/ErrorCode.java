@@ -161,6 +161,16 @@ public enum ErrorCode {
       false,
       "A buffered transaction is no longer known to the database and"
           + " cdc.transaction.orphan.action=fail."),
+  /**
+   * ADR-0026: LogMiner returned a row or a COMMIT of a redo thread at or before what a position
+   * already handed to the sink covers on that thread, so a restart from it would skip it.
+   */
+  RESUME_FLOOR_VIOLATION(
+      "CDC-7003",
+      "resume-floor-violation",
+      false,
+      "A row or a COMMIT of a redo thread arrived at or before what an offset already handed to"
+          + " Kafka Connect covers on that thread, so a restart from that offset would skip it."),
   /** A snapshot chunk at the smallest size still met ORA-01555 or ORA-08181 (PRD-02 SNAP-4). */
   SNAPSHOT_TOO_OLD(
       "CDC-8001",

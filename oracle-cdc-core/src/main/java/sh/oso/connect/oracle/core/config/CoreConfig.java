@@ -629,9 +629,14 @@ public class CoreConfig extends AbstractConfig {
         RAC_SAFETY_LAG_MS,
         Type.LONG,
         -1L,
+        Range.atLeast(-1L),
         Importance.LOW,
-        "Reserved for the hold-back from the cluster SCN on RAC so late-archiving threads are not"
-            + " missed. RAC is not supported yet.",
+        "On a database with more than one enabled redo thread (RAC), how far behind the current"
+            + " SCN the online safe end is held: each step mines only to an SCN read at least this"
+            + " many milliseconds earlier, so a slow instance has written its redo below it. -1"
+            + " means 3000 on such a database. Ignored with one enabled redo thread, where the"
+            + " safe end is the current SCN, and in archive-only mode. RAC capture is refused at"
+            + " start until it is qualified.",
         GROUP_MINING,
         ++o,
         Width.SHORT,

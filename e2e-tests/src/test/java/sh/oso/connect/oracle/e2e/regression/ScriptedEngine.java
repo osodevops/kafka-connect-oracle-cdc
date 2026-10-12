@@ -61,6 +61,24 @@ final class ScriptedEngine {
   long minedTo;
   RedoRecordId resume;
 
+  /** The catalog the inventory reads; one thread of 40 archived logs of 100 SCNs from 1000. */
+  FakeCatalog catalog = new FakeCatalog().archivedRun(1, 1, 40, 1000, 100);
+
+  /** The capture mode the inventory checks the log set for. */
+  CoreConfig.CaptureMode mode = CoreConfig.CaptureMode.ONLINE;
+
+  /** The inventory of the engine built last. */
+  LogInventory inventory;
+
+  /** The safe end each step reads; {@link #safeEnd} unless a scenario asks the inventory. */
+  java.util.function.Supplier<Long> safeEnds = () -> safeEnd;
+
+  /** True when the fake returns only redo the step's log set holds, as LogMiner does. */
+  boolean boundToLogs;
+
+  /** The thread state changes the engine reported, as "thread state (was previous)". */
+  final List<String> threadStates = new ArrayList<>();
+
   /** What a reconnect returns; by default a scenario has none. */
   CaptureEngine.Reconnector reconnector =
       cause -> {
@@ -112,12 +130,15 @@ final class ScriptedEngine {
     SchemaRegistry registry =
         new SchemaRegistry(
             store, none, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
+    inventory = new LogInventory(catalog, mode, 1);
+    if (boundToLogs) {
+      fake.boundTo(inventory);
+    }
     return new CaptureEngine(
         start,
         fake,
-        new LogInventory(
-            new FakeCatalog().archivedRun(1, 1, 40, 1000, 100), CoreConfig.CaptureMode.ONLINE, 1),
-        () -> safeEnd,
+        inventory,
+        () -> safeEnds.get(),
         new HeapTransactionBuffer(),
         registry,
         ChangeDecoder.rowDecoder(),
@@ -161,6 +182,11 @@ final class ScriptedEngine {
       @Override
       public void idle(long scn, RedoRecordId at) {
         stepApplied(scn, at);
+      }
+
+      @Override
+      public void threadStateChanged(sh.oso.connect.oracle.core.logs.ThreadStateChange c) {
+        threadStates.add(c.thread() + " " + c.state() + " (was " + c.previous() + ")");
       }
     };
   }

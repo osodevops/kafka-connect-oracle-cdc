@@ -43,6 +43,17 @@ public interface CatalogSource {
    */
   List<RedoLog> archivedLogs(long startScn, long endScn, int destId) throws SQLException;
 
+  /**
+   * ADR-0026: the archived log of {@code thread} with {@code sequence} at the destination, a
+   * readable copy when there are several, or empty when the catalog has none. The inventory asks
+   * for it only on a database with more than one redo thread, to place a closed thread's last log
+   * or the log next to an SCN gap; without an answer it keeps the stricter rule.
+   */
+  default java.util.Optional<RedoLog> archivedLog(int thread, long sequence, int destId)
+      throws SQLException {
+    return java.util.Optional.empty();
+  }
+
   /** Archived-log completions per thread in the trailing window, for switch-rate metrics. */
   List<RedoLog> archivedSince(java.time.Instant since, int destId) throws SQLException;
 

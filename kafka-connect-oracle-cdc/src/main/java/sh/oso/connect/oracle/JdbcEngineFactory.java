@@ -288,12 +288,26 @@ public final class JdbcEngineFactory implements EngineFactory {
           objects.owners());
       mining = connections.open(ConnectionRole.MINING);
       source = newSource(inventory);
+      // ADR-0026: on RAC the online safe end is a current SCN read at least the safety lag ago
+      sh.oso.connect.oracle.core.logs.SafetyLag lag =
+          new sh.oso.connect.oracle.core.logs.SafetyLag(
+              sh.oso.connect.oracle.core.logs.SafetyLag.effective(
+                  core.getLong(CoreConfig.RAC_SAFETY_LAG_MS),
+                  TopologyGuard.qualifiedThreads(shape).size()),
+              () -> System.nanoTime() / 1_000_000);
+      if (!lag.lag().isZero() && core.captureMode() == CoreConfig.CaptureMode.ONLINE) {
+        LOG.info(
+            "The online safe end is held {} ms behind the current SCN: {} enabled redo threads"
+                + " (cdc.rac.safety.lag.ms)",
+            lag.lag().toMillis(),
+            TopologyGuard.qualifiedThreads(shape).size());
+      }
       java.util.function.Supplier<Long> safeEnd =
           () -> {
             try {
               return core.captureMode() == CoreConfig.CaptureMode.ARCHIVE_ONLY
                   ? inventory.archiveOnlySafeEnd(start.resumeScn())
-                  : catalog.currentScn();
+                  : lag.safeEnd(catalog.currentScn());
             } catch (SQLException e) {
               throw classifier.toException(e, "reading the safe end SCN");
             }

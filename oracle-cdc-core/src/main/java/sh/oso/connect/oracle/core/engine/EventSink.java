@@ -103,6 +103,9 @@ public interface EventSink {
   /** The database sessions were reopened after a transient error (CORE-CONN-6). */
   default void reconnected(String cause) {}
 
+  /** CORE-LOG-3: a redo thread's state in V$THREAD changed since the inventory last read it. */
+  default void threadStateChanged(sh.oso.connect.oracle.core.logs.ThreadStateChange change) {}
+
   /**
    * An orphaned transaction was released (CORE-TX-7, ADR-0006); {@code released} is the whole
    * ledger the position must carry from now on.

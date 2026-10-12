@@ -42,6 +42,7 @@ connector can write.
 |---|---|---|
 | `startup` | The task started and its start position is durable. | `resume_scn`, `last_commit` (absent on a fresh start), `database`, `version` |
 | `stop` | The capture engine or the snapshot publisher stopped with an error; the task fails right after this record. | `exception`, `message`, `code` (for example CDC-2002; absent for an error without a code), `runbook`, `operator_action` |
+| `thread-state-changed` | A redo thread's state in V$THREAD changed since the task last read it: an instance stopped, crashed or started, or the thread was disabled or enabled. | `thread`, `state` (open, closed or disabled), `previous`, `sequence` (the thread's current log sequence), `closed_at_scn` (when the closed thread's last log is archived: where its redo ends) |
 | `ddl-seen` | A DDL statement by an owner that Oracle does not maintain was mined. | `pdb`, `owner`, `object`, `scn`, `sql` (truncated to 2,000 characters) |
 | `ddl-applied` | A DDL gave a captured table a new schema version, or dropped or renamed it away. | `pdb`, `owner`, `object`, `scn`, `version` (the new version number, or removed), `columns` (absent when removed) |
 | `dictionary-replay` | A step was mined again with a data dictionary from the redo, because rows of these tables were written before a later DDL on them. | `from_scn`, `to_scn`, `tables` |
@@ -60,7 +61,7 @@ connector can write.
 | `signal-ack` | A signal addressed to this connector was handled. | `id`, `type`, `outcome` (ok, rejected, unknown, invalid or failed), `message` (when there is one), `mined_to_scn` (log-state only), `open_transactions` (log-state only), `buffered_events` (log-state only), `oldest_open_scn` (log-state only), `largest` (log-state only), `snapshot_running` (log-state only) |
 | `offsets-set` | oracle-cdc-admin offsets set changed the stored offset while the connector was stopped: one event before the change, one after it or on failure. | `connector`, `command`, `reason`, `operator`, `direction` (forward or backward), `previous_resume_scn` (none when there was no offset), `new_resume_scn`, `forgotten_released` (when released transactions were forgotten), `outcome` (applying, applied or failed), `error` (when failed) |
 
-The following types are reserved for features that are not built yet. No code path writes them, so they do not appear on the topic: `position-committed`, `log-switch-detected`, `thread-state-changed`, `transaction-journaled`.
+The following types are reserved for features that are not built yet. No code path writes them, so they do not appear on the topic: `position-committed`, `log-switch-detected`, `transaction-journaled`.
 
 <!-- END GENERATED: ops event types -->
 

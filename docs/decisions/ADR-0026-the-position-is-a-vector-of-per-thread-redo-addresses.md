@@ -1,9 +1,9 @@
 # ADR-0026: The position is a vector of per-thread redo addresses; commit order is per thread
 
-**Status:** Accepted. In progress: the step cursor (3a) and the per-thread position, skip rule
-and resume vector (3b) are implemented. Still to come: the inventory and safety rules for closed and
-disabled threads, with the CDC-7003 stop of decision 4 (3c), and lifting the RAC refusal of ADR-0023
-with the RAC regression corpus and a RAC lab run (3d, blocked on a RAC lab).
+**Status:** Accepted. In progress: the step cursor (3a), the per-thread position, skip rule and
+resume vector (3b), and the thread states, per-thread windows, safety lag and CDC-7003 stop (3c)
+are implemented. Still to come: lifting the RAC refusal of ADR-0023 with the RAC regression corpus
+and a RAC lab run (3d, blocked on a RAC lab).
 **Context:** PRD-00 CORE-POS-1, CORE-POS-3, CORE-POS-4, CORE-MINE-4 and CORE-LOG-3; ADR-0014 (the
 redo byte address cursor); ADR-0023 (a second redo thread is refused).
 
@@ -33,14 +33,60 @@ exact is that the commits acknowledged on each thread are a prefix of that threa
    `threads` block of the existing `v=1` offset; the legacy keys stay authoritative for older
    readers, and a single-thread position writes no `threads` block, so its offset is unchanged.
    (3b)
-4. A commit arriving below the acknowledged resume floor of its thread stops the task with
-   CDC-7003 instead of being dropped. (3b, 3c)
+4. A row or commit that a restart from a position already handed to the sink would not deliver
+   stops the task with CDC-7003 (`ResumeFloorViolationException`) instead of being dropped by
+   that restart. The floor is kept per thread, in redo byte addresses: a row of thread t below the
+   highest resume address handed for t (a restart reads t again from there, inclusive), or a
+   commit of t emitted at or before the last commit handed for t (the skip rule skips it). The
+   start position is the first floor; its own last commit may be emitted again from its event
+   index. Rows without an address are not compared. (3c)
+5. Thread states (CORE-LOG-3), with more than one thread in `V$THREAD`: a CLOSED thread whose last
+   log (`V$THREAD.SEQUENCE#`) is archived is closed at that log's `NEXT_CHANGE#`: required up to
+   there, then no longer waited for by the archive-only safe end or the online step end. A
+   DISABLED thread's logs in the range are mined and it is never waited for. A thread that opens
+   again, or is enabled for the first time, is required from its first new log; an SCN gap before
+   that log is no gap when the log of the previous sequence ends at or before the range, or the log
+   is sequence 1, because sequences have no holes. When every enabled thread is closed, and on a
+   database with one thread, the rules of before apply. A change of a thread's state is an ops
+   event (`thread-state-changed`). (3c)
+6. The scheduler counts log boundaries per thread: a window of N logs ends at the earliest N-th
+   boundary over the threads, so no thread contributes more than N logs and the thread that
+   switches most contributes exactly N. A thread with fewer than N boundaries does not lengthen a
+   step, so timeouts still shrink every thread to one log. (3c)
+7. `cdc.rac.safety.lag.ms` is read: with more than one enabled thread at the start, the online safe
+   end is the newest (clock, current SCN) read at least the lag old (-1 means 3000 ms); with one
+   thread it is 0 whatever the key says, so the safe end stays the current SCN. Defence in depth: the
+   per-thread cursor is what mines late redo. (3c)
+
+### Why CDC-7003 compares redo addresses, not SCNs
+
+The plan first defined the violation as a commit SCN below the floor of the last position handed
+to the sink. That is wrong on a single instance: a late-bound private strand gives a commit an SCN
+below records already mined (ADR-0014), the redo byte address cursor mines it after them, and a
+restart from the earlier position mines it again because its address is after that position's. An
+SCN comparison would stop healthy capture there, and on RAC every slow instance's commit would
+trip it. What a restart actually loses is what lies before a thread's resume address, or at or
+before its last acknowledged commit, in that thread's redo order, so that is the floor.
+
+Each thread's rows reach the engine in redo order after the step cursor's mark (the step runner
+already drops a row at or before the mark), and every resume address handed over is at or below
+what was applied. The condition can therefore only arise from LogMiner returning a thread out of
+redo order within a step or from a bug in the resume calculation: CDC-7003 is a defensive stop,
+not a case expected in operation.
 
 ## Consequences
 
 - Single-instance capture is unchanged: same offsets, same resume points, and after the first
-  step a query with one `THREAD# = n` term.
+  step a query with one `THREAD# = n` term. The thread-state rules, the per-thread window and the
+  safety lag do nothing with one thread (3c); the CDC-7003 check compares each applied row and
+  emitted commit with the floor, which a single-instance task never reaches.
 - RAC capture remains refused (ADR-0023) until 3d.
+- The inventory asks `V$ARCHIVED_LOG` for one log by thread and sequence only with more than one
+  thread: for a CLOSED thread's last log, and when a gap would otherwise be raised.
+- A thread with no applied row is still read by SCN from the step's start (decision 2). A
+  late-bound first transaction of an idle thread, written after a step passed its SCNs, would not
+  be returned; the safety lag narrows that window but does not close it. To settle before RAC is
+  qualified (3d).
 
 ## Evidence
 
@@ -51,11 +97,19 @@ slow thread's rows are skipped; with a mark per thread they are mined). 3b: `Pos
 thread), `PerThreadPositionTest` (one thread writes the offset of before, byte for byte),
 `ResumePointTest`, `RecordQueueSinkTest`, and `ResumesEachThreadFromItsOwnPositionTest` (tag
 `rac-per-thread-restart`: a restart from any acknowledged record of two interleaved threads delivers
-every change exactly once; with one resume address it loses the quiet thread's commits).
+every change exactly once; with one resume address it loses the quiet thread's commits). 3c:
+`MinesTheClosedThreadsTailAfterAnInstanceCrashTest` (`rac-instance-crash`; before the change the
+surviving thread's commits after the crash were never mined), `HandlesAThreadDisabledMidRunTest`
+(`rac-thread-disabled`; before, CDC-2001 when the thread came back), `StopsWhenACommitArrivesBelowTheAcknowledgedFloorTest`
+(`rac-resume-floor`; before, the commit was emitted and a restart from the previous offset lost it),
+`MinesALateCommitOfASlowThreadTest` (`rac-late-commit`), `CaptureEngineTest`
+`aLateBoundCommitOnOneThreadIsDeliveredAndNeverAResumeFloorViolation`, `LogInventoryTest`,
+`MiningSchedulerTest` (`rac-window`), `SafetyLagTest`, `ResumeFloorTest`.
 
 ## PRD edits
 
-PRD-00 CORE-POS-1, CORE-POS-3, CORE-POS-4 and CORE-MINE-4 (with 3b).
+PRD-00 CORE-POS-1, CORE-POS-3, CORE-POS-4 and CORE-MINE-4 (with 3b). 3c: CORE-LOG-3, CORE-MINE-4
+(per-thread window), the `cdc.rac.safety.lag.ms` row and the CORE-ERR table.
 
 ## Amendments
 

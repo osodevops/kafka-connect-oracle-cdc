@@ -17,6 +17,8 @@ package sh.oso.connect.oracle.core.mining.step;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import sh.oso.connect.oracle.core.errors.MiningStalledException;
 import sh.oso.connect.oracle.core.logs.RedoLog;
@@ -26,6 +28,14 @@ import sh.oso.connect.oracle.core.logs.RedoLog;
  * pending range lies inside the current log the step runs to the safe end; otherwise it ends at a
  * log boundary, starting one log wide, doubling while steps finish within the target latency and
  * halving on a timeout (CORE-MINE-5). Three timeouts in a row at one log is a stall.
+ *
+ * <p>Boundaries are counted per redo thread (ADR-0026): a window of N logs ends at the earliest
+ * N-th boundary over the threads, so no thread contributes more than N logs and the thread that
+ * switches most, whose logs take longest to mine, contributes exactly N. Counting the boundaries of
+ * all threads together made a window of N logs about N divided by the number of threads on each. A
+ * thread with fewer than N boundaries in the range does not lengthen the step, so the window still
+ * shrinks to one log on every thread after timeouts. With one thread the boundaries are those of
+ * before.
  */
 public final class MiningScheduler {
 
@@ -54,22 +64,27 @@ public final class MiningScheduler {
       throw new IllegalArgumentException("nothing to mine: " + startScn + " >= " + safeEndScn);
     }
     plans++;
-    TreeSet<Long> boundaries = new TreeSet<>();
+    Map<Integer, TreeSet<Long>> byThread = new TreeMap<>();
     for (RedoLog l : logsCoveringRange) {
       if (l.nextScn() > startScn && l.nextScn() < safeEndScn) {
-        boundaries.add(l.nextScn());
+        byThread.computeIfAbsent(l.thread(), t -> new TreeSet<>()).add(l.nextScn());
       }
     }
-    if (boundaries.isEmpty()) {
+    if (byThread.isEmpty()) {
       return new StepPlan(startScn, safeEndScn, windowLogs, 0, true, "inside the current log");
     }
-    if (windowLogs > boundaries.size()) {
+    int most = byThread.values().stream().mapToInt(TreeSet::size).max().orElseThrow();
+    if (windowLogs > most) {
       return new StepPlan(
-          startScn, safeEndScn, windowLogs, boundaries.size() + 1, true, "window covers the range");
+          startScn, safeEndScn, windowLogs, most + 1, true, "window covers the range");
     }
-    long end = boundaries.stream().skip(windowLogs - 1).findFirst().orElseThrow();
-    return new StepPlan(
-        startScn, end, windowLogs, boundaries.size() + 1, false, "log-count window");
+    long end = Long.MAX_VALUE;
+    for (TreeSet<Long> boundaries : byThread.values()) {
+      if (boundaries.size() >= windowLogs) {
+        end = Math.min(end, boundaries.stream().skip(windowLogs - 1).findFirst().orElseThrow());
+      }
+    }
+    return new StepPlan(startScn, end, windowLogs, most + 1, false, "log-count window");
   }
 
   /** A step finished: widen the window when it was quick. */

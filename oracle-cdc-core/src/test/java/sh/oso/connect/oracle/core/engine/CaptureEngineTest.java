@@ -450,6 +450,47 @@ class CaptureEngineTest {
     assertThat(h2.sink.committed.get(0).events()).hasSize(2);
   }
 
+  /**
+   * ADR-0026 decision 4 on one thread: a commit whose private strand was bound late carries an SCN
+   * below a commit already handed to the sink, and its redo byte address is after it. It is no
+   * CDC-7003, in the run that mines it or after a restart from the earlier commit's position: a
+   * floor compared by SCN would stop healthy single-instance capture here.
+   */
+  @org.junit.jupiter.api.Tag("rac-late-commit")
+  @Test
+  void aLateBoundCommitOnOneThreadIsDeliveredAndNeverAResumeFloorViolation() throws Exception {
+    Harness h = new Harness();
+    TxKey a = h.fake.tx(1, 1, 1);
+    TxKey b = h.fake.tx(1, 1, 2);
+    h.fake.start(a, "APP").insert(a, T, "a1").commit(a); // 1000 to 1002
+    h.safeEnd = 1003;
+    CaptureEngine e = h.engine(h.initial(), DecodeErrorAction.FAIL);
+    h.runUntilIdle(e);
+    assertThat(h.sink.sqls()).containsExactly("a1");
+    CommittedTransaction first = h.sink.committed.get(0);
+    // b's whole transaction is written after the step, at SCNs below a's commit
+    h.fake.late(1000).start(b, "APP");
+    h.fake.late(1000).insert(b, T, "b1");
+    h.fake.late(1001).commit(b);
+    h.safeEnd = 1010;
+    h.runUntilIdle(e);
+    assertThat(h.sink.sqls()).containsExactly("a1", "b1");
+    assertThat(h.sink.committed.get(1).commitScn()).isLessThan(first.commitScn());
+    assertThat(h.sink.committed.get(1).commitId()).isGreaterThan(first.commitId());
+
+    // a restart from a's acknowledged position mines b again, and only b
+    Position afterA =
+        h.initial()
+            .withResume(first.commitId())
+            .withCommit(first.commitId(), first.thread(), first.key(), first.size());
+    Harness h2 = new Harness();
+    h2.fake = h.fake;
+    h2.safeEnd = 1010;
+    CaptureEngine e2 = h2.engine(afterA, DecodeErrorAction.FAIL);
+    h2.runUntilIdle(e2);
+    assertThat(h2.sink.sqls()).containsExactly("b1");
+  }
+
   @Test
   void decodeErrorsStopOrGoToTheDlqPerPolicy() throws Exception {
     Harness h = new Harness();

@@ -118,6 +118,9 @@ public final class CaptureEngine {
   private StepCursor cursor;
   private int consecutiveRetries;
 
+  /** ADR-0026 decision 4: what a restart from a position handed over would not deliver again. */
+  private final ResumeFloor floor;
+
   public CaptureEngine(
       Position start,
       EventSource source,
@@ -157,6 +160,7 @@ public final class CaptureEngine {
         start.perThread()
             ? StepCursor.resume(start.resumeScn(), start.resume().byThread())
             : StepCursor.resume(start.resumePoint());
+    this.floor = ResumeFloor.from(start);
     this.lobs = new LobAssembler(settings.lobMode(), settings.lobMaxBytes());
   }
 
@@ -392,6 +396,7 @@ public final class CaptureEngine {
     }
     long end = safeEnd.get();
     metrics.safeEndScn.set(end);
+    reportThreadStates();
     if (end <= cursor.scn()) {
       return idle();
     }
@@ -400,7 +405,12 @@ public final class CaptureEngine {
       recycler.recycled();
       metrics.sessionRecycles.incrementAndGet();
     }
-    LogSet logs = inventory.forRange(cursor.scn(), end);
+    LogSet logs;
+    try {
+      logs = inventory.forRange(cursor.scn(), end);
+    } finally {
+      reportThreadStates(); // a gap after a thread changed state names the change first
+    }
     if (logs.endScn() < end) {
       end = logs.endScn(); // a log switch is under way: mine to the newest listed log's end
       if (end <= cursor.scn()) {
@@ -479,7 +489,10 @@ public final class CaptureEngine {
     buffer.flushJournal(clock.get()); // CORE-TX-4: chunks for due and journaled transactions
     enforceTransactionAge();
     checkOrphans();
-    sink.stepApplied(cursor.scn(), resumeAt(cursor.scn(), cursor, cursor.marks()));
+    sh.oso.connect.oracle.core.position.ResumePoint point =
+        resumeAt(cursor.scn(), cursor, cursor.marks());
+    sink.stepApplied(cursor.scn(), point);
+    floor.handed(point);
     publishBuffer();
     return Progress.STEP_APPLIED;
   }
@@ -528,9 +541,19 @@ public final class CaptureEngine {
     buffer.flushJournal(clock.get()); // age-based journaling must not wait for new redo
     enforceTransactionAge();
     checkOrphans();
-    sink.idle(cursor.scn(), resumeAt(cursor.scn(), cursor, cursor.marks()));
+    sh.oso.connect.oracle.core.position.ResumePoint point =
+        resumeAt(cursor.scn(), cursor, cursor.marks());
+    sink.idle(cursor.scn(), point);
+    floor.handed(point);
     publishBuffer();
     return Progress.IDLE;
+  }
+
+  /** CORE-LOG-3: thread state changes the inventory saw, to the sink as ops events. */
+  private void reportThreadStates() {
+    for (sh.oso.connect.oracle.core.logs.ThreadStateChange c : inventory.drainThreadChanges()) {
+      sink.threadStateChanged(c);
+    }
   }
 
   private StepOutcome replay(
@@ -685,6 +708,7 @@ public final class CaptureEngine {
     applied = new java.util.TreeMap<>(cursor.marks());
     for (MiningEvent e : outcome.events()) {
       requireQualifiedThread(e);
+      floor.checkRow(e); // CDC-7003: a restart from a position handed over would not see it
       markApplied(e);
       metrics.eventsApplied.incrementAndGet();
       if (e instanceof MiningEvent.TxStart s) {
@@ -1066,13 +1090,15 @@ public final class CaptureEngine {
       metrics.transactionsSkipped.incrementAndGet();
       return;
     }
+    floor.checkCommit(tx); // CDC-7003: a restart from a position handed over would skip it
     metrics.transactionsCommitted.incrementAndGet();
     // the candidate at this commit: the commit row itself bounds the cursor side of the rule; with
     // several threads the others are bounded by what was applied on them before it (ADR-0026)
-    sink.committed(
-        tx,
-        skip,
+    sh.oso.connect.oracle.core.position.ResumePoint point =
         resumeAt(
-            tx.commitScn(), StepCursor.of(tx.commitScn(), tx.thread(), tx.commitId()), applied));
+            tx.commitScn(), StepCursor.of(tx.commitScn(), tx.thread(), tx.commitId()), applied);
+    sink.committed(tx, skip, point);
+    floor.handed(point);
+    floor.handed(tx);
   }
 }

@@ -101,6 +101,33 @@ public final class FakeLogMiner implements EventSource {
     return this;
   }
 
+  /**
+   * The next event of the current thread carries redo byte address {@code next}, and the events
+   * after it count on from there. A value already used makes the source return the thread's redo
+   * out of redo order, which LogMiner never does: for tests of what the engine does if it did.
+   */
+  public FakeLogMiner rbaAt(long next) {
+    if (rbaByThread == null) {
+      rba = next;
+    } else {
+      rbaByThread.put(thread, next - 1);
+    }
+    return this;
+  }
+
+  /** With {@link #boundTo}: the inventory whose log set for each step limits what is returned. */
+  private sh.oso.connect.oracle.core.logs.LogInventory logs;
+
+  /**
+   * From now on a cursor returns only events that a log of their thread in the step's log set
+   * covers by SCN, as LogMiner returns only redo from the logs added to its session; the log set is
+   * {@code inventory.forRange(cursor SCN, end SCN)}, as {@code LogMinerEventSource} builds it.
+   */
+  public FakeLogMiner boundTo(sh.oso.connect.oracle.core.logs.LogInventory inventory) {
+    this.logs = inventory;
+    return this;
+  }
+
   private RedoRecordId id() {
     long scn = lateScn != null ? lateScn : nextScn++;
     lateScn = null;
@@ -315,7 +342,9 @@ public final class FakeLogMiner implements EventSource {
       openFault = null;
       throw e;
     }
-    return cursor(from, endScn, Map.of());
+    java.util.List<sh.oso.connect.oracle.core.logs.RedoLog> added =
+        logs == null ? null : logs.forRange(from.scn(), endScn).logs();
+    return cursor(from, endScn, Map.of(), added);
   }
 
   @Override
@@ -328,7 +357,7 @@ public final class FakeLogMiner implements EventSource {
         if (redoDictionaryFault != null) {
           throw redoDictionaryFault;
         }
-        return cursor(from, endScn, withRedoDictionary);
+        return cursor(from, endScn, withRedoDictionary, null);
       }
 
       @Override
@@ -339,7 +368,8 @@ public final class FakeLogMiner implements EventSource {
   private EventCursor cursor(
       sh.oso.connect.oracle.core.mining.step.StepCursor from,
       long endScn,
-      Map<RedoRecordId, MiningEvent> replaced) {
+      Map<RedoRecordId, MiningEvent> replaced,
+      java.util.List<sh.oso.connect.oracle.core.logs.RedoLog> added) {
     return new EventCursor() {
       private int i = -1;
       private MiningEvent current;
@@ -367,6 +397,10 @@ public final class FakeLogMiner implements EventSource {
               continue; // a later row below the bound may still follow
             }
             break;
+          }
+          if (added != null
+              && added.stream().noneMatch(l -> l.thread() == e.thread() && l.covers(e.scn()))) {
+            continue; // no log of its thread in the session holds it
           }
           Throwable fault = faults.get(i);
           if (fault != null) {

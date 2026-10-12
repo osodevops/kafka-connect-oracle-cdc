@@ -54,7 +54,15 @@ public record OpsEvent(Type type, long tsMs, Long resumeScn, Map<String, String>
         "operator_action"),
     POSITION_COMMITTED("position-committed"),
     LOG_SWITCH_DETECTED("log-switch-detected"),
-    THREAD_STATE_CHANGED("thread-state-changed"),
+    THREAD_STATE_CHANGED(
+        "thread-state-changed",
+        "A redo thread's state in V$THREAD changed since the task last read it: an instance"
+            + " stopped, crashed or started, or the thread was disabled or enabled.",
+        "thread",
+        "state (open, closed or disabled)",
+        "previous",
+        "sequence (the thread's current log sequence)",
+        "closed_at_scn (when the closed thread's last log is archived: where its redo ends)"),
     DDL_SEEN(
         "ddl-seen",
         "A DDL statement by an owner that Oracle does not maintain was mined.",

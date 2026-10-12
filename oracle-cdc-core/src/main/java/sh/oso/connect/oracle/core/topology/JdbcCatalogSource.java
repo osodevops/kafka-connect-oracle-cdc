@@ -202,6 +202,42 @@ public final class JdbcCatalogSource implements CatalogSource {
   }
 
   @Override
+  public java.util.Optional<RedoLog> archivedLog(int thread, long sequence, int destId)
+      throws SQLException {
+    try (PreparedStatement ps =
+        c().prepareStatement(
+                "SELECT thread#, sequence#, first_change#, next_change#, name, status, deleted,"
+                    + " dest_id, dictionary_begin, dictionary_end FROM v$archived_log WHERE dest_id"
+                    + " = ? AND thread# = ? AND sequence# = ? AND standby_dest = 'NO'")) {
+      ps.setInt(1, destId);
+      ps.setInt(2, thread);
+      ps.setLong(3, sequence);
+      RedoLog best = null;
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          RedoLog l =
+              new RedoLog(
+                  rs.getInt(1),
+                  rs.getLong(2),
+                  rs.getLong(3),
+                  rs.getLong(4),
+                  rs.getString(5),
+                  true,
+                  rs.getString(6),
+                  "YES".equals(rs.getString(7)),
+                  rs.getInt(8),
+                  "YES".equals(rs.getString(9)),
+                  "YES".equals(rs.getString(10)));
+          if (best == null || (best.purgedInCatalog() && !l.purgedInCatalog())) {
+            best = l;
+          }
+        }
+      }
+      return java.util.Optional.ofNullable(best);
+    }
+  }
+
+  @Override
   public List<RedoLog> dictionaryLogs(int destId) throws SQLException {
     List<RedoLog> out = new ArrayList<>();
     try (PreparedStatement ps =

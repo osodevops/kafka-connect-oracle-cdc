@@ -392,6 +392,22 @@ public final class RecordQueueSink
     ops(OpsEvent.Type.RECONNECTED, "cause", cause);
   }
 
+  @Override
+  public void threadStateChanged(sh.oso.connect.oracle.core.logs.ThreadStateChange change) {
+    ops(
+        OpsEvent.Type.THREAD_STATE_CHANGED,
+        "thread",
+        String.valueOf(change.thread()),
+        "state",
+        change.state(),
+        "previous",
+        change.previous(),
+        "sequence",
+        String.valueOf(change.sequence()),
+        "closed_at_scn",
+        change.closedAtScn() == null ? null : String.valueOf(change.closedAtScn()));
+  }
+
   private sh.oso.connect.oracle.core.snapshot.SnapshotCoordinator snapshot;
   private sh.oso.connect.oracle.core.snapshot.SnapshotProgress snapshotProgress;
 

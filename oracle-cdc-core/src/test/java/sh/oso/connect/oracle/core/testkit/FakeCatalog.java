@@ -146,6 +146,77 @@ public final class FakeCatalog implements CatalogSource {
     return this;
   }
 
+  /** An archived log of {@code thread} spanning SCN {@code firstScn} to {@code nextScn}. */
+  public FakeCatalog archivedLog(int thread, long sequence, long firstScn, long nextScn) {
+    archived.add(
+        new RedoLog(
+            thread,
+            sequence,
+            firstScn,
+            nextScn,
+            "/arch/t" + thread + "_s" + sequence + ".arc",
+            true,
+            "A",
+            false,
+            1,
+            false,
+            false));
+    return this;
+  }
+
+  /** An online log that is not CURRENT (ACTIVE or INACTIVE), with its NEXT_CHANGE#. */
+  public FakeCatalog onlineLog(int thread, long sequence, long firstScn, long nextScn, String st) {
+    online.add(
+        new RedoLog(
+            thread,
+            sequence,
+            firstScn,
+            nextScn,
+            "/redo/t" + thread + "_g" + sequence + ".log",
+            false,
+            st,
+            false,
+            0,
+            false,
+            false));
+    return this;
+  }
+
+  /** The V$THREAD row of {@code thread}: added, or replaced when it is listed already. */
+  public FakeCatalog thread(int thread, boolean enabled, String status, long sequence) {
+    ThreadInfo row = new ThreadInfo(thread, enabled, status, sequence);
+    if (threads.stream().anyMatch(t -> t.thread() == thread)) {
+      threads.replaceAll(t -> t.thread() == thread ? row : t);
+    } else {
+      threads.add(row);
+      threads.sort(java.util.Comparator.comparingInt(ThreadInfo::thread));
+    }
+    return this;
+  }
+
+  /**
+   * V$THREAD shows {@code thread} OPEN or CLOSED, still enabled, with its newest listed log (online
+   * or archived) as the current sequence, as after an instance start or stop.
+   */
+  public FakeCatalog threadStatus(int thread, String status) {
+    return thread(thread, true, status, newestSequence(thread));
+  }
+
+  /**
+   * V$THREAD shows {@code thread} DISABLED (and CLOSED), as after ALTER DATABASE DISABLE THREAD.
+   */
+  public FakeCatalog disableThread(int thread) {
+    return thread(thread, false, "CLOSED", newestSequence(thread));
+  }
+
+  private long newestSequence(int thread) {
+    return java.util.stream.Stream.concat(archived.stream(), online.stream())
+        .filter(l -> l.thread() == thread)
+        .mapToLong(RedoLog::sequence)
+        .max()
+        .orElse(0);
+  }
+
   @Override
   public DatabaseInfo database() {
     return database;
@@ -181,6 +252,17 @@ public final class FakeCatalog implements CatalogSource {
     return archived.stream()
         .filter(l -> l.destId() == destId && l.overlaps(startScn, endScn))
         .toList();
+  }
+
+  /** Lookups by sequence so far, for tests that pin when the inventory asks. */
+  public int sequenceLookups;
+
+  @Override
+  public java.util.Optional<RedoLog> archivedLog(int thread, long sequence, int destId) {
+    sequenceLookups++;
+    return archived.stream()
+        .filter(l -> l.destId() == destId && l.thread() == thread && l.sequence() == sequence)
+        .min(java.util.Comparator.comparing(RedoLog::purgedInCatalog));
   }
 
   @Override
