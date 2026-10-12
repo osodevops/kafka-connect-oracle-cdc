@@ -46,6 +46,7 @@ public final class Materialiser {
   private final Map<String, TxFacts> transactions = new HashMap<>();
   private final Map<String, Long> lastCommitScnByPartition = new HashMap<>();
   private final List<String> orderViolations = new ArrayList<>();
+  private long redeliveries;
   private long records;
   private long tombstones;
   private long maxCommitScn = -1;
@@ -97,15 +98,25 @@ public final class Materialiser {
       default:
         break;
     }
+    boolean redelivery = false;
     if (r.xid != null) {
       TxFacts f = transactions.computeIfAbsent(r.xid, x -> new TxFacts());
       if (r.eventIndex != null) {
+        redelivery = f.indices.contains(r.eventIndex);
         f.indices.add(r.eventIndex);
         f.opCopies.merge(r.eventIndex + ":" + r.op, 1, Integer::sum);
       }
       if (r.eventCount != null) {
         f.eventCount = r.eventCount;
       }
+    }
+    if (redelivery) {
+      // at-least-once: a copy of an event already delivered (a producer retry after a broker
+      // failure, or a replay after a task restart) is a duplicate, counted as such; ordering is a
+      // property of first deliveries, so it neither fails nor moves the partition's last SCN
+      redeliveries++;
+      maxCommitScn = Math.max(maxCommitScn, r.commitScn);
+      return;
     }
     if (r.commitScn >= 0) {
       maxCommitScn = Math.max(maxCommitScn, r.commitScn);
@@ -171,6 +182,11 @@ public final class Materialiser {
 
   public long tombstones() {
     return tombstones;
+  }
+
+  /** Records whose (transaction, event index) had already been delivered. */
+  public long redeliveries() {
+    return redeliveries;
   }
 
   public List<String> orderViolations() {

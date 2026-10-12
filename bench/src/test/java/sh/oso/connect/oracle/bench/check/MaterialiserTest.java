@@ -252,4 +252,28 @@ class MaterialiserTest {
                 List.of("ID")))
         .isEqualTo("ID=1;");
   }
+
+  /**
+   * At-least-once: a batch the producer sent again after a broker failure lands right after the
+   * original, so its first commit SCN is below the last one before it. That copy is a duplicate,
+   * not an order violation; a first delivery that goes backwards still is (nightly, 11 and 12
+   * October 2026).
+   */
+  @Test
+  void aRedeliveredEventIsADuplicateNotAnOrderViolation() throws Exception {
+    Materialiser m = new Materialiser();
+    m.apply(new RecordJson(record(0, "{\"ID\":1}", "c", null, "{\"ID\":1}", "1.1.1", 100, 0, 1)));
+    m.apply(new RecordJson(record(1, "{\"ID\":2}", "c", null, "{\"ID\":2}", "1.1.2", 110, 0, 1)));
+    // the producer's retry of the batch holding both
+    m.apply(new RecordJson(record(2, "{\"ID\":1}", "c", null, "{\"ID\":1}", "1.1.1", 100, 0, 1)));
+    m.apply(new RecordJson(record(3, "{\"ID\":2}", "c", null, "{\"ID\":2}", "1.1.2", 110, 0, 1)));
+    m.apply(new RecordJson(record(4, "{\"ID\":3}", "c", null, "{\"ID\":3}", "1.1.3", 120, 0, 1)));
+    assertThat(m.orderViolations()).isEmpty();
+    assertThat(m.redeliveries()).isEqualTo(2);
+    assertThat(m.transactions().get("1.1.1").opCopies).containsEntry("0:c", 2);
+
+    // a transaction delivered for the first time below the last commit SCN is still a violation
+    m.apply(new RecordJson(record(5, "{\"ID\":4}", "c", null, "{\"ID\":4}", "1.1.4", 115, 0, 1)));
+    assertThat(m.orderViolations()).hasSize(1);
+  }
 }

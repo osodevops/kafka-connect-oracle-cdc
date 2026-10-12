@@ -142,6 +142,7 @@ public final class CorrectnessCheck {
     report.invariants().put("eventGaps", gaps);
     report.invariants().put("eventCountMismatches", countMismatch);
     report.invariants().put("orderViolations", m.orderViolations().size());
+    report.invariants().put("redeliveredRecords", m.redeliveries());
     if (gaps > 0) {
       report.fail(gaps + " event indices are missing inside delivered transactions");
     }
