@@ -16,6 +16,7 @@
 package sh.oso.connect.oracle.e2e.qual;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -86,6 +87,9 @@ class ConfluentCutoverQualIT {
         !plugin.isBlank() && Files.isDirectory(Path.of(plugin)),
         "-De2e.confluent.plugin names no local copy of Confluent's connector");
     assumeTrue(Cli.uvAvailable(), "uv is not on the PATH; the migration tools cannot run");
+    assumeFalse(
+        db.platform() == sh.oso.connect.oracle.core.topology.Platform.RDS && !db.pdbs().isEmpty(),
+        "Confluent documents that its connector does not support RDS with the CDB architecture");
     Evidence ev =
         Evidence.of(getClass(), "Confluent Oracle CDC to OSO cutover")
             .param("target", db.describe());
