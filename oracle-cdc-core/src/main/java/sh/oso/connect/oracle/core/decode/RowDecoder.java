@@ -49,6 +49,12 @@ public final class RowDecoder {
 
   /** As {@link #decode(MiningEvent.Dml, TableSchema)}, leaving out the excluded columns. */
   public static RowChange decode(MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
+    return decode(dml, schema, excluded, false);
+  }
+
+  /** ADR-0028: decode the retained SQL without changing the text that is published. */
+  public static RowChange decode(
+      MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded, boolean verbatimSql) {
     if (dml.status() == 2 || dml.status() == 3) {
       throw new DecodeException(
           "LogMiner could not reconstruct "
@@ -64,7 +70,10 @@ public final class RowDecoder {
     }
     ParsedDml p;
     try {
-      p = SqlRedoParser.parse(dml.sqlRedo());
+      p =
+          verbatimSql
+              ? SqlRedoParser.parseVerbatim(dml.sqlRedo())
+              : SqlRedoParser.parse(dml.sqlRedo());
     } catch (DecodeException e) {
       throw withheld(e, dml, schema, excluded);
     }

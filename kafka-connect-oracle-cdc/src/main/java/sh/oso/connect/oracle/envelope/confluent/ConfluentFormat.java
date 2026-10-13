@@ -113,6 +113,9 @@ public final class ConfluentFormat implements RecordFormat {
       Position offset) {
     RowChange change = tx.events().get(index);
     Schemas s = schemas(excluded.project(schema));
+    if (lobOnly(change, s)) {
+      return List.of();
+    }
     String topic = router.topic(change.table());
     Map<String, Object> offsetMap = PositionCodec.write(offset);
     Map<Meta, String> meta = new EnumMap<>(Meta.class);
@@ -147,26 +150,9 @@ public final class ConfluentFormat implements RecordFormat {
                   null,
                   meta));
       case DELETE -> {
-        out.add(
-            change(
-                topic,
-                s,
-                offsetMap,
-                tx,
-                change,
-                index,
-                beforeKey,
-                settings.opDelete(),
-                change.before(),
-                null,
-                meta));
-        if (settings.tombstonesOnDelete() && beforeKey != null) {
+        if (settings.tombstonesOnDelete()) {
           out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
-        }
-      }
-      default -> {
-        if (beforeKey != null && afterKey != null && !Objects.equals(beforeKey, afterKey)) {
-          // a key change: delete, tombstone and insert, whatever the tombstone setting
+        } else {
           out.add(
               change(
                   topic,
@@ -180,6 +166,28 @@ public final class ConfluentFormat implements RecordFormat {
                   change.before(),
                   null,
                   meta));
+        }
+      }
+      default -> {
+        if (beforeKey != null && afterKey != null && !Objects.equals(beforeKey, afterKey)) {
+          // a key change: delete, tombstone and insert, whatever the tombstone setting
+          if (settings.tombstonesOnDelete()) {
+            out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
+          } else {
+            out.add(
+                change(
+                    topic,
+                    s,
+                    offsetMap,
+                    tx,
+                    change,
+                    index,
+                    beforeKey,
+                    settings.opDelete(),
+                    change.before(),
+                    null,
+                    meta));
+          }
           out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
           out.add(
               change(
@@ -215,6 +223,30 @@ public final class ConfluentFormat implements RecordFormat {
     return out;
   }
 
+  private static boolean lobOnly(RowChange change, Schemas s) {
+    if (RowIds.isLobGroup(change.rowId())) {
+      return true;
+    }
+    if (change.op() != sh.oso.connect.oracle.core.model.Operation.UPDATE
+        || !RowIds.isSynthetic(change.rowId())
+        || change.before() == null
+        || change.after() == null) {
+      return false;
+    }
+    for (ColumnSpec c : s.columns()) {
+      Object before = change.before().get(c.name());
+      Object after = change.after().get(c.name());
+      boolean same =
+          before instanceof BigDecimal a && after instanceof BigDecimal b
+              ? a.compareTo(b) == 0
+              : Objects.deepEquals(before, after);
+      if (!same) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   @Override
   public List<SourceRecord> snapshotRecords(
       TableId table,
@@ -241,7 +273,7 @@ public final class ConfluentFormat implements RecordFormat {
             PositionCodec.write(offset),
             router.topic(table),
             null,
-            key == null ? null : s.key(),
+            s.key(),
             key,
             s.value(),
             value,
@@ -302,7 +334,9 @@ public final class ConfluentFormat implements RecordFormat {
 
   private Schema keySchema(List<ColumnSpec> keyColumns) {
     if (keyColumns.isEmpty()) {
-      return null;
+      return settings.keyTemplate().equals(ConfluentSettings.KEY_CONCATENATED)
+          ? Schema.OPTIONAL_STRING_SCHEMA
+          : null;
     }
     return switch (settings.keyTemplate()) {
       case ConfluentSettings.KEY_CONCATENATED -> Schema.OPTIONAL_STRING_SCHEMA; // as observed
@@ -322,7 +356,7 @@ public final class ConfluentFormat implements RecordFormat {
 
   /** The record key from a row image; null without a key, or when the image lacks a key column. */
   private Object key(Schemas s, Map<String, Object> image) {
-    if (s.key() == null || image == null) {
+    if (s.keyColumns().isEmpty() || image == null) {
       return null;
     }
     for (ColumnSpec c : s.keyColumns()) {
@@ -374,16 +408,7 @@ public final class ConfluentFormat implements RecordFormat {
     }
     addHeaders(headers, tx, change, index);
     return new SourceRecord(
-        partition,
-        offset,
-        topic,
-        null,
-        key == null ? null : s.key(),
-        key,
-        schema,
-        value,
-        null,
-        headers);
+        partition, offset, topic, null, s.key(), key, schema, value, null, headers);
   }
 
   private Struct row(

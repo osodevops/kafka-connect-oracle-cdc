@@ -61,6 +61,7 @@ public final class JdbcLogMinerSession implements LogMinerSource {
   private final int queryTimeoutSeconds;
   private final Set<String> added = new LinkedHashSet<>();
   private boolean started;
+  private boolean verbatimSql;
 
   /** ADR-0027: Oracle chooses the logs from the SCN range; nothing is added. */
   private final boolean rangeOnly;
@@ -80,6 +81,12 @@ public final class JdbcLogMinerSession implements LogMinerSource {
     this.fetchSize = Math.max(1, fetchSize);
     this.queryTimeoutSeconds = (int) Math.max(0, queryTimeout.toSeconds());
     this.rangeOnly = rangeOnly;
+  }
+
+  /** ADR-0028: retain ROWID predicates and SQL delimiters when publishing redo or undo text. */
+  public JdbcLogMinerSession withVerbatimSql(boolean enabled) {
+    this.verbatimSql = enabled;
+    return this;
   }
 
   @Override
@@ -137,8 +144,13 @@ public final class JdbcLogMinerSession implements LogMinerSource {
     if (rangeOnly && started) {
       end(); // a new range: START_LOGMNR again from a clean session
     }
-    try (CallableStatement cs =
-        c.prepareCall(mode == DictionaryMode.ONLINE_CATALOG ? START_ONLINE : START_REDO_DICT)) {
+    String sql = mode == DictionaryMode.ONLINE_CATALOG ? START_ONLINE : START_REDO_DICT;
+    if (verbatimSql) {
+      sql =
+          sql.replace(" + DBMS_LOGMNR.NO_ROWID_IN_STMT", "")
+              .replace(" + DBMS_LOGMNR.NO_SQL_DELIMITER", "");
+    }
+    try (CallableStatement cs = c.prepareCall(sql)) {
       cs.setLong(1, startScn);
       cs.setLong(2, endScn);
       cs.execute();

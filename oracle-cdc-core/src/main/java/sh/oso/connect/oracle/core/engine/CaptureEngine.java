@@ -100,7 +100,7 @@ public final class CaptureEngine {
   private final LobAssembler lobs;
   private LobReselector reselector;
   private ColumnFilter excluded = ColumnFilter.none();
-  private boolean keepSql;
+  private volatile boolean keepSql;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -890,7 +890,7 @@ public final class CaptureEngine {
     try {
       return d.op().isLobOp()
           ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema, excluded)
-          : decoder.decode(d, schema, excluded);
+          : decoder.decode(d, schema, excluded, keepSql);
     } catch (RuntimeException ex) {
       return ex; // raised in order when the row is applied
     }
@@ -910,7 +910,7 @@ public final class CaptureEngine {
     RowChange change;
     try {
       Object pre = predecoded(d);
-      change = pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded);
+      change = pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded, keepSql);
       if (keepSql && !excluded.mayExclude(d.table())) {
         change =
             change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sqlRedo(), d.sqlUndo()));

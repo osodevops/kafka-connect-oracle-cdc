@@ -28,6 +28,7 @@ import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Timestamp;
 import org.apache.kafka.connect.errors.DataException;
+import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 
 /**
@@ -104,7 +105,7 @@ public final class ConfluentTypes {
   /** The column's schema; key columns are required, every other column optional. */
   public Schema schema(ColumnSpec c, boolean key) {
     SchemaBuilder b = builder(c);
-    if (!key) {
+    if (!key && c.nullable()) {
       b.optional();
     }
     return b.build();
@@ -146,6 +147,31 @@ public final class ConfluentTypes {
 
   private SchemaBuilder number(ColumnSpec c) {
     int precision = c.precision() < 0 ? MAX_PRECISION : c.precision();
+    if (numeric != NumericMapping.NONE) {
+      boolean integer =
+          c.precision() > 0
+              && (numeric == NumericMapping.PRECISION_ONLY ? c.scale() == 0 : c.scale() <= 0);
+      if (integer && precision < 19) {
+        if (precision < 3) {
+          return SchemaBuilder.int8();
+        }
+        if (precision < 5) {
+          return SchemaBuilder.int16();
+        }
+        return precision < 10 ? SchemaBuilder.int32() : SchemaBuilder.int64();
+      }
+      if (numeric != NumericMapping.PRECISION_ONLY) {
+        if (c.precision() < 0 || c.scale() > 0) {
+          return SchemaBuilder.float64();
+        }
+        if (numeric == NumericMapping.BEST_FIT_OR_DOUBLE) {
+          return SchemaBuilder.float64();
+        }
+        if (numeric == NumericMapping.BEST_FIT_OR_STRING) {
+          return SchemaBuilder.string();
+        }
+      }
+    }
     return Decimal.builder(scaleOf(c)).parameter(PRECISION, Integer.toString(precision));
   }
 
@@ -165,8 +191,43 @@ public final class ConfluentTypes {
     switch (c.type()) {
       case NUMBER:
         {
+          BigDecimal number = (BigDecimal) v;
+          if (!Decimal.LOGICAL_NAME.equals(schema.name())) {
+            try {
+              return switch (schema.type()) {
+                case INT8 -> number.byteValueExact();
+                case INT16 -> number.shortValueExact();
+                case INT32 -> number.intValueExact();
+                case INT64 -> number.longValueExact();
+                case FLOAT64 -> number.doubleValue();
+                case STRING -> number.stripTrailingZeros().toPlainString();
+                default ->
+                    throw new IllegalStateException("Unexpected NUMBER schema " + schema.type());
+              };
+            } catch (ArithmeticException e) {
+              throw new DecodeException(
+                  "NUMBER column "
+                      + c.name()
+                      + " does not fit its mapped integer type "
+                      + schema.type()
+                      + ".",
+                  "Use cdc.output.confluent.numeric.mapping=none and a compatible Decimal schema"
+                      + " before restarting; the connector never wraps an integer value.");
+            }
+          }
           int scale = Integer.parseInt(schema.parameters().get(Decimal.SCALE_FIELD));
-          return ((BigDecimal) v).setScale(scale, RoundingMode.HALF_UP);
+          try {
+            return number.setScale(scale, RoundingMode.UNNECESSARY);
+          } catch (ArithmeticException e) {
+            throw new DecodeException(
+                "NUMBER column "
+                    + c.name()
+                    + " cannot be represented exactly at scale "
+                    + scale
+                    + ".",
+                "Increase cdc.output.confluent.numeric.default.scale to represent every captured"
+                    + " value exactly, and restart from the stored offset.");
+          }
         }
       case FLOAT:
         return ((BigDecimal) v).doubleValue();

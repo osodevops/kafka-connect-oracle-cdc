@@ -68,4 +68,17 @@ Further PRD-01 and PRD-04 edits (configuration rows, MIG-2, MIG-5) land with the
 
 ## Amendments
 
-None.
+13 October 2026: the reference follow-up is committed in `38e5f71`. Confluent's snapshot rounds
+NUMBER values HALF_EVEN to `numeric.default.scale`; its streaming path fails on a value needing
+rounding. OSO instead stops with typed `DecodeException` (CDC-3001) in **both** paths whenever the
+configured Decimal scale would alter a value. This difference is required by the no-silent-data-loss
+rule. Integer conversions also fail typed on overflow rather than wrapping.
+
+The follow-up establishes that Confluent emits no LOB records for a composite row key change.
+The planned OSO old-key tombstones and new-key values are a documented difference required to keep
+LOB state consistent. The implementation and qualification evidence follow before acceptance.
+
+Confluent's default output has no headers. OSO retains its `cdc.*` diagnostic headers and suppresses
+SQL text wherever column exclusions may apply. Default truncate emission remains off: no Confluent
+`T` shape was observed, so any explicit OSO emission must be documented as an extension.
+

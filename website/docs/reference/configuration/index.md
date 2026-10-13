@@ -27,4 +27,5 @@ Groups:
 - [Record format](record-format.md)
 - [Task](task.md)
 - [Exactly-once](exactly-once.md)
+- [Confluent-compatible format](confluent-compatible-format.md)
 <!-- END GENERATED: configuration groups -->

@@ -733,7 +733,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         "How often a heartbeat record carrying the current position is written when no change"
             + " records flow, so Connect commits offsets on a quiet database and the start position"
             + " of a new connector becomes durable at once. 0 disables periodic heartbeats; the"
-            + " start heartbeat is always written.",
+            + " start heartbeat is always written, as is a position heartbeat for a transaction"
+            + " whose final change emits no table or LOB record.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,

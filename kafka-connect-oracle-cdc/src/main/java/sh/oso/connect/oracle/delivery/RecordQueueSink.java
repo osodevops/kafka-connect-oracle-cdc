@@ -581,6 +581,7 @@ public final class RecordQueueSink
     long sinceRecords = 0;
     long sinceBytes = 0;
     int splits = 0;
+    boolean emptyTail = false;
     for (int i = 0; i < tx.size(); i++) {
       RowChange c = tx.events().get(i);
       long order = perTable.merge(c.table(), 1L, Long::sum);
@@ -603,6 +604,10 @@ public final class RecordQueueSink
               : resumeCandidate;
       Position offset = after(tx, i + 1, resume);
       List<SourceRecord> records = envelope.records(tx, i, order, schema, offset);
+      emptyTail = records.isEmpty();
+      if (emptyTail) {
+        continue;
+      }
       long bytes = sh.oso.connect.oracle.core.buffer.SizeEstimate.of(c);
       sinceRecords++;
       sinceBytes += bytes;
@@ -649,6 +654,12 @@ public final class RecordQueueSink
       lastQueuedAt = clock.getAsLong();
     }
     lastEmittedCommit = after(tx, tx.size(), resumeCandidate);
+    if (emptyTail) {
+      // A filtered final change has no table record to acknowledge or close the Kafka
+      // transaction. This heartbeat follows every queued row and carries the completed
+      // position, including when periodic heartbeats are disabled.
+      heartbeat(lastEmittedCommit, tx.commitScn(), "filtered");
+    }
     if (splits > 0) {
       ops(
           OpsEvent.Type.TRANSACTION_SPLIT,

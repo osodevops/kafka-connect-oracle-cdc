@@ -143,10 +143,11 @@ public final class JdbcEngineFactory implements EngineFactory {
       return new LogMinerEventSource(
           inventory,
           new JdbcLogMinerSession(
-              mining,
-              core.getInt(CoreConfig.MINING_FETCH_SIZE),
-              Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS)),
-              rangeMode),
+                  mining,
+                  core.getInt(CoreConfig.MINING_FETCH_SIZE),
+                  Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS)),
+                  rangeMode)
+              .withVerbatimSql(config.keepsSqlText()),
           objects,
           objects.filter(excludedUsers, inlistMax),
           DictionaryMode.ONLINE_CATALOG);

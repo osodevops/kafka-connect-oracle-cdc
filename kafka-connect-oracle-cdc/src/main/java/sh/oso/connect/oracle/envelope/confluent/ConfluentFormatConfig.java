@@ -203,7 +203,12 @@ public final class ConfluentFormatConfig {
             "precision_only"),
         Importance.MEDIUM,
         "How NUMBER columns are represented, as Confluent's numeric.mapping. none: a Connect"
-            + " Decimal with the column's scale, numeric.default.scale when unconstrained.",
+            + " Decimal with the column's scale, numeric.default.scale when unconstrained."
+            + " best_fit_*: integers by declared precision for zero or negative scale; double for"
+            + " positive scale or unconstrained NUMBER; wider integers use Decimal, double or"
+            + " string according to the suffix. precision_only: integers for scale zero only,"
+            + " Decimal otherwise. Floating-point mappings can lose precision; use none for"
+            + " exact decimals.",
         GROUP,
         ++n,
         Width.MEDIUM,
@@ -215,7 +220,8 @@ public final class ConfluentFormatConfig {
         ConfigDef.Range.between(-84, 127),
         Importance.LOW,
         "The Decimal scale of a NUMBER column declared without precision and scale. Confluent's"
-            + " numeric.default.scale.",
+            + " numeric.default.scale. A value needing rounding stops the task with CDC-3001,"
+            + " in snapshots and streaming; the connector never rounds it silently.",
         GROUP,
         ++n,
         Width.SHORT,
@@ -269,7 +275,7 @@ public final class ConfluentFormatConfig {
 
   /**
    * The settings these keys give, checked: field names well formed and distinct, operation values
-   * distinct. {@code tombstones} is whether a delete is followed by a tombstone.
+   * distinct. {@code tombstones} is whether a delete emits a tombstone instead of a row record.
    *
    * @throws ConfigException naming the first key at fault
    */

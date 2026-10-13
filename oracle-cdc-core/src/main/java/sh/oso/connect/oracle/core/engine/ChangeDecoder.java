@@ -33,6 +33,12 @@ public interface ChangeDecoder {
     return excluded.project(decode(dml, schema));
   }
 
+  /** ADR-0028: the caller's mining session retains SQL delimiters when SQL output is requested. */
+  default RowChange decode(
+      MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded, boolean verbatimSql) {
+    return decode(dml, schema, excluded);
+  }
+
   static ChangeDecoder rowDecoder() {
     return new ChangeDecoder() {
       @Override
@@ -43,6 +49,12 @@ public interface ChangeDecoder {
       @Override
       public RowChange decode(MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded) {
         return RowDecoder.decode(dml, schema, excluded);
+      }
+
+      @Override
+      public RowChange decode(
+          MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded, boolean verbatimSql) {
+        return RowDecoder.decode(dml, schema, excluded, verbatimSql);
       }
     };
   }

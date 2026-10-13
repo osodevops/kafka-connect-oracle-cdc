@@ -73,6 +73,25 @@ class RowDecoderTest {
   }
 
   @Test
+  void retainedSqlDecodesWithItsDelimiterAndRowidWithoutChangingTheLegacyMode() {
+    MiningEvent.Dml event =
+        dml(
+            Operation.UPDATE,
+            "update \"APP\".\"ORDERS\" set \"NAME\" = 'b' where \"ID\" = '1' and \"NAME\" = 'a' and"
+                + " \"AMOUNT\" = '10.5' and ROWID = 'R1';",
+            0);
+    RowChange change =
+        sh.oso.connect.oracle.core.engine.ChangeDecoder.rowDecoder()
+            .decode(
+                event, schema(true), sh.oso.connect.oracle.core.schema.ColumnFilter.none(), true);
+    assertThat(change.rowId()).isEqualTo("R1");
+    assertThat(change.before().get("NAME")).isEqualTo("a");
+    assertThat(change.after().get("NAME")).isEqualTo("b");
+    assertThatThrownBy(() -> RowDecoder.decode(event, schema(true)))
+        .isInstanceOf(DecodeException.class);
+  }
+
+  @Test
   void insertUpdateDeleteWithFullBeforeImages() {
     RowChange ins =
         RowDecoder.decode(

@@ -133,13 +133,15 @@ What the `feat(envelope)` commit contains:
     `decodeAndBuffer` unless `excluded.mayExclude(table)`. `JdbcEngineFactory` calls it with
     `config.keepsSqlText()`.
 
-C2.2 is in progress in the feature worktree, with uncommitted changes: fixture-backed JSON and
+C2.2 is in progress in the feature worktree, at the C2.2 checkpoint (find the `feat(envelope): match Confluent fixtures` commit): fixture-backed JSON and
 Avro schema comparisons; field/config/codec/SQL-retention tests; numeric mappings and typed refusal
 of rounding and integer overflow; required non-key fields; corrected tombstone and keyless string
 key semantics; LOB-only row suppression and an acknowledged heartbeat for a filtered transaction
-tail. Selected unit tests and regenerated configuration/error docs pass. The full feature gate,
-engine tier and connector tier are still required before step 2 is ticked off. Rebase on this
-reference follow-up before those checks. No PR or format release has been created.
+tail. The full `clean verify -DskipE2E` gate, fixture tests and regenerated configuration/error docs pass.
+Verbatim SQL has its own parser mode, preserving the legacy delimiter regression; mining retains
+ROWID predicates and delimiters only when SQL output is requested. The engine tier and connector
+tier are still required before step 2 is ticked off. The feature branch is rebased on `38e5f71`. Long suites use the temporary
+`../kafka-connect-oracle-cdc-fmt-lab` worktree; do not edit it while Maven runs. No PR or format release has been created.
 
 ## 2. Facts established so far (Confluent 2.15.2, Oracle Database Free 23ai, 13 October 2026)
 
