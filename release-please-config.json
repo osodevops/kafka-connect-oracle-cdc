@@ -5,6 +5,7 @@
   "include-component-in-tag": false,
   "bump-minor-pre-major": true,
   "bump-patch-for-minor-pre-major": true,
+  "signoff": "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
   "packages": {
     ".": {
       "package-name": "kafka-connect-oracle-cdc",

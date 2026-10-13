@@ -80,6 +80,11 @@ old shared-header behaviour makes that regression fail; the current implementati
 No further production change was needed. Preserve all correctness assertions; a green fresh
 nightly is still required before release.
 
+Release PR #29's first DCO run failed because release-please generated its commit without a
+`Signed-off-by` line. The root release-please configuration now supplies the bot's sign-off for
+generated release and snapshot commits. Regenerate the PR and verify the actual commit trailer
+and the unchanged DCO workflow on its new head before merging; never exempt the bot from DCO.
+
 The fifteen-profile reference and step 1 follow-up are committed at `38e5f71`. Fixtures contain
 only the suite's own test data and normalised volatile values. The reference-only scale-two
 profile is complete: snapshots establish HALF_EVEN rounding, exact streaming 0.12 succeeds and
