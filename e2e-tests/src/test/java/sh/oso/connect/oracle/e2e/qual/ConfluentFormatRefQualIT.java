@@ -27,6 +27,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -76,7 +77,8 @@ class ConfluentFormatRefQualIT {
   static final ObjectMapper JSON = new ObjectMapper();
   static final HttpClient HTTP = HttpClient.newHttpClient();
   static final Duration TOOL_IDLE = Duration.ofSeconds(25);
-  static final List<String> TABLES = List.of("TYPES", "EXOTIC", "COMPOSITE", "NOPK", "LOBS");
+  static final List<String> TABLES =
+      List.of("TYPES", "EXOTIC", "COMPOSITE", "NOPK", "LOBS", "NUMS", "LOBS2");
 
   /** One run of Confluent's connector: a name, its extra properties and the converter. */
   record Profile(String name, Map<String, String> props, boolean avro) {}
@@ -86,6 +88,15 @@ class ConfluentFormatRefQualIT {
     p.add(new Profile("default", Map.of(), false));
     p.add(new Profile("default-avro", Map.of(), true));
     p.add(new Profile("before-state-avro", Map.of("output.before.state.field", "before"), true));
+    p.add(
+        new Profile(
+            "all-fields",
+            Map.of(
+                "output.commit.scn.field", "cscn",
+                "output.redo.field", "redo",
+                "output.undo.field", "undo",
+                "output.before.state.field", "before"),
+            false));
     Map<String, String> renamed = new LinkedHashMap<>();
     renamed.put("output.table.name.field", "t_name");
     renamed.put("output.scn.field", "header:x_scn");
@@ -111,7 +122,11 @@ class ConfluentFormatRefQualIT {
             "best_fit_or_decimal", "best_fit_or_double", "best_fit_or_string", "precision_only")) {
       p.add(new Profile("numeric-" + m.replace('_', '-'), Map.of("numeric.mapping", m), false));
     }
-    p.add(new Profile("numeric-none-scale2", Map.of("numeric.default.scale", "2"), false));
+    p.add(
+        new Profile(
+            "numeric-none-scale2",
+            Map.of("numeric.default.scale", "2", "log.sensitive.data", "true"),
+            false));
     p.add(new Profile("date-timestamp", Map.of("oracle.date.mapping", "timestamp"), false));
     p.add(new Profile("tombstones", Map.of("emit.tombstone.on.delete", "true"), false));
     p.add(
@@ -130,6 +145,10 @@ class ConfluentFormatRefQualIT {
 
   @Test
   void recordsWhatConfluentsConnectorWritesForEveryProfile() throws Exception {
+    assumeTrue(
+        !"true".equalsIgnoreCase(System.getenv("CI"))
+            && !"true".equalsIgnoreCase(System.getenv("GITHUB_ACTIONS")),
+        "Confluent's connector must never run in CI");
     String plugin = System.getProperty("e2e.confluent.plugin", "");
     assumeTrue(
         !plugin.isBlank() && Files.isDirectory(Path.of(plugin)),
@@ -188,17 +207,45 @@ class ConfluentFormatRefQualIT {
     String prefix = connector + ".";
     awaitTopic(cluster, prefix, "TYPES", Duration.ofMinutes(5));
     Thread.sleep(10_000); // the snapshot finishes before the script starts
-    try (Connection w = db.workload(schema)) {
-      script(w);
-      Thread.sleep(40_000); // Confluent mines the row changes before the DDL
-      scriptAfterDdl(w);
+    cluster.awaitRunning(connector, Duration.ofSeconds(10));
+    boolean scale2 = p.name().equals("numeric-none-scale2");
+    try (Connection w = db.workload(schema);
+        Connection other = db.workload(schema)) {
+      if (scale2) {
+        // First prove that a streaming NUMBER fitting the configured scale works. Only then
+        // introduce the value needing rounding; its failure is part of this reference.
+        exec(w, numsRow(10, "0.12"));
+        awaitJsonRow(cluster, prefix, "NUMS", "ID", 10, Duration.ofMinutes(3));
+        exec(w, numsRow(11, "0.125"));
+        JsonNode status = cluster.awaitTaskState(connector, "FAILED", Duration.ofMinutes(3));
+        assertThat(status.path("tasks").get(0).path("trace").asText())
+            .contains("Exception converting redo to change event");
+        // Diagnostic output can contain test row values. Keep it local and out of the fixtures.
+        Files.writeString(
+            Path.of(System.getProperty("java.io.tmpdir"), "oso-cdc-confluent-scale2-status.json"),
+            JSON.writerWithDefaultPrettyPrinter().writeValueAsString(status));
+      } else {
+        script(w, other);
+        Thread.sleep(40_000); // Confluent mines the row changes before the DDL
+        scriptAfterDdl(w);
+      }
     }
     db.archiveLogCurrent();
     Map<String, List<ConsumerRecord<byte[], byte[]>>> byTopic =
         readUntilIdle(cluster, prefix, Duration.ofMinutes(6));
+    if (!scale2) {
+      cluster.awaitRunning(connector, Duration.ofSeconds(10));
+      assertThat(
+              byTopic.entrySet().stream()
+                  .filter(e -> e.getKey().endsWith(".TYPES"))
+                  .mapToInt(e -> e.getValue().size())
+                  .sum())
+          .as("snapshot and streaming records, including the DDL script")
+          .isGreaterThan(3);
+    }
     cluster.delete(connector);
     Map<String, Integer> counts = new TreeMap<>();
-    Normaliser n = new Normaliser(schema, p);
+    Normaliser n = new Normaliser(schema, p, cluster.confluentSchemaRegistryUrl(), prefix);
     Path dir =
         Cli.repoRoot()
             .resolve("kafka-connect-oracle-cdc/src/test/resources/confluent-reference")
@@ -244,6 +291,9 @@ class ConfluentFormatRefQualIT {
         "table.inclusion.regex", first + "[.]" + schema + "[.](" + String.join("|", TABLES) + ")");
     c.put("start.from", "snapshot");
     c.put("snapshot.threads.per.task", "1"); // one table at a time: deterministic order
+    c.put(
+        "log.sensitive.data",
+        Boolean.toString(Boolean.getBoolean("e2e.confluent.reference.sensitive")));
     // the default (auto) switched to a dictionary from the redo at the script's DDL and stopped
     // with ORA-01371 even after a dictionary build; the record format is the same either way
     c.put("oracle.dictionary.mode", "online");
@@ -286,7 +336,14 @@ class ConfluentFormatRefQualIT {
             + " i_ds INTERVAL DAY(2) TO SECOND(6), t_ts9 TIMESTAMP(9), n_neg NUMBER(5,-2))",
         "CREATE TABLE composite (a NUMBER(5), b VARCHAR2(10), v VARCHAR2(20), PRIMARY KEY (a, b))",
         "CREATE TABLE nopk (x NUMBER(5), y VARCHAR2(10))",
-        "CREATE TABLE lobs (id NUMBER(10) PRIMARY KEY, v VARCHAR2(10), c CLOB, n NCLOB, b BLOB)");
+        "CREATE TABLE lobs (id NUMBER(10) PRIMARY KEY, v VARCHAR2(10), c CLOB, n NCLOB, b BLOB)",
+        "CREATE TABLE lobs2 (a NUMBER(5), b VARCHAR2(5), c CLOB, PRIMARY KEY (a, b))",
+        "CREATE TABLE nums (id NUMBER(10) PRIMARY KEY, n2 NUMBER(2), n3 NUMBER(3),"
+            + " n4 NUMBER(4), n9 NUMBER(9), n18 NUMBER(18), n19 NUMBER(19),"
+            + " n3m2 NUMBER(3,-2), n17m2 NUMBER(17,-2), n15_2 NUMBER(15,2),"
+            + " n16_2 NUMBER(16,2), n38_10 NUMBER(38,10), n_round NUMBER,"
+            + " nn VARCHAR2(10) NOT NULL)",
+        "CREATE TABLE scratch (id NUMBER)");
     for (String t : TABLES) {
       exec(w, "ALTER TABLE " + t + " ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS");
     }
@@ -300,9 +357,26 @@ class ConfluentFormatRefQualIT {
         "INSERT INTO composite VALUES (0, 's', 'seed')",
         "INSERT INTO nopk VALUES (0, 'seed')",
         "INSERT INTO lobs VALUES (0, 'seed', 'small clob', N'small nclob', HEXTORAW('DEADBEEF'))",
+        "INSERT INTO lobs2 VALUES (0, 's', 'composite seed')",
+        numsRow(1, "0.125"),
+        numsRow(2, "0.135"),
+        numsRow(3, "-0.125"),
         // Confluent's snapshot reads table row counts from the statistics; without them its
         // 2.15.2 build failed the snapshot with a NullPointerException (observed 13 October 2026)
         "BEGIN DBMS_STATS.GATHER_SCHEMA_STATS(USER); END;");
+  }
+
+  static String numsRow(int id, String rounding) {
+    return "INSERT INTO nums VALUES ("
+        + id
+        + ", 99, 999, 9999, 999999999, 999999999999999999, 9999999999999999999,"
+        // Negative scale does not widen Confluent's integer mapping: 99900 in NUMBER(3,-2)
+        // failed its snapshot with JDBC Numeric Overflow (getShort). Keep the reference input
+        // within the mapped integer too, so the remaining schemas and streaming can be observed.
+        + " 12300, 1234567890123456700, 9999999999999.99, 99999999999999.99,"
+        + " 1234567890123456789012345678.1234567890, "
+        + rounding
+        + ", 'required')";
   }
 
   static String typesRow(int id, String vc) {
@@ -329,7 +403,7 @@ class ConfluentFormatRefQualIT {
   }
 
   /** The changes every profile observes, each statement its own transaction unless stated. */
-  static void script(Connection w) throws SQLException {
+  static void script(Connection w, Connection other) throws SQLException {
     exec(
         w,
         typesRow(10, "'ten'"),
@@ -337,14 +411,18 @@ class ConfluentFormatRefQualIT {
         "INSERT INTO nopk VALUES (1, 'a')",
         "INSERT INTO lobs VALUES (1, 'v1', 'clob one', N'nclob one', HEXTORAW('0102'))",
         exoticRow(10),
+        numsRow(10, "0.12"),
+        "INSERT INTO lobs2 VALUES (1, 'a', 'composite clob')",
         "UPDATE types SET c_vc = 'upd' WHERE id = 10",
         "UPDATE types SET n_10_2 = NULL WHERE id = 10");
     w.setAutoCommit(false);
-    exec(
-        w,
-        typesRow(11, "'eleven'"),
-        typesRow(12, "'twelve'"),
-        "UPDATE composite SET v = 'y' WHERE a = 1");
+    exec(w, typesRow(11, "'eleven'"));
+    // Committing another connection advances the database SCN without committing this one.
+    // The two captured statements now distinguish row SCNs from the transaction start SCN.
+    exec(other, "INSERT INTO scratch VALUES (1)");
+    exec(w, typesRow(12, "'twelve'"));
+    exec(other, "INSERT INTO scratch VALUES (2)");
+    exec(w, "UPDATE composite SET v = 'y' WHERE a = 1");
     w.commit();
     exec(w, typesRow(13, "'rolled back'"));
     w.rollback();
@@ -358,7 +436,47 @@ class ConfluentFormatRefQualIT {
         "DELETE FROM nopk WHERE x = 1",
         "UPDATE lobs SET c = RPAD('large clob ', 3000, 'x') WHERE id = 1",
         "UPDATE lobs SET v = 'v2' WHERE id = 1",
-        "DELETE FROM lobs WHERE id = 1");
+        "DELETE FROM lobs WHERE id = 1",
+        "UPDATE lobs2 SET c = 'composite updated' WHERE a = 1",
+        "UPDATE lobs2 SET b = 'b' WHERE a = 1",
+        "DELETE FROM lobs2 WHERE a = 1");
+  }
+
+  static void awaitJsonRow(
+      ConnectCluster cluster,
+      String prefix,
+      String table,
+      String field,
+      int value,
+      Duration timeout)
+      throws Exception {
+    awaitTopic(cluster, prefix, table, timeout);
+    String topic =
+        cluster.topics().stream()
+            .filter(t -> t.startsWith(prefix) && t.endsWith("." + table))
+            .findFirst()
+            .orElseThrow();
+    try (KafkaConsumer<byte[], byte[]> c =
+        cluster.byteConsumer("ref-await-" + System.nanoTime(), topic)) {
+      long deadline = System.currentTimeMillis() + timeout.toMillis();
+      while (System.currentTimeMillis() < deadline) {
+        for (ConsumerRecord<byte[], byte[]> r : c.poll(Duration.ofSeconds(1))) {
+          if (r.value() == null) {
+            continue;
+          }
+          // The ID is Decimal(10,0), represented as base64 by JsonConverter.
+          JsonNode payload = JSON.readTree(r.value()).path("payload");
+          JsonNode id = payload.path(field);
+          if (id.isTextual()
+              && new java.math.BigInteger(java.util.Base64.getDecoder().decode(id.asText()))
+                      .intValueExact()
+                  == value) {
+            return;
+          }
+        }
+      }
+    }
+    throw new AssertionError("no streaming row " + table + "." + field + "=" + value);
   }
 
   /**
@@ -473,9 +591,14 @@ class ConfluentFormatRefQualIT {
     private final Map<String, String> scns = new LinkedHashMap<>();
     private final Map<String, String> times = new LinkedHashMap<>();
     private final Map<String, String> rowIds = new LinkedHashMap<>();
+    private final String registry;
+    private final String prefix;
+    private final Map<Integer, JsonNode> schemaVersions = new LinkedHashMap<>();
 
-    Normaliser(String schema, Profile p) {
+    Normaliser(String schema, Profile p, String registry, String prefix) {
       this.schema = schema;
+      this.registry = registry;
+      this.prefix = prefix;
       Map<String, String> props = p.props();
       this.scnFields =
           Set.of(
@@ -551,8 +674,8 @@ class ConfluentFormatRefQualIT {
       ObjectNode o = JSON.createObjectNode();
       o.put("timestampType", r.timestampType().name);
       o.put("timestamp", placeholder(times, "ts", Long.toString(r.timestamp())));
-      o.set("key", side(r.key(), avro));
-      o.set("value", side(r.value(), avro));
+      o.set("key", side(r.key(), avro, r.topic() + "-key"));
+      o.set("value", side(r.value(), avro, r.topic() + "-value"));
       ArrayNode headers = JSON.createArrayNode();
       for (Header h : r.headers()) {
         ObjectNode hn = JSON.createObjectNode();
@@ -565,16 +688,32 @@ class ConfluentFormatRefQualIT {
       return o;
     }
 
-    private JsonNode side(byte[] bytes, boolean avro) throws Exception {
+    private JsonNode side(byte[] bytes, boolean avro, String subject) throws Exception {
       if (bytes == null) {
         return null;
       }
       if (avro) {
-        // the Avro body holds the same values as the JSON profiles, and volatile SCN text inside
-        // binary; only the registered schemas (subjects/) are recorded for these profiles
+        assertThat(bytes.length).isGreaterThanOrEqualTo(5);
+        assertThat(bytes[0]).isZero();
+        int id = ByteBuffer.wrap(bytes, 1, 4).getInt();
+        JsonNode versions = schemaVersions.get(id);
+        if (versions == null) {
+          versions = get(registry + "/schemas/ids/" + id + "/versions");
+          schemaVersions.put(id, versions);
+        }
+        JsonNode version = null;
+        for (JsonNode entry : versions) {
+          if (subject.equals(entry.path("subject").asText())) {
+            version = entry.path("version");
+            break;
+          }
+        }
+        assertThat(version).as("registered subject version for " + subject).isNotNull();
         ObjectNode a = JSON.createObjectNode();
         a.put("avro", true);
         a.put("magic", bytes[0]);
+        a.put("subject", text(subject.substring(prefix.length())));
+        a.set("version", version);
         return a;
       }
       return json(JSON.readTree(bytes));

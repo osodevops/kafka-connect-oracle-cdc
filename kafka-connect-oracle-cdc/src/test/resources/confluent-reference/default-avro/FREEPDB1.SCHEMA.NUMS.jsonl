@@ -1,0 +1,4 @@
+{"timestampType":"CreateTime","timestamp":"<ts:12>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:13>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:13>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:7>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NUMS-value","version":1},"headers":[]}

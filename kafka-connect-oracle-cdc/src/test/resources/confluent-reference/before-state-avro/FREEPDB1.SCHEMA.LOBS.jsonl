@@ -1,4 +1,4 @@
-{"timestampType":"CreateTime","timestamp":"<ts:6>","key":{"avro":true,"magic":0},"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:2>","key":{"avro":true,"magic":0},"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:7>","key":{"avro":true,"magic":0},"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:7>","key":{"avro":true,"magic":0},"value":{"avro":true,"magic":0},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:7>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:6>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:8>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-value","version":2},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:8>","key":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-key","version":1},"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.LOBS-value","version":1},"headers":[]}

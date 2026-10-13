@@ -56,8 +56,14 @@ The full run of all 14 profiles finished on 13 October 2026 (build success, abou
 `default-avro`, `before-state-avro`, `renamed`, `key-struct`, `key-concat`,
 `numeric-best-fit-or-decimal`, `numeric-best-fit-or-double`, `numeric-best-fit-or-string`,
 `numeric-precision-only`, `numeric-none-scale2`, `date-timestamp`, `tombstones` and `lob-topics`.
-**`numeric-none-scale2` is incomplete:** Confluent's task died on the first streaming insert
-(see section 2), so that directory holds snapshot rows only. Rerun it as part of step 1. The run deletes and rewrites the
+The step 1 follow-up completed on 13 October 2026, with all 11 selected profiles passing the
+reference suite. There are now 15 profile directories, including `all-fields`, and NUMS and LOBS2
+fixtures in the rerun profiles. Avro records also identify their subject and schema version.
+**`numeric-none-scale2` is complete:** it records the snapshots and an exact-scale streaming insert,
+then asserts the expected task failure on a value needing rounding. Its diagnostics remain local.
+A first numeric follow-up hit Confluent's JDBC short overflow on NUMBER(3,-2) value 99900;
+regular input now fits its mapped integer widths. The independent reference is
+`oracle-cdc-core/src/main/resources/reference/confluent-record-format.md`. The run deletes and rewrites the
 whole `confluent-reference` directory only when it is started with the `rm -rf` shown in
 section 4. A subset run rewrites only its own profiles.
 
@@ -127,16 +133,23 @@ What the `feat(envelope)` commit contains:
     `decodeAndBuffer` unless `excluded.mayExclude(table)`. `JdbcEngineFactory` calls it with
     `config.keepsSqlText()`.
 
+C2.2 is in progress in the feature worktree, with uncommitted changes: fixture-backed JSON and
+Avro schema comparisons; field/config/codec/SQL-retention tests; numeric mappings and typed refusal
+of rounding and integer overflow; required non-key fields; corrected tombstone and keyless string
+key semantics; LOB-only row suppression and an acknowledged heartbeat for a filtered transaction
+tail. Selected unit tests and regenerated configuration/error docs pass. The full feature gate,
+engine tier and connector tier are still required before step 2 is ticked off. Rebase on this
+reference follow-up before those checks. No PR or format release has been created.
+
 ## 2. Facts established so far (Confluent 2.15.2, Oracle Database Free 23ai, 13 October 2026)
 
-These go into `oracle-cdc-core/src/main/resources/reference/confluent-record-format.md` (facts
-and decisions, never timings). That file does not exist yet.
+These are recorded in `oracle-cdc-core/src/main/resources/reference/confluent-record-format.md`
+(facts and decisions, never timings). The step 1 follow-up settled the open points below.
 
 ### Value and key
 
 - The value schema is an unnamed, required struct. Its columns come in table order: key columns
-  are required and the other columns optional. Whether a NOT NULL non-key column is required is
-  **still open**.
+  are required and the other columns optional. A NOT NULL non-key column is required too (NUMS.NN).
 - The default metadata fields follow the columns, all optional strings, in this order: `table`,
   `scn`, `op_type`, `op_ts`, `current_ts`, `row_id`, `username`. `table` is `PDB.OWNER.TABLE`.
   `scn`, `op_ts` and `current_ts` are decimal strings.
@@ -146,11 +159,10 @@ and decisions, never timings). That file does not exist yet.
   - `header:x_scn` and `header:x_rowid` become string headers in that order. The row id header is
     absent when null, for example on snapshot rows.
   - Tombstones carry the same headers.
-  - Where commit SCN sits relative to `scn` when both are in the body is **still open**: in this
-    run `scn` was a header.
+  - The `all-fields` follow-up places commit SCN immediately after `scn` when both are in the body.
 - `scn` is **not** the commit SCN: `x_scn` (header) differs from `x_cscn` on every streaming row.
-  All rows of one multi-statement transaction had the same `x_scn`, which fits both "the row's
-  SCN" and "the transaction's start SCN". **To settle** (section 4).
+  The follow-up commits on a second connection between two statements: their row SCNs differ,
+  while their commit SCNs are equal. Use the row's SCN, not the transaction start SCN.
 - Snapshot rows: `op_type=R`, `scn` and the commit SCN are both the snapshot SCN (one per table),
   and `op_ts`, `row_id`, `username`, redo and undo are null.
 - `op_ts` has second resolution (milliseconds ending in 000). `current_ts` is the write time.
@@ -181,8 +193,8 @@ and decisions, never timings). That file does not exist yet.
 - With `emit.tombstone.on.delete=true` (profile `tombstones`) a delete produces **only a
   tombstone, no `D` record**. A key change produces two tombstones for the old key, then `I` for
   the new one. On a table without a key, the tombstone has a null key and a null value.
-- Default truncate produces no record. The `T` record shape (and whether a setting enables it) is
-  **still open**.
+- Default truncate produces no record. No `T` was observed in the follow-up either. The public property list documents the operation
+  value but no enabling property. Explicit OSO emission is an extension to document; default stays off.
 - A rolled-back transaction produces nothing.
 - A change touching only LOB columns produces no record without LOB topics: the CLOB-only update
   produced nothing.
@@ -194,15 +206,11 @@ and decisions, never timings). That file does not exist yet.
 - NUMBER(p,s) becomes Connect Decimal with parameters `{scale: s, connect.decimal.precision: p}`.
   An unconstrained NUMBER gets scale 127 (`numeric.default.scale`) and precision 38. NUMBER(5,-2)
   gets scale -2.
-- With `numeric.default.scale=2`, the **snapshot** turned 12345.678901234567 into 12345.68, so it
-  rounds there. HALF_UP and HALF_EVEN are **still open**: the planned values 0.125 and 0.135 tell
-  them apart. The **streaming** path, however, killed Confluent's task on the first TYPES insert
-  ("Exception converting redo to change event"). The cause is redacted in the log; the likely one
-  is a value with more fractional digits than the scale. Confirm by rerunning with
-  `log.sensitive.data=true` and with seed values that fit the scale. Proposed decision, given
-  the no-silent-data-loss rule: a value that would need rounding stops the task typed, in
-  snapshots too, and this is a documented difference. The code currently rounds HALF_UP and
-  must change.
+- With `numeric.default.scale=2`, snapshot rounding is **HALF_EVEN**: 0.125 becomes 0.12,
+  0.135 becomes 0.14, and -0.125 becomes -0.12. The streaming follow-up first publishes 0.12,
+  then fails on 0.125, naming conversion of N_ROUND to BYTES in the external diagnostic.
+  **Decision authorised by Sion:** OSO refuses any Decimal value needing rounding, with typed
+  CDC-3001 in snapshots and streaming. This is a documented difference from Confluent.
 - FLOAT(n) becomes a double.
 - CHAR, VARCHAR2, NCHAR and NVARCHAR2 become strings, with CHAR and NCHAR blank-padded.
 - DATE becomes a Connect Date: days since the epoch, with the time of day dropped. With
@@ -229,7 +237,7 @@ and `enable.large.lob.object.support=true`.
 - There is one topic per LOB column, for example `<connector>.lob.FREEPDB1.SCHEMA.LOBS.C`.
 - The key is a required unnamed struct `{table: string, column: string, primary_key: <the key
   column's schema>}`, where `table` is the fully qualified name and `column` the column name.
-  The shape for a composite key is **still open**.
+  For a composite key, `primary_key` is a required unnamed struct of the key columns.
 - The value is required `bytes`, for every LOB type. CLOB is UTF-8, NCLOB is **UTF-16BE**, and
   BLOB is the raw bytes. A 3000-character CLOB arrived whole.
 - Snapshot rows get one LOB record per LOB column with the current value. Inserts get one per LOB
@@ -239,6 +247,9 @@ and `enable.large.lob.object.support=true`.
 - A delete gives `D` on the table topic and a tombstone on every LOB topic of the row, whatever
   the tombstone setting.
 - The table topic's value never contains the LOB columns.
+- A composite row key change emits no LOB records: the old LOB key remains, and the later delete
+  tombstones only the new key. The planned OSO old-key tombstones and new-key LOB values are a
+  documented difference, required to keep LOB state consistent.
 
 ### `numeric.mapping` (column types of table TYPES and EXOTIC)
 
@@ -252,10 +263,11 @@ and `enable.large.lob.object.support=true`.
 | NUMBER(5,-2) | Decimal(5,-2) | int32 | int32 | int32 | Decimal(5,-2) |
 | FLOAT(10) | double | double | double | double | double |
 
-Still open: the exact integer width thresholds (int8 and int16 never appeared; the guess is
-precision below 3 gives int8, below 5 int16, below 10 int32, below 19 int64), whether a negative
-scale counts `precision - scale` digits, and whether a NUMBER with scale above 0 and a large
-precision (for example NUMBER(38,10)) stays a double.
+The follow-up settles the widths: precision 1 or 2 gives int8, 3 or 4 int16, 5 to 9 int32,
+10 to 18 int64, 19 or above the suffix's fallback. Negative scale does **not** widen the integer:
+NUMBER(3,-2) is int16 and NUMBER(17,-2) int64. Out-of-range values must fail typed.
+Every tested positive-scale NUMBER is double under all `best_fit_*` mappings, including
+NUMBER(15,2), NUMBER(16,2) and NUMBER(38,10). `precision_only` uses integers only for scale zero.
 
 ### Confluent's own quirks met while recording (worth knowing, not to copy)
 
@@ -275,6 +287,9 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 `export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home`.
 
 ### Step 1: finish and record the reference
+
+- [x] Follow-up run completed, all selected profiles recorded, facts and decisions written.
+- [x] Full `clean verify -DskipE2E`, fixture inspection and secret scan; follow-up committed with the suite, fixtures and reference file.
 
 1. Done: the 14-profile run ended and every profile is read (section 2).
 2. Extend `ConfluentFormatRefQualIT` for the open points and run only the new or affected

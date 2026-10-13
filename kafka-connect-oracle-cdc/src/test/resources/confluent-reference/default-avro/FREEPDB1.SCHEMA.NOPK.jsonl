@@ -1,5 +1,5 @@
-{"timestampType":"CreateTime","timestamp":"<ts:8>","key":null,"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:2>","key":null,"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:4>","key":null,"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:4>","key":null,"value":{"avro":true,"magic":0},"headers":[]}
-{"timestampType":"CreateTime","timestamp":"<ts:9>","key":null,"value":{"avro":true,"magic":0},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:10>","key":null,"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NOPK-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:7>","key":null,"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NOPK-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:4>","key":null,"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NOPK-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:4>","key":null,"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NOPK-value","version":1},"headers":[]}
+{"timestampType":"CreateTime","timestamp":"<ts:11>","key":null,"value":{"avro":true,"magic":0,"subject":"FREEPDB1.SCHEMA.NOPK-value","version":1},"headers":[]}

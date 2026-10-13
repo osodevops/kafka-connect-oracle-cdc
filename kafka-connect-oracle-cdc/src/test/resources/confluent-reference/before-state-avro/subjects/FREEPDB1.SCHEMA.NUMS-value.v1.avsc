@@ -1,0 +1,231 @@
+{
+  "type" : "record",
+  "name" : "ConnectDefault",
+  "namespace" : "io.confluent.connect.avro",
+  "fields" : [ {
+    "name" : "ID",
+    "type" : {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 10,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "10"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    }
+  }, {
+    "name" : "N2",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 2,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "2"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N3",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 3,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "3"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N4",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 4,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "4"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N9",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 9,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "9"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N18",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 18,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "18"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N19",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 19,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "19"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N3M2",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : -2,
+      "precision" : 3,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "-2",
+        "connect.decimal.precision" : "3"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N17M2",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : -2,
+      "precision" : 17,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "-2",
+        "connect.decimal.precision" : "17"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N15_2",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 2,
+      "precision" : 15,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "2",
+        "connect.decimal.precision" : "15"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N16_2",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 2,
+      "precision" : 16,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "2",
+        "connect.decimal.precision" : "16"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N38_10",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 10,
+      "precision" : 38,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "10",
+        "connect.decimal.precision" : "38"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "N_ROUND",
+    "type" : [ "null", {
+      "type" : "bytes",
+      "scale" : 127,
+      "precision" : 38,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "127",
+        "connect.decimal.precision" : "38"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    } ],
+    "default" : null
+  }, {
+    "name" : "NN",
+    "type" : "string"
+  }, {
+    "name" : "table",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "scn",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "op_type",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "op_ts",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "current_ts",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "row_id",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "username",
+    "type" : [ "null", "string" ],
+    "default" : null
+  } ]
+}
