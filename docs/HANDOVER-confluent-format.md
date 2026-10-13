@@ -41,9 +41,9 @@ Hard rules for this work (also in `CLAUDE.md` and ADR-0028):
 
 ## 1. Where everything is right now
 
-### Main checkout (`kafka-connect-oracle-cdc`, branch `main`, clean apart from these)
+### Main checkout (`kafka-connect-oracle-cdc`, branch `main`)
 
-Uncommitted, to be committed once the reference run below has finished:
+Committed in `d321d02` (test(qual): ConfluentFormatRefQualIT and the recorded Confluent reference):
 
 | Path | What it is |
 |---|---|
@@ -63,7 +63,7 @@ section 4. A subset run rewrites only its own profiles.
 
 ### Feature worktree (`../kafka-connect-oracle-cdc-fmt`, branch `feat/confluent-format`)
 
-Not pushed. Three commits on top of `main` (`cf03167`):
+Rebased on `main` after `d321d02`, so the fixtures are on the branch too. Three commits of its own:
 
 | Commit | Content | State |
 |---|---|---|
@@ -305,16 +305,15 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
      bytes 1 to 4 to `subject` and `version` through the registry, and write them instead.
 3. Write `oracle-cdc-core/src/main/resources/reference/confluent-record-format.md` from section
    2 plus the new facts: one fact and one decision per question, no timings.
-4. Commit in the main checkout (or move the files to the branch, see step 8):
-   `test(qual): ConfluentFormatRefQualIT and the recorded Confluent reference (ADR-0028)` with the
-   suite, the `ConnectCluster` changes, the fixtures and the reference file. Run
+4. Done for the first run (`d321d02`). After the follow-up run, commit the changed suite and
+   fixtures together with the reference file the same way, and run
    `gitleaks dir . --config .gitleaks.toml --redact` first. The fixtures must contain no host
    names, passwords or real schema names. The normaliser writes `SCHEMA`, but check anyway.
 
 ### Step 2 (C2.2): fixture test and corrections
 
-1. Rebase `feat/confluent-format` on `main` once the fixtures are committed there, or copy them
-   into the branch.
+1. Done: `feat/confluent-format` is rebased on `main` with the fixtures. Rebase again after the
+   follow-up run.
 2. Write `kafka-connect-oracle-cdc/src/test/java/sh/oso/connect/oracle/envelope/confluent/ConfluentFormatFixtureTest.java`.
    It builds the same tables as `TableSchema`s, feeds `ConfluentFormat` the same changes as the
    suite's script (`CommittedTransaction`s and `SnapshotRow`s, with SCNs, ROWIDs and timestamps
