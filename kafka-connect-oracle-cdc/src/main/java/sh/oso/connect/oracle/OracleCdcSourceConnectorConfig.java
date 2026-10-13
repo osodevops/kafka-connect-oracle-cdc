@@ -31,6 +31,8 @@ import org.apache.kafka.common.config.types.Password;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.KeySelector;
+import sh.oso.connect.oracle.envelope.confluent.ConfluentFormatConfig;
+import sh.oso.connect.oracle.envelope.confluent.ConfluentSettings;
 
 /**
  * Connector configuration: every engine key from {@link CoreConfig} plus the Kafka-facing keys of
@@ -108,8 +110,14 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
     ISO_STRING
   }
 
+  public enum OutputFormat {
+    DEBEZIUM,
+    CONFLUENT
+  }
+
   private final CoreConfig core;
   private final ColumnFilter columnFilter;
+  private final ConfluentSettings confluent;
 
   public OracleCdcSourceConnectorConfig(Map<String, String> props) {
     super(configDef(), props, false);
@@ -135,6 +143,25 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         }
       }
     }
+    this.confluent =
+        outputFormat() == OutputFormat.CONFLUENT
+            ? ConfluentFormatConfig.settings(this, tombstonesOnDelete())
+            : null;
+  }
+
+  public OutputFormat outputFormat() {
+    return OutputFormat.valueOf(getString(OUTPUT_FORMAT).toUpperCase(Locale.ROOT));
+  }
+
+  /** ADR-0028: the Confluent-compatible format's settings; null with another format. */
+  public ConfluentSettings confluentSettings() {
+    return confluent;
+  }
+
+  /** Whether the record format publishes each change's SQL_REDO or SQL_UNDO text. */
+  public boolean keepsSqlText() {
+    return confluent != null
+        && !(confluent.redoField().isEmpty() && confluent.undoField().isEmpty());
   }
 
   /** SRC-SEL-2: the columns kept out of records, shared by the engine, envelope and snapshots. */
@@ -226,6 +253,11 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   }
 
   public boolean tombstonesOnDelete() {
+    // ADR-0028: when unset, the Confluent-compatible format follows Confluent's default, none
+    if (outputFormat() == OutputFormat.CONFLUENT
+        && !originals().containsKey(TOMBSTONES_ON_DELETE)) {
+      return false;
+    }
     return getBoolean(TOMBSTONES_ON_DELETE);
   }
 
@@ -500,7 +532,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.BOOLEAN,
         true,
         Importance.MEDIUM,
-        "Emit a null-valued record after every delete so compacted topics drop the key.",
+        "Emit a null-valued record after every delete so compacted topics drop the key. When"
+            + " unset with cdc.output.format=confluent, false, as in Confluent's connector.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,
@@ -510,10 +543,12 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         OUTPUT_FORMAT,
         Type.STRING,
         "debezium",
-        ConfigDef.ValidString.in("debezium"),
+        ConfigDef.CaseInsensitiveValidString.in("debezium", "confluent"),
         Importance.MEDIUM,
-        "Record envelope. Only debezium (before, after, source, op, ts_ms) is available; a"
-            + " Confluent-compatible flat format is not built yet.",
+        "Record shape. debezium: an envelope with before, after, source, op and ts_ms, as"
+            + " Debezium's Oracle connector writes. confluent: the row's columns followed by"
+            + " metadata fields, as Confluent's Oracle CDC Source connector writes, configured by"
+            + " the cdc.output.confluent.* keys.",
         GROUP_FORMAT,
         ++f,
         Width.SHORT,
@@ -808,6 +843,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++e,
         Width.SHORT,
         "Split bytes");
+    ConfluentFormatConfig.define(def);
     return def;
   }
 }

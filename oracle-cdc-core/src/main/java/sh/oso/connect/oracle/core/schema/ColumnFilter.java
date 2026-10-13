@@ -237,7 +237,7 @@ public final class ColumnFilter {
         change.id(),
         change.tx(),
         change.timestamp(),
-        change.schemaVersion());
+        change.schemaVersion()); // the statement text quotes the excluded values: dropped
   }
 
   @Override

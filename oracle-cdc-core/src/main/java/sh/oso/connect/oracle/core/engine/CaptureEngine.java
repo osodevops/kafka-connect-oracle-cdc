@@ -100,6 +100,7 @@ public final class CaptureEngine {
   private final LobAssembler lobs;
   private LobReselector reselector;
   private ColumnFilter excluded = ColumnFilter.none();
+  private boolean keepSql;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -244,6 +245,16 @@ public final class CaptureEngine {
   public CaptureEngine withColumnFilter(ColumnFilter excluded) {
     this.excluded = java.util.Objects.requireNonNull(excluded, "excluded");
     lobs.excluding(excluded);
+    return this;
+  }
+
+  /**
+   * ADR-0028: keeps each change's SQL_REDO and SQL_UNDO text, for a record format that publishes
+   * them. Never for a table {@code cdc.columns.exclude} could touch, whose text may quote an
+   * excluded value.
+   */
+  public CaptureEngine withSqlText(boolean keep) {
+    this.keepSql = keep;
     return this;
   }
 
@@ -900,6 +911,10 @@ public final class CaptureEngine {
     try {
       Object pre = predecoded(d);
       change = pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded);
+      if (keepSql && !excluded.mayExclude(d.table())) {
+        change =
+            change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sqlRedo(), d.sqlUndo()));
+      }
     } catch (DecodeException ex) {
       if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
         throw ex;

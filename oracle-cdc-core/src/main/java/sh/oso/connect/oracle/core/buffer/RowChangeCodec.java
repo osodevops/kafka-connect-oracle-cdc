@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RedoRecordId;
+import sh.oso.connect.oracle.core.model.RedoText;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.model.TxKey;
@@ -89,6 +90,12 @@ final class RowChangeCodec {
         out.writeInt(c.timestamp().getNano());
       }
       out.writeInt(c.schemaVersion()); // trailing: payloads written before P1-17 end above
+      // trailing again: payloads written before ADR-0028 end above, and older readers stop there
+      if (c.sql() != null) {
+        out.writeBoolean(true);
+        writeString(out, c.sql().redo());
+        writeString(out, c.sql().undo());
+      }
     } catch (IOException e) {
       throw new IllegalStateException("in-memory encode failed", e);
     }
@@ -110,7 +117,11 @@ final class RowChangeCodec {
         ts = Instant.ofEpochSecond(in.readLong(), in.readInt());
       }
       int version = in.available() >= Integer.BYTES ? in.readInt() : 0;
-      return new RowChange(table, op, before, after, partial, rowId, id, tx, ts, version);
+      RedoText sql = null;
+      if (in.available() > 0 && in.readBoolean()) {
+        sql = new RedoText(readString(in), readString(in));
+      }
+      return new RowChange(table, op, before, after, partial, rowId, id, tx, ts, version, sql);
     }
   }
 

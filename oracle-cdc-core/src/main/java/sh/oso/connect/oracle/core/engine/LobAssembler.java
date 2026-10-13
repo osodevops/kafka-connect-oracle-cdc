@@ -259,7 +259,8 @@ public final class LobAssembler {
         o.piece.id(),
         o.piece.tx(),
         o.piece.timestamp(),
-        o.piece.schemaVersion());
+        o.piece.schemaVersion(),
+        o.piece.sql());
   }
 
   private String unique(RedoRecordId id) {

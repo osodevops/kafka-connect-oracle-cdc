@@ -172,7 +172,8 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
           c.id(),
           c.tx(),
           c.timestamp(),
-          c.schemaVersion());
+          c.schemaVersion(),
+          c.sql());
     } catch (SQLException e) {
       throw classifier.toException(e, "reselecting LOB values of " + c.table().fqn());
     }

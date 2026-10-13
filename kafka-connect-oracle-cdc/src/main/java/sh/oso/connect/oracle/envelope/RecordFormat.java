@@ -15,6 +15,7 @@
  */
 package sh.oso.connect.oracle.envelope;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import org.apache.kafka.connect.source.SourceRecord;
@@ -24,6 +25,7 @@ import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.core.snapshot.SnapshotRow;
+import sh.oso.connect.oracle.envelope.confluent.ConfluentFormat;
 
 /**
  * The shape of the records a change becomes (SRC-FMT, ADR-0028): the Debezium-compatible envelope
@@ -60,6 +62,11 @@ public interface RecordFormat {
   /** The format {@code cdc.output.format} names. */
   static RecordFormat create(
       OracleCdcSourceConnectorConfig config, TopicRouter router, String databaseName) {
-    return new DebeziumEnvelope(config, router, databaseName);
+    return switch (config.outputFormat()) {
+      case CONFLUENT ->
+          new ConfluentFormat(
+              config, router, databaseName, config.confluentSettings(), Clock.systemUTC());
+      case DEBEZIUM -> new DebeziumEnvelope(config, router, databaseName);
+    };
   }
 }
