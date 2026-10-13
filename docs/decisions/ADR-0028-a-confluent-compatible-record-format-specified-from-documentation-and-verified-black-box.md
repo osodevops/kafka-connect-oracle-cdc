@@ -81,4 +81,3 @@ LOB state consistent. The implementation and qualification evidence follow befor
 Confluent's default output has no headers. OSO retains its `cdc.*` diagnostic headers and suppresses
 SQL text wherever column exclusions may apply. Default truncate emission remains off: no Confluent
 `T` shape was observed, so any explicit OSO emission must be documented as an extension.
-
