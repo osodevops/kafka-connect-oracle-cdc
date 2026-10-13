@@ -1,0 +1,29 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "ConfluentInPlaceCutoverQualIT",
+  "scenario" : "Confluent same-topic Avro cutover",
+  "startedAt" : "2026-10-13T13:28:47.396019Z",
+  "finishedAt" : "2026-10-13T13:30:25.568772Z",
+  "versions" : {
+    "project" : "0.1.6-SNAPSHOT",
+    "oracleImageTag" : "23.26.3-slim-faststart",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "sameTopic" : true,
+    "unchangedReaderSchema" : true,
+    "schemaSubjectVersionReused" : true
+  },
+  "faults" : [ ],
+  "counts" : {
+    "committedRows" : 24,
+    "missing" : 0
+  },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "19b64805010a42184aaca465053d0e7b53f9da7a4322008c092bb8965eaa11c7"
+}

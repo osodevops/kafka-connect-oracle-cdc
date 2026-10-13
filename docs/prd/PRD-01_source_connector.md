@@ -184,7 +184,7 @@ Structured JSON events: `startup`, `position-committed` (sampled), `log-switch-d
 - [ ] Quiet database for 48 hours: offsets advance, no ORA-01291 on restart, no writes to source.
 - [ ] Validation rejects: missing ARCHIVELOG, missing supplemental logging on a captured table, a captured table with an identity column, a captured name over 30 characters, missing privileges.
 - [ ] Signal-driven snapshot of one table works in archive-only mode with no source writes.
-- [ ] ADR-0028: Confluent keys, values and schemas match committed external JSON and Avro fixtures, except the documented differences; live parity and same-topic Avro cutover qualifications pass. Release requires the legal check.
+- [x] ADR-0028: Confluent keys, values and schemas match committed external JSON and Avro fixtures, except the documented differences; live parity and same-topic Avro cutover qualifications pass. Release requires the legal check.
 
 ## Appendix A: Debezium property mapping (for `migrate_from_debezium`)
 

@@ -111,10 +111,10 @@ The reference enables large LOB support and uses `${connectorName}.lob.${fullyQu
   fractional digits; OSO retains the source precision in its mining session and emitted text.
   For example, the workload's `1969-12-31 23:59:59.123456789` appears unchanged in OSO's
   `TO_TIMESTAMP` literal and as `.123` in Confluent's. Row Timestamp values agree at milliseconds.
-- OSO will maintain LOB state across key changes with old-key tombstones and new-key values; Confluent 2.15.2 did not emit those records.
+- OSO maintains LOB state across key changes with old-key tombstones and new-key values; Confluent 2.15.2 did not emit those records.
 - Explicit truncate emission is an OSO extension: null key and a metadata-only `T` struct, without row columns or before-state. Default emission remains off. `truncate-shapes.md` records its own committed DDL transaction and delivery order.
 
-The subsequent parity and in-place cutover suites must record any further differences here and in ADR-0028 before acceptance. The fixtures specify the recorded profiles; unobserved combinations must not be presented as verified parity. No RDS target is currently running. The optional non-CDB rerun is therefore not planned, and the remaining cloud lab has been destroyed.
+The live parity and in-place cutover suites have completed. Fourteen profiles passed across the full run and affected-profile reruns; the strengthened same-topic Avro cutover passed with zero missing committed rows. [Qualification evidence](../../../../../docs/qualification/2026-10-13-confluent-format/README.md) records the revisions and limits. ADR-0028 is accepted; release still requires the legal check. The fixtures specify the recorded profiles; unobserved combinations must not be presented as verified parity. No RDS target is currently running. The optional non-CDB rerun is therefore not planned, and the remaining cloud lab has been destroyed.
 
 ## Separate LOB topic implementation
 

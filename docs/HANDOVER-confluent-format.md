@@ -70,17 +70,17 @@ section 4. A subset run rewrites only its own profiles.
 ### Feature worktree (`../kafka-connect-oracle-cdc-fmt`, branch `feat/confluent-format`)
 
 The branch is rebased on `38e5f71` and backed up through `96bbab4`. Implementation is complete;
-no feature PR or enabling release exists yet. Final qualification and documentation acceptance
-remain. Debezium is still the default and its existing regressions remain green.
+final qualification is complete and ADR-0028 is accepted. The feature PR is the next action; no
+enabling release has been authorised. Debezium is still the default and its existing regressions remain green.
 
 | Step | Implementation | Verification checkpoint |
 |---|---|---|
 | 2: flat format | `f9eb5ce`, safety review `51a4535` | Fixtures, generated references and full clean gate |
 | 3: truncate | `5bc0236`, identifier correction `be11ce8` | Full gate, engine and connector tiers; unchanged transient regressions passed focused reruns |
-| 4: LOB topics | `a3c7dc3`, savepoint correction `3294f56`, null bytes `96bbab4` | Full gate, both live SQL-output variants and LOB parity; final connector tier running |
+| 4: LOB topics | `a3c7dc3`, savepoint correction `3294f56`, null bytes `96bbab4` | Full gate, both live SQL-output variants and LOB parity; final engine/connector tiers green |
 | 5: same-topic migration | `8c1cd3a`, keyless/Avro correction `328ad10` | 340 Python tests, lint/format, generated references and fixture-backed connector test |
-| 6: live comparison | `c0f744b`, strengthened cutover `7510fe9`, wire framing `bf1f0ea` | Eleven profiles passed at `bf1f0ea`; LOB profile and strengthened Avro cutover passed at `96bbab4`; SQL profiles need their final rerun |
-| 7: website and PRDs | `28f974b` plus subsequent corrections | Website build passed; ADR acceptance and PR still pending |
+| 6: live comparison | `c0f744b`, strengthened cutover `7510fe9`, wire framing `bf1f0ea` | Eleven profiles passed at `bf1f0ea`; LOB profile and strengthened Avro cutover passed at `96bbab4`; SQL profiles passed at `0c859c6` |
+| 7: website and PRDs | `28f974b` plus subsequent corrections | Website build passed; ADR accepted; PR next |
 
 Current behaviour:
 
@@ -102,13 +102,13 @@ Current behaviour:
   spanning the switch, both subjects and cached reader schemas, rollback exclusion and stop/resume
   internal Avro readback. Top-level bytes framing is protected without a proprietary dependency.
 
-The final three-profile rerun at `96bbab4` passed LOB topics and cutover. All-fields and renamed
-matched row values but exposed three-digit Confluent SQL timestamp literals versus OSO's exact
-nine-digit mining text. This is now a documented difference; the qualification asserts the exact
-OSO literals from the independently defined workload and retains comparison of all other SQL,
-rows, schemas and metadata. Its full clean gate passes. The final engine tier passed all 59 tests;
-the connector tier is running against the frozen production implementation. After it finishes,
-rerun all-fields and renamed from the SQL precision qualification update.
+The final three-profile rerun at `96bbab4` passed LOB topics and same-topic Avro cutover.
+All-fields and renamed passed at `0c859c6`, asserting exact nine-digit OSO SQL timestamp literals
+against the workload while documenting Confluent's three-digit text. All other SQL, row values,
+schemas and metadata remain compared. The full clean gate, all 59 engine tests and all 32
+connector tests passed. All fourteen live profiles are qualified across the full run and affected profile reruns; the scale-two reference is deliberately protected by typed-failure fixture tests.
+Sanitised evidence is in `docs/qualification/2026-10-13-confluent-format/`. ADR-0028 is accepted;
+website and PRD documentation are current. Open the feature PR, review CI and squash-merge it.
 
 Long suites use `../kafka-connect-oracle-cdc-fmt-lab`. Never edit it while Maven runs or install
 changed modules while its Docker tier is active. `../kafka-connect-oracle-cdc-fmt-tools` and the
@@ -371,7 +371,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 
 - [x] Topic mode, byte/key shapes, schema/doctor checks, complete values and delivery regressions.
 - [x] Full clean gate and real-worker snapshot, selective update, key-change and delete test.
-- [ ] Full engine and connector tiers against the final reviewed implementation.
+- [x] Full final engine tier (59 tests) and connector tier (32 tests) at `96bbab4`.
 
 1. `cdc.lob.mode=topic` (Confluent format only, refused with Debezium) and
    `cdc.lob.topic.template` with `${column}` in `envelope/TopicRouter`. Values come from inline
@@ -385,7 +385,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 
 - [x] Default same-topic routing, migration mappings, same-topic golden cases and flat value verifier.
 - [x] Connector fixture test and generated configuration reference; full clean gate.
-- [ ] Engine and connector tiers with step 4's final review, then mark both steps complete.
+- [x] Full final engine and connector tiers with step 4's review; both steps complete.
 
 1. Confluent-format topic default `${pdb}.${schema}.${table}` (CDB) or
    `${database}.${schema}.${table}` (non-CDB), with no prefix.
@@ -404,7 +404,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 
 - [x] Reference, live comparison and strengthened same-topic Avro cutover suites implemented.
 - [x] Eleven profiles at `bf1f0ea`, LOB topics and same-topic cutover at `96bbab4` verified.
-- [ ] Final SQL profiles with exact precision difference asserted; publish sanitised evidence.
+- [x] Final SQL profiles with exact precision difference asserted; sanitised evidence published.
 
 1. `ConfluentFormatParityQualIT`: both connectors on the same changes. Records are compared per
    key, field by field, excluding `current_ts`. Avro schemas are compared canonically and with
@@ -417,6 +417,10 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
    `docs/qualification/` in general terms only.
 
 ### Step 7 (C7): documentation and release
+
+- [x] ADR accepted, PRDs and website updated; full gate and website build green.
+- [ ] Feature PR opened, CI reviewed and squash-merged.
+- [ ] Enabling release: requires OSO's legal check and user approval; intentionally deferred.
 
 1. ADR-0028 status Accepted, recording the key namespace, the per-format truncate and tombstone
    defaults, LOB topics only in this format, and the documented differences.
@@ -431,6 +435,10 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
    for the legal check named in ADR-0028.
 
 ### Step 8: housekeeping
+
+- [x] Cloud lab destroyed through its workflow; no RDS run planned.
+- [x] Qualification containers removed after the final suite.
+- [ ] Clean up this task's temporary worktrees/stashes after merge.
 
 - Release PR #29 (0.1.6, docs only) is open and not urgent.
 - The Dependabot backlog (Kafka 4.3, JUnit 6, Testcontainers 2 majors) is not in this goal.
@@ -478,9 +486,9 @@ cannot be read from fixtures.
 
 ## Latest live qualification checkpoint
 
-The final production implementation is `96bbab4`. The clean quality gate and final engine tier
-are green; the final connector tier is running in the frozen lab checkout. LOB topics and the
-strengthened same-topic Avro cutover passed. SQL-output profiles will rerun with their exact,
-documented timestamp precision difference asserted. Finish evidence, ADR acceptance and PR merge,
-then remove only this task's temporary worktrees and stashes. No enabling release without the
-legal check and user approval. The cloud lab is destroyed.
+Steps 1 through 6 are complete. The final production implementation is `96bbab4`; the final
+SQL qualification is `0c859c6`. All quality gates, 59 engine tests, 32 connector tests, fourteen
+live parity profiles across their recorded runs and the strengthened same-topic Avro cutover
+passed. ADR-0028 is accepted and public evidence is committed with the final documentation.
+Open and merge the feature PR after CI passes, then complete housekeeping. The cloud lab is
+destroyed. No enabling release without OSO's legal check and user approval.
