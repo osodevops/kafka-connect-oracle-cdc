@@ -26,6 +26,7 @@ import sh.oso.connect.oracle.core.errors.LobTooLargeException;
 import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
+import sh.oso.connect.oracle.core.model.RowIds;
 import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 import sh.oso.connect.oracle.core.schema.OracleType;
@@ -48,6 +49,7 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
   private final OraErrorClassifier classifier;
   private final long maxBytes;
   private final boolean oversizeFail;
+  private final boolean topicMode;
   private int lastIndex = -1;
   private RowChange last;
 
@@ -59,7 +61,9 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
       LobReselector reselector,
       OraErrorClassifier classifier,
       long maxBytes,
-      boolean oversizeFail) {
+      boolean oversizeFail,
+      boolean topicMode) {
+    this.topicMode = topicMode;
     this.base = base;
     this.scn = scn;
     this.schemas = schemas;
@@ -78,6 +82,18 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
       OraErrorClassifier classifier,
       long maxBytes,
       boolean oversizeFail) {
+    return wrap(tx, schemas, excluded, reselector, classifier, maxBytes, oversizeFail, false);
+  }
+
+  static CommittedTransaction wrap(
+      CommittedTransaction tx,
+      SchemaRegistry schemas,
+      ColumnFilter excluded,
+      LobReselector reselector,
+      OraErrorClassifier classifier,
+      long maxBytes,
+      boolean oversizeFail,
+      boolean topicMode) {
     return new CommittedTransaction(
         tx.key(),
         tx.firstCaptured(),
@@ -95,7 +111,8 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
             reselector,
             classifier,
             maxBytes,
-            oversizeFail));
+            oversizeFail,
+            topicMode));
   }
 
   @Override
@@ -115,17 +132,27 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
   }
 
   private RowChange reselect(RowChange c) {
-    if (c.op() == Operation.DELETE || c.after() == null) {
+    if (c.op() == Operation.DELETE || c.after() == null || topicMode && RowIds.isInert(c.rowId())) {
       return c;
     }
     try {
       // SRC-SEL-2: an excluded LOB is absent from the image on purpose, never fetched
       TableSchema schema = excluded.project(schemas.version(c.table(), c.schemaVersion()));
       List<String> missing = new ArrayList<>();
+      boolean keyChange =
+          c.op() == Operation.UPDATE
+              && c.before() != null
+              && schema.keyColumns().stream()
+                  .anyMatch(k -> !java.util.Objects.equals(c.before().get(k), c.after().get(k)));
       for (ColumnSpec col : schema.columns()) {
         OracleType t = col.type();
         boolean lob = t == OracleType.CLOB || t == OracleType.NCLOB || t == OracleType.BLOB;
-        if (lob && !c.after().containsKey(col.name())) {
+        boolean wanted =
+            !topicMode
+                || c.op() == Operation.INSERT
+                || keyChange
+                || c.touchedLobs().contains(col.name());
+        if (lob && wanted && (!c.after().containsKey(col.name()) || topicMode && keyChange)) {
           missing.add(col.name());
         }
       }
@@ -173,7 +200,8 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
           c.tx(),
           c.timestamp(),
           c.schemaVersion(),
-          c.sql());
+          c.sql(),
+          c.touchedLobs());
     } catch (SQLException e) {
       throw classifier.toException(e, "reselecting LOB values of " + c.table().fqn());
     }

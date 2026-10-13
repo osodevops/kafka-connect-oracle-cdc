@@ -153,7 +153,8 @@ public class CoreConfig extends AbstractConfig {
   public enum LobMode {
     SKIP,
     INLINE,
-    RESELECT
+    RESELECT,
+    TOPIC
   }
 
   public enum LobOversizeAction {
@@ -828,7 +829,9 @@ public class CoreConfig extends AbstractConfig {
         "skip leaves CLOB, NCLOB, BLOB and XMLTYPE columns out of the records; inline assembles"
             + " values from redo and publishes cdc.unavailable.placeholder where a value is not in"
             + " the redo; reselect does the same and then queries the values that are still"
-            + " unavailable AS OF the commit SCN, one query per row.",
+            + " unavailable AS OF the commit SCN, one query per row. topic assembles or reselects"
+            + " complete values into separate LOB column topics (Confluent format only); it"
+            + " requires a stable row key and refuses unavailable or oversized values.",
         GROUP_LOBS,
         ++o,
         Width.SHORT,

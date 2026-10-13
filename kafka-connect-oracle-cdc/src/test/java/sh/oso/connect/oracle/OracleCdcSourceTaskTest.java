@@ -901,6 +901,52 @@ class OracleCdcSourceTaskTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void aSnapshotRestartRepeatsItsChunkUntilTheFinalLobRecordIsAcknowledged() throws Exception {
+    try (TaskHarness h = new TaskHarness()) {
+      h.props.put(CoreConfig.SNAPSHOT_MODE, "initial");
+      h.props.put(CoreConfig.LOB_MODE, "topic");
+      h.props.put(OracleCdcSourceConnectorConfig.OUTPUT_FORMAT, "confluent");
+      h.props.put(OracleCdcSourceConnectorConfig.POLL_MAX_RECORDS, "1");
+      h.dictionary.put(
+          TaskHarness.T,
+          TaskHarness.tableSchema(
+              sh.oso.connect.oracle.core.schema.ColumnSpec.of(
+                  "C", 3, sh.oso.connect.oracle.core.schema.OracleType.CLOB)));
+      h.snapshots.rows(TaskHarness.T, 1, 2).scn = 1000;
+      h.snapshots.chunkSize = 1;
+      h.snapshots.tables.get(TaskHarness.T).forEach((key, row) -> row.put("C", "clob" + key));
+      h.start();
+      List<SourceRecord> first = h.pollUntil(2, 5000);
+      assertThat(first).hasSize(2);
+      assertThat(first.get(0).value()).isInstanceOf(org.apache.kafka.connect.data.Struct.class);
+      assertThat((byte[]) first.get(1).value())
+          .isEqualTo("clob1".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      var rowProgress =
+          sh.oso.connect.oracle.core.snapshot.SnapshotProgress.of(
+              PositionCodec.read(first.get(0).sourceOffset()).snapshot());
+      var lobProgress =
+          sh.oso.connect.oracle.core.snapshot.SnapshotProgress.of(
+              PositionCodec.read(first.get(1).sourceOffset()).snapshot());
+      assertThat(rowProgress.frontier(TaskHarness.T)).isNull();
+      assertThat(lobProgress.frontier(TaskHarness.T)).containsExactly("n:2");
+      h.acknowledge(first.subList(0, 1));
+      h.restart();
+      List<SourceRecord> repeated = h.pollUntil(2, 5000);
+      assertThat(((org.apache.kafka.connect.data.Struct) repeated.get(0).value()).get("ID"))
+          .isEqualTo(new java.math.BigDecimal(1));
+      assertThat((byte[]) repeated.get(1).value()).isEqualTo((byte[]) first.get(1).value());
+      h.acknowledge(repeated);
+      h.restart();
+      List<SourceRecord> next = h.pollUntil(2, 5000);
+      assertThat(((org.apache.kafka.connect.data.Struct) next.get(0).value()).get("ID"))
+          .isEqualTo(new java.math.BigDecimal(2));
+      assertThat((byte[]) next.get(1).value())
+          .isEqualTo("clob2".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+  }
+
+  @Test
   void aRestartResumesTheSnapshotAtTheFirstUnacknowledgedChunk() throws Exception {
     // PRD-02 SNAP-3 and the acceptance case: no acknowledged chunk is read again
     try (TaskHarness h = new TaskHarness()) {

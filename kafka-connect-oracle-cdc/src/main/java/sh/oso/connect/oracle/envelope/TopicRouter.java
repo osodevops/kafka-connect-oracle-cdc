@@ -34,15 +34,32 @@ public final class TopicRouter {
   private final String database;
 
   /** The table that first claimed a topic and the expanded template it routed from. */
-  private record Claim(String expanded, TableId table) {}
+  private record Claim(String expanded, TableId table, boolean lob) {}
 
   private final Map<TableId, String> routes = new ConcurrentHashMap<>();
-  private final Map<String, Claim> claims = new java.util.HashMap<>();
+  private final Map<String, Claim> claims;
+  private final Object routeLock;
 
   public TopicRouter(String template, String prefix, String database) {
+    this(template, prefix, database, new ConcurrentHashMap<>(), new Object());
+  }
+
+  private TopicRouter(
+      String template,
+      String prefix,
+      String database,
+      Map<String, Claim> claims,
+      Object routeLock) {
+    this.claims = claims;
+    this.routeLock = routeLock;
     this.template = template;
     this.prefix = prefix;
     this.database = database;
+  }
+
+  /** Shares collision detection between table records and separate LOB records. */
+  public TopicRouter forLobs(String template) {
+    return new TopicRouter(template, prefix, database, claims, routeLock);
   }
 
   /**
@@ -55,50 +72,69 @@ public final class TopicRouter {
     return routed != null ? routed : route(t);
   }
 
-  private synchronized String route(TableId t) {
-    String routed = routes.get(t);
-    if (routed != null) {
-      return routed;
+  private String route(TableId t) {
+    synchronized (routeLock) {
+      String routed = routes.get(t);
+      if (routed != null) {
+        return routed;
+      }
+      String expanded = expand(t);
+      String topic = sanitise(expanded);
+      Claim held = claims.putIfAbsent(topic, new Claim(expanded, t, false));
+      if (held != null && (held.lob() || !held.expanded().equals(expanded))) {
+        throw new NameCollisionException(
+            "Tables "
+                + held.table().fqn()
+                + " and "
+                + t.fqn()
+                + " both route to topic "
+                + topic
+                + ": the template names them "
+                + held.expanded()
+                + " and "
+                + expanded
+                + ", and characters Kafka does not allow in a topic name became underscores.",
+            "Rename one of the tables, set cdc.topic.template so the two names stay apart, or"
+                + " exclude one of the tables with cdc.tables.exclude; then restart the task.");
+      }
+      routes.put(t, topic);
+      return topic;
     }
-    String expanded = expand(t);
-    String topic = sanitise(expanded);
-    Claim held = claims.putIfAbsent(topic, new Claim(expanded, t));
-    if (held != null && !held.expanded().equals(expanded)) {
-      throw new NameCollisionException(
-          "Tables "
-              + held.table().fqn()
-              + " and "
-              + t.fqn()
-              + " both route to topic "
-              + topic
-              + ": the template names them "
-              + held.expanded()
-              + " and "
-              + expanded
-              + ", and characters Kafka does not allow in a topic name became underscores.",
-          "Rename one of the tables, set cdc.topic.template so the two names stay apart, or"
-              + " exclude one of the tables with cdc.tables.exclude; then restart the task.");
-    }
-    routes.put(t, topic);
-    return topic;
   }
 
   /**
    * Forgets {@code t} after it left the captured set (DROP TABLE, a rename, a refresh), so a table
    * that takes its topic later is not held to its claim.
    */
-  public synchronized void release(TableId t) {
-    String topic = routes.remove(t);
-    if (topic == null) {
-      return;
-    }
-    claims.remove(topic);
-    for (Map.Entry<TableId, String> e : routes.entrySet()) {
-      if (e.getValue().equals(topic)) {
-        claims.put(topic, new Claim(expand(e.getKey()), e.getKey()));
+  public void release(TableId t) {
+    synchronized (routeLock) {
+      String topic = routes.remove(t);
+      if (topic == null) {
         return;
       }
+      claims.remove(topic);
+      for (Map.Entry<TableId, String> e : routes.entrySet()) {
+        if (e.getValue().equals(topic)) {
+          claims.put(topic, new Claim(expand(e.getKey()), e.getKey(), false));
+          return;
+        }
+      }
     }
+  }
+
+  /** Route a LOB column with the same collision checks as table topics. */
+  public String topic(TableId table, String column) {
+    TableId route = new TableId(table.pdb(), table.schema(), table.table() + "." + column);
+    String expanded = expand(table).replace("${column}", column);
+    String topic = sanitise(expanded);
+    synchronized (routeLock) {
+      Claim held = claims.putIfAbsent(topic, new Claim(expanded, route, true));
+      if (held != null && (!held.lob() || !held.expanded().equals(expanded)))
+        throw new NameCollisionException(
+            "LOB columns route to the same topic " + topic + " after name adjustment.",
+            "Change cdc.lob.topic.template so each expanded LOB column name stays distinct.");
+    }
+    return topic;
   }
 
   private String expand(TableId t) {

@@ -62,6 +62,38 @@ class ConfluentFormatConfigTest {
   }
 
   @Test
+  void topicModeRequiresConfluentCompleteValuesAndAColumnTemplate() {
+    for (Map<String, String> bad :
+        java.util.List.of(
+            Map.of(
+                sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE,
+                "topic",
+                OracleCdcSourceConnectorConfig.OUTPUT_FORMAT,
+                "debezium"),
+            Map.of(
+                sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE,
+                "topic",
+                sh.oso.connect.oracle.core.config.CoreConfig.LOB_OVERSIZE_ACTION,
+                "placeholder"),
+            Map.of(
+                sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE,
+                "topic",
+                OracleCdcSourceConnectorConfig.LOB_TOPIC_TEMPLATE,
+                "${table}"),
+            Map.of(
+                sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE,
+                "topic",
+                OracleCdcSourceConnectorConfig.LOB_TOPIC_TEMPLATE,
+                "${unknown}.${column}"))) {
+      assertThatThrownBy(() -> config(bad)).isInstanceOf(ConfigException.class);
+    }
+    assertThat(
+            config(Map.of(sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE, "topic"))
+                .lobTopicTemplate(true))
+        .isEqualTo("${pdb}.${schema}.${table}.${column}");
+  }
+
+  @Test
   void validatesNumericMappingScaleAndDateMapping() {
     assertThat(
             config(

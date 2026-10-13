@@ -107,7 +107,12 @@ full clean gate, full engine tier and connector matrix passed. The connector mat
 startup timeout and a transient heartbeat-consumption failure in two existing regressions; both
 passed unchanged in the focused rerun. `TruncateConnectorIT` passes in both formats after keeping
 its generated schema names within LogMiner's identifier limit. Truncate delivery remains commit
-ordered and advances only acknowledged positions. LOB topic output and same-topics migration remain steps 4 and 5.
+ordered and advances only acknowledged positions. Step 4 now implements complete LOB topics and has a green clean gate and real-worker test.
+The earlier frozen revision passed the full engine tier; its connector tier is running in the lab
+worktree. The final review also adds snapshot final-LOB acknowledgement and invisible savepoint
+rollback regressions. Re-run both tiers against those last corrections with the step 5 integration
+before marking either step complete. Step 5 migration work and step 6 suites are prepared in the
+`../kafka-connect-oracle-cdc-fmt-tools` worktree and must be preserved.
 Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
 Maven runs, or install changed modules while its Docker tier is active. The optional RDS run is not
 planned because no RDS instance is up; the remaining cloud lab was destroyed through its workflow.
@@ -359,6 +364,10 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 4. Regression test first if it touches delivery order.
 
 ### Step 4 (C4): LOB topics
+
+- [x] Topic mode, byte/key shapes, schema/doctor checks, complete values and delivery regressions.
+- [x] Full clean gate and real-worker snapshot, selective update, key-change and delete test.
+- [ ] Full engine and connector tiers against the final reviewed implementation.
 
 1. `cdc.lob.mode=topic` (Confluent format only, refused with Debezium) and
    `cdc.lob.topic.template` with `${column}` in `envelope/TopicRouter`. Values come from inline

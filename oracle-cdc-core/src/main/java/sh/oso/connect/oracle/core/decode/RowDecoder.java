@@ -55,6 +55,16 @@ public final class RowDecoder {
   /** ADR-0028: decode the retained SQL without changing the text that is published. */
   public static RowChange decode(
       MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded, boolean verbatimSql) {
+    return decode(dml, schema, excluded, verbatimSql, false);
+  }
+
+  /** ADR-0028: touched LOB columns are retained only for separate topic delivery. */
+  public static RowChange decode(
+      MiningEvent.Dml dml,
+      TableSchema schema,
+      ColumnFilter excluded,
+      boolean verbatimSql,
+      boolean trackLobs) {
     if (dml.status() == 2 || dml.status() == 3) {
       throw new DecodeException(
           "LogMiner could not reconstruct "
@@ -109,16 +119,27 @@ public final class RowDecoder {
     String rowId = p.rowId() != null ? p.rowId() : dml.rowId();
     // PRD-03: the row renders with the version it was decoded with, even after later DDL
     return new RowChange(
-        schema.table(),
-        p.op(),
-        before,
-        after,
-        partial,
-        rowId,
-        dml.id(),
-        dml.tx(),
-        dml.timestamp(),
-        schema.version());
+            schema.table(),
+            p.op(),
+            before,
+            after,
+            partial,
+            rowId,
+            dml.id(),
+            dml.tx(),
+            dml.timestamp(),
+            schema.version())
+        .withTouchedLobs(
+            trackLobs
+                ? p.set().stream()
+                    .map(ColumnValue::column)
+                    .filter(
+                        name ->
+                            schema.column(name) != null
+                                && schema.column(name).type().isLob()
+                                && !excluded.excludes(schema.table(), name))
+                    .collect(java.util.stream.Collectors.toSet())
+                : java.util.Set.of());
   }
 
   /**

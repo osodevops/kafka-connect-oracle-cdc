@@ -103,6 +103,7 @@ public final class CaptureEngine {
   private ColumnFilter excluded = ColumnFilter.none();
   private volatile boolean keepSql;
   private volatile boolean emitTruncate;
+  private volatile boolean lobTopics;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -263,6 +264,13 @@ public final class CaptureEngine {
   /** ADR-0028: publish a captured table's TRUNCATE only through its committed transaction. */
   public CaptureEngine withTruncate(boolean enabled) {
     this.emitTruncate = enabled;
+    return this;
+  }
+
+  /** Separate LOB topics reselect only touched columns, or all columns for a key change. */
+  public CaptureEngine withLobTopics(boolean enabled) {
+    this.lobTopics = enabled;
+    this.lobs.tracking(enabled);
     return this;
   }
 
@@ -626,6 +634,9 @@ public final class CaptureEngine {
     TableSchema schema =
         replayed.contains(d.table()) ? schemas.at(d.table(), d.scn()) : schemas.current(d.table());
     excluded.project(schema); // SRC-SEL-2: the version's key must keep every column
+    if (lobTopics) {
+      sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(excluded.project(schema));
+    }
     return schema;
   }
 
@@ -898,7 +909,7 @@ public final class CaptureEngine {
     try {
       return d.op().isLobOp()
           ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema, excluded)
-          : decoder.decode(d, schema, excluded, keepSql);
+          : decoder.decode(d, schema, excluded, keepSql, lobTopics);
     } catch (RuntimeException ex) {
       return ex; // raised in order when the row is applied
     }
@@ -918,7 +929,8 @@ public final class CaptureEngine {
     RowChange change;
     try {
       Object pre = predecoded(d);
-      change = pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded, keepSql);
+      change =
+          pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded, keepSql, lobTopics);
       if (keepSql && !excluded.mayExclude(d.table())) {
         change =
             change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sqlRedo(), d.sqlUndo()));
@@ -1004,6 +1016,10 @@ public final class CaptureEngine {
         if (next.isPresent()) {
           excluded.project(
               next.get()); // SRC-SEL-2: a DDL that moves the key onto an excluded column
+          if (lobTopics) {
+            sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(
+                excluded.project(next.get()));
+          }
           sink.schemaChanged(next.get(), d);
         }
         break;
@@ -1146,7 +1162,8 @@ public final class CaptureEngine {
               reselector,
               classifier,
               settings.lobMaxBytes(),
-              settings.lobOversizeFail());
+              settings.lobOversizeFail(),
+              lobTopics);
     }
     int skip = SkipRule.eventsToSkip(start, tx);
     if (skip >= tx.size()) {

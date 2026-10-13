@@ -54,6 +54,30 @@ class RowChangeCodecTest {
   static final TxKey TX = new TxKey(3, new Xid(7, 21, 9001));
 
   @Test
+  void touchedLobColumnsSurviveSpillWithAndWithoutSqlAndLegacyPayloadsRemainUnchanged()
+      throws Exception {
+    RowChange base =
+        new RowChange(
+            T,
+            Operation.UPDATE,
+            Map.of("ID", BigDecimal.ONE),
+            Map.of("ID", BigDecimal.ONE),
+            false,
+            "R1",
+            new RedoRecordId(100, "r", 0),
+            TX,
+            Instant.EPOCH,
+            1);
+    for (RedoText sql : java.util.Arrays.asList(null, new RedoText("update", "undo"))) {
+      RowChange change = base.withTouchedLobs(java.util.Set.of("C", "B")).withSql(sql);
+      assertThat(change.touchedLobs()).containsExactlyInAnyOrder("C", "B");
+      assertThat(RowChangeCodec.decode(RowChangeCodec.encode(change))).isEqualTo(change);
+      assertThat(SizeEstimate.of(change)).isGreaterThan(SizeEstimate.of(base));
+    }
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(base)).touchedLobs()).isEmpty();
+  }
+
+  @Test
   void truncateIsAppendedWithoutChangingTheLegacyOperationOrdinals() throws Exception {
     String[] legacy = {
       "INTERNAL",

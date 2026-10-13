@@ -111,3 +111,29 @@ The reference enables large LOB support and uses `${connectorName}.lob.${fullyQu
 - Explicit truncate emission is an OSO extension: null key and a metadata-only `T` struct, without row columns or before-state. Default emission remains off. `truncate-shapes.md` records its own committed DDL transaction and delivery order.
 
 The subsequent parity and in-place cutover suites must record any further differences here and in ADR-0028 before acceptance. The fixtures specify the recorded profiles; unobserved combinations must not be presented as verified parity. No RDS target is currently running. The optional non-CDB rerun is therefore not planned, and the remaining cloud lab has been destroyed.
+
+## Separate LOB topic implementation
+
+- `cdc.lob.mode=topic` is available only with the Confluent-compatible format. Its column
+  template must contain `${column}`. Row and LOB routes share collision detection, so a
+  column topic cannot overwrite a table topic after name adjustment.
+- Topic delivery assembles inline fragments and reselects missing touched columns AS OF the
+  commit SCN. Inserts and key changes require every LOB column; a scalar-only update fetches
+  and emits none. Touched-column tracking is opt-in, preserving legacy journal payloads.
+- Stable column keys are validated before snapshots and at schema changes. ROWID and keyless
+  LOB tables are refused with CDC-3001. Doctor DOC-8 reports the same requirement and recognises
+  existing-column key overrides.
+- Complete values are required. Missing values stop with CDC-3001; a value exceeding
+  `cdc.lob.max.bytes`, including its final byte encoding, stops with CDC-3003. Placeholder
+  oversize handling is refused in topic mode. Malformed text stops rather than substituting
+  replacement characters. Null LOB values remove their topic key with a tombstone.
+- XMLTYPE bytes are unsupported in topic mode and fail at schema load unless the column is
+  excluded. This limitation remains an explicit difference where the recorded comparison does
+  not establish Confluent behaviour.
+- CLOB uses UTF-8, NCLOB uses UTF-16BE, and BLOB retains its raw bytes. Every streaming LOB
+  record owns its diagnostic headers. Only the final record of a row carries its completed
+  delivery position and transaction boundary.
+
+- Topic-mode savepoint rollback groups remain invisible and are never reselected or republished.
+  A snapshot restart repeats its chunk until the final LOB record is acknowledged; acknowledging
+  the row alone cannot skip that row's later LOB records.

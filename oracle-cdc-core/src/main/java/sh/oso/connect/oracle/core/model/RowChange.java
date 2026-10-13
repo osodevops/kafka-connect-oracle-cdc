@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * One decoded row change. {@code before} and {@code after} hold Java values keyed by column name in
@@ -38,13 +39,31 @@ public record RowChange(
     TxKey tx,
     Instant timestamp,
     int schemaVersion,
-    RedoText sql) {
+    RedoText sql,
+    Set<String> touchedLobs) {
 
   public RowChange {
     Objects.requireNonNull(table, "table");
     Objects.requireNonNull(op, "op");
+    touchedLobs = touchedLobs == null ? Set.of() : Set.copyOf(touchedLobs);
     before = before == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(before));
     after = after == null ? null : Collections.unmodifiableMap(new LinkedHashMap<>(after));
+  }
+
+  /** A change without explicit LOB write tracking (payloads before separate LOB topics). */
+  public RowChange(
+      TableId table,
+      Operation op,
+      Map<String, Object> before,
+      Map<String, Object> after,
+      boolean partial,
+      String rowId,
+      RedoRecordId id,
+      TxKey tx,
+      Instant timestamp,
+      int schemaVersion,
+      RedoText sql) {
+    this(table, op, before, after, partial, rowId, id, tx, timestamp, schemaVersion, sql, Set.of());
   }
 
   /** A change without its statement text. */
@@ -79,6 +98,23 @@ public record RowChange(
   /** This change with {@code sql} as its statement text. */
   public RowChange withSql(RedoText sql) {
     return new RowChange(
-        table, op, before, after, partial, rowId, id, tx, timestamp, schemaVersion, sql);
+        table,
+        op,
+        before,
+        after,
+        partial,
+        rowId,
+        id,
+        tx,
+        timestamp,
+        schemaVersion,
+        sql,
+        touchedLobs);
+  }
+
+  /** LOB columns explicitly written by this row or its assembled fragments, even if unavailable. */
+  public RowChange withTouchedLobs(Set<String> columns) {
+    return new RowChange(
+        table, op, before, after, partial, rowId, id, tx, timestamp, schemaVersion, sql, columns);
   }
 }

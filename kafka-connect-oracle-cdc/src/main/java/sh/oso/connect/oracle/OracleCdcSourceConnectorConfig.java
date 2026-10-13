@@ -63,6 +63,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   // record format (SRC-FMT)
   public static final String OUTPUT_FORMAT = "cdc.output.format";
   public static final String TRUNCATE_EMIT = "cdc.truncate.emit";
+  public static final String LOB_TOPIC_TEMPLATE = "cdc.lob.topic.template";
   public static final String DECIMAL_MODE = "cdc.decimal.mode";
   public static final String TEMPORAL_MODE = "cdc.temporal.mode";
   public static final String SCHEMA_NAME_ADJUSTMENT_MODE = "cdc.schema.name.adjustment.mode";
@@ -123,6 +124,24 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public OracleCdcSourceConnectorConfig(Map<String, String> props) {
     super(configDef(), props, false);
     this.core = new CoreConfig(props);
+    if (core.lobMode() == CoreConfig.LobMode.TOPIC) {
+      if (outputFormat() != OutputFormat.CONFLUENT)
+        throw new ConfigException(
+            CoreConfig.LOB_MODE, "topic", "requires cdc.output.format=confluent");
+      if (core.lobOversizeAction() != CoreConfig.LobOversizeAction.FAIL)
+        throw new ConfigException(
+            CoreConfig.LOB_OVERSIZE_ACTION,
+            "placeholder",
+            "topic mode requires fail; every LOB value must be complete");
+      String template = getString(LOB_TOPIC_TEMPLATE);
+      if (!template.contains("${column}"))
+        throw new ConfigException(LOB_TOPIC_TEMPLATE, template, "must contain ${column}");
+      if (java.util.regex.Pattern.compile(
+              "\\$\\{(?!(prefix|pdb|schema|table|database|column)\\})[^}]*\\}")
+          .matcher(template)
+          .find())
+        throw new ConfigException(LOB_TOPIC_TEMPLATE, template, "contains an unsupported variable");
+    }
     if (!List.of("fail", "rowid", "none")
         .contains(getString(KEY_MISSING).toLowerCase(Locale.ROOT))) {
       throw new ConfigException(KEY_MISSING, getString(KEY_MISSING), "must be fail, rowid or none");
@@ -157,6 +176,11 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   /** ADR-0028: the Confluent-compatible format's settings; null with another format. */
   public ConfluentSettings confluentSettings() {
     return confluent;
+  }
+
+  public String lobTopicTemplate(boolean cdb) {
+    if (originals().containsKey(LOB_TOPIC_TEMPLATE)) return getString(LOB_TOPIC_TEMPLATE);
+    return (cdb ? "${pdb}" : "${database}") + ".${schema}.${table}.${column}";
   }
 
   public boolean truncateEmit() {
@@ -558,6 +582,18 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++f,
         Width.SHORT,
         "Output format");
+    def.define(
+        LOB_TOPIC_TEMPLATE,
+        Type.STRING,
+        "${pdb}.${schema}.${table}.${column}",
+        Importance.MEDIUM,
+        "Topic for each LOB column with cdc.lob.mode=topic (Confluent format only). Variables:"
+            + " prefix, pdb, database, schema, table and column. Must contain ${column}; choose"
+            + " the existing Confluent LOB topic names for a same-topics migration.",
+        GROUP_TOPICS,
+        100,
+        Width.LONG,
+        "LOB topic template");
     def.define(
         TRUNCATE_EMIT,
         Type.BOOLEAN,

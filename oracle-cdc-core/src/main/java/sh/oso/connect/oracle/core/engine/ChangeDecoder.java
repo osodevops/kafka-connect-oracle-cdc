@@ -39,6 +39,15 @@ public interface ChangeDecoder {
     return decode(dml, schema, excluded);
   }
 
+  default RowChange decode(
+      MiningEvent.Dml dml,
+      TableSchema schema,
+      ColumnFilter excluded,
+      boolean verbatimSql,
+      boolean trackLobs) {
+    return decode(dml, schema, excluded, verbatimSql);
+  }
+
   static ChangeDecoder rowDecoder() {
     return new ChangeDecoder() {
       @Override
@@ -55,6 +64,16 @@ public interface ChangeDecoder {
       public RowChange decode(
           MiningEvent.Dml dml, TableSchema schema, ColumnFilter excluded, boolean verbatimSql) {
         return RowDecoder.decode(dml, schema, excluded, verbatimSql);
+      }
+
+      @Override
+      public RowChange decode(
+          MiningEvent.Dml dml,
+          TableSchema schema,
+          ColumnFilter excluded,
+          boolean verbatimSql,
+          boolean trackLobs) {
+        return RowDecoder.decode(dml, schema, excluded, verbatimSql, trackLobs);
       }
     };
   }

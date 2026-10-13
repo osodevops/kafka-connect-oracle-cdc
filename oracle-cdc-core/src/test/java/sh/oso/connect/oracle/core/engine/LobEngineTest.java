@@ -67,6 +67,104 @@ class LobEngineTest {
   long safeEnd;
 
   @Test
+  void topicModeReselectsTouchedLobsAndEveryKeyChangeLobButNeverUnchangedColumns()
+      throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NAME\" = 'n'", 5, "five"), R5);
+    fake.dmlWithRowId(tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "n"), 101, "tail"), R5);
+    fake.dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"ID\" = '9'", 5, "n"), R5).commit(tx);
+    List<List<String>> asked = new ArrayList<>();
+    CaptureEngine engine =
+        engine(LobAssembler.Mode.RESELECT, 1 << 20, true)
+            .withLobTopics(true)
+            .withReselector(
+                (schema, change, scn, columns) -> {
+                  asked.add(columns);
+                  Map<String, Object> values = new java.util.HashMap<>();
+                  for (String column : columns)
+                    values.put(column, column.equals("B") ? new byte[] {1} : "complete");
+                  return values;
+                });
+    run(engine);
+    List<RowChange> changes = sink.committed.get(0).events();
+    assertThat(changes).hasSize(3);
+    assertThat(changes.get(0).touchedLobs()).isEmpty();
+    assertThat(changes.get(1).touchedLobs()).containsExactly("C");
+    assertThat(changes.get(1).after()).containsEntry("C", "complete").doesNotContainKey("NC");
+    assertThat(changes.get(2).after()).containsKeys("C", "NC", "B");
+    assertThat(asked).hasSize(2);
+    assertThat(asked.get(0)).containsExactly("C");
+    assertThat(asked.get(1)).containsExactly("C", "NC", "B");
+  }
+
+  @Test
+  void legacyLobDeliveryKeepsItsJournalPayloadWithoutTopicTracking() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NC\" = NULL", 5, "five"), R5);
+    fake.dmlWithRowId(
+            tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 1, "complete"), R5)
+        .commit(tx);
+    run(engine(LobAssembler.Mode.INLINE, 1 << 20, true));
+    for (RowChange change : sink.committed.get(0).events()) {
+      assertThat(change.touchedLobs()).isEmpty();
+      RowChange legacy =
+          new RowChange(
+              change.table(),
+              change.op(),
+              change.before(),
+              change.after(),
+              change.partial(),
+              change.rowId(),
+              change.id(),
+              change.tx(),
+              change.timestamp(),
+              change.schemaVersion(),
+              change.sql());
+      assertThat(change).isEqualTo(legacy);
+    }
+  }
+
+  @Test
+  void lobNullAssignmentsAndAssemblyRetainTheirTouchedColumns() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NC\" = NULL", 5, "five"), R5);
+    fake.dmlWithRowId(
+            tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 1, "complete"), R5)
+        .commit(tx);
+    run(engine(LobAssembler.Mode.INLINE, 1 << 20, true).withLobTopics(true));
+    assertThat(sink.committed.get(0).events()).hasSize(2);
+    assertThat(sink.committed.get(0).events().get(0).touchedLobs()).containsExactly("NC");
+    assertThat(sink.committed.get(0).events().get(1).touchedLobs()).containsExactly("C");
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2504")
+  void topicModeNeverReselectsARolledBackLobGroup() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NAME\" = 'kept'", 5, "five"), R5);
+    fake.dmlWithRowId(
+        tx,
+        Operation.LOB_WRITE,
+        DOCS,
+        write("C", where(5, "kept"), 1, "undone"),
+        RowIds.PLACEHOLDER);
+    fake.undo(tx, Operation.UPDATE, DOCS, undoUpdate("\"C\" = 'small five'"), R5).commit(tx);
+    run(
+        engine(LobAssembler.Mode.RESELECT, 1 << 20, true)
+            .withLobTopics(true)
+            .withReselector(
+                (schema, change, scn, columns) -> {
+                  throw new AssertionError("Rolled-back LOB state must remain invisible");
+                }));
+    assertThat(sink.committed.get(0).events()).hasSize(2);
+    assertThat(RowIds.isInert(sink.committed.get(0).events().get(1).rowId())).isTrue();
+  }
+
+  @Test
   void aSavepointRollbackOfLobWritesKeepsTheEarlierUpdateOfTheSameRow() throws Exception {
     TxKey a = fake.tx(1, 1, 1);
     fake.start(a, "APP");

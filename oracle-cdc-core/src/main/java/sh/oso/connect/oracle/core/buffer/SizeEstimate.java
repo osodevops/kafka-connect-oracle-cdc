@@ -33,6 +33,7 @@ public final class SizeEstimate {
     if (c.sql() != null) {
       n += 64 + length(c.sql().redo()) * 2L + length(c.sql().undo()) * 2L;
     }
+    for (String column : c.touchedLobs()) n += 48 + column.length() * 2L;
     return n;
   }
 

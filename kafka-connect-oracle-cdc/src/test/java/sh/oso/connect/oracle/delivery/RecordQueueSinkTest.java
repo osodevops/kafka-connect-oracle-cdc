@@ -75,9 +75,15 @@ class RecordQueueSinkTest {
   }
 
   static RecordQueueSink sink(Position base, boolean confluent, boolean truncate) {
+    return sink(base, confluent, truncate, false);
+  }
+
+  static RecordQueueSink sink(
+      Position base, boolean confluent, boolean truncate, boolean lobTopics) {
     Map<String, String> props = OracleCdcSourceConnectorConfigTest.minimal();
     props.put(OracleCdcSourceConnectorConfig.TRUNCATE_EMIT, Boolean.toString(truncate));
     if (confluent) props.put(OracleCdcSourceConnectorConfig.OUTPUT_FORMAT, "confluent");
+    if (lobTopics) props.put(sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE, "topic");
     OracleCdcSourceConnectorConfig config = new OracleCdcSourceConnectorConfig(props);
     InMemorySchemaStore store = new InMemorySchemaStore();
     store.save(
@@ -85,7 +91,8 @@ class RecordQueueSinkTest {
             T,
             List.of(
                 ColumnSpec.of("ID", 1, OracleType.NUMBER),
-                ColumnSpec.of("NAME", 2, OracleType.VARCHAR2)),
+                ColumnSpec.of("NAME", 2, OracleType.VARCHAR2),
+                ColumnSpec.of("C", 3, OracleType.CLOB)),
             List.of("ID"),
             KeySource.PRIMARY_KEY,
             true,
@@ -156,6 +163,43 @@ class RecordQueueSinkTest {
       out.add(PositionCodec.read(r.sourceOffset()));
     }
     return out;
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void onlyTheFinalLobRecordAcknowledgesAKeyChangeAndClosesItsKafkaTransaction() throws Exception {
+    RecordQueueSink sink = sink(Position.initial(100, IDENT), true, false, true);
+    sink.exactlyOnce(100, Long.MAX_VALUE);
+    Map<String, Object> before =
+        Map.of("ID", java.math.BigDecimal.ONE, "NAME", "n", "C", "complete");
+    Map<String, Object> after =
+        Map.of("ID", new java.math.BigDecimal(2), "NAME", "n", "C", "complete");
+    RowChange change =
+        new RowChange(
+            T, Operation.UPDATE, before, after, false, "R1", rba(120, 20), K1, Instant.EPOCH, 1);
+    CommittedTransaction tx =
+        new CommittedTransaction(
+            K1,
+            change.id(),
+            rba(110, 10),
+            rba(130, 30),
+            Instant.EPOCH,
+            1,
+            "APP",
+            null,
+            List.of(change));
+    sink.committed(tx, 0, ResumePoint.single(1, tx.commitId()));
+    List<RecordQueueSink.Queued> records = sink.drainQueued(100, 0);
+    assertThat(records).hasSize(5);
+    for (int i = 0; i < 4; i++) {
+      assertThat(PositionCodec.read(records.get(i).record().sourceOffset()).eventIndex()).isZero();
+      assertThat(records.get(i).boundary()).isFalse();
+    }
+    assertThat(PositionCodec.read(records.get(4).record().sourceOffset()).eventIndex())
+        .isEqualTo(1);
+    assertThat(records.get(4).boundary()).isTrue();
+    assertThat(records.get(3).record().value()).isNull();
+    assertThat(records.get(4).record().value()).isNotNull();
   }
 
   @Test

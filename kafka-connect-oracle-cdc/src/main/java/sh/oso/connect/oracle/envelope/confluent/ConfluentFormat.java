@@ -69,6 +69,9 @@ public final class ConfluentFormat implements RecordFormat {
   private final ColumnFilter excluded;
   private final Clock clock;
   private final boolean emitTruncate;
+  private final boolean lobTopics;
+  private final TopicRouter lobRouter;
+  private final long lobMaxBytes;
   private final Map<TableSchema, Schemas> cache = new HashMap<>();
 
   /**
@@ -80,7 +83,9 @@ public final class ConfluentFormat implements RecordFormat {
       Schema value,
       Schema valueWithBefore,
       List<ColumnSpec> keyColumns,
-      List<ColumnSpec> columns) {}
+      List<ColumnSpec> columns,
+      List<ColumnSpec> lobs,
+      Schema lobPrimaryKey) {}
 
   public ConfluentFormat(
       OracleCdcSourceConnectorConfig config,
@@ -99,6 +104,11 @@ public final class ConfluentFormat implements RecordFormat {
     this.excluded = config.columnFilter();
     this.clock = clock;
     this.emitTruncate = config.truncateEmit();
+    this.lobTopics =
+        config.core().lobMode() == sh.oso.connect.oracle.core.config.CoreConfig.LobMode.TOPIC;
+    this.lobRouter = router.forLobs(config.lobTopicTemplate(config.core().pdbs().size() > 0));
+    this.lobMaxBytes =
+        config.core().getLong(sh.oso.connect.oracle.core.config.CoreConfig.LOB_MAX_BYTES);
   }
 
   @Override
@@ -114,13 +124,12 @@ public final class ConfluentFormat implements RecordFormat {
       TableSchema schema,
       Position offset) {
     RowChange change = tx.events().get(index);
+    if (lobTopics && RowIds.isInert(change.rowId())) return List.of();
     if (change.op() == sh.oso.connect.oracle.core.model.Operation.TRUNCATE && !emitTruncate) {
       return List.of();
     }
     Schemas s = schemas(excluded.project(schema));
-    if (lobOnly(change, s)) {
-      return List.of();
-    }
+    boolean lobOnly = lobOnly(change, s);
     String topic = router.topic(change.table());
     Map<String, Object> offsetMap = PositionCodec.write(offset);
     Map<Meta, String> meta = new EnumMap<>(Meta.class);
@@ -139,67 +148,47 @@ public final class ConfluentFormat implements RecordFormat {
     Object afterKey = key(s, change.after());
     Object beforeKey = key(s, change.before());
     List<SourceRecord> out = new ArrayList<>(3);
-    switch (change.op()) {
-      case TRUNCATE -> {
-        meta.put(Meta.ROW_ID, null);
-        SchemaBuilder builder = SchemaBuilder.struct();
-        layout.addTo(builder);
-        Schema truncateSchema = builder.build();
-        Struct value = new Struct(truncateSchema);
-        Headers headers = new ConnectHeaders();
-        Map<Meta, String> values = withOp(meta, settings.opTruncate());
-        layout.fillBody(value, values);
-        layout.fillHeaders(headers, values);
-        addHeaders(headers, tx, change, index);
-        out.add(
-            new SourceRecord(
-                partition,
-                offsetMap,
-                topic,
-                null,
-                null,
-                null,
-                truncateSchema,
-                value,
-                null,
-                headers));
-      }
-      case INSERT ->
+    if (!lobOnly)
+      switch (change.op()) {
+        case TRUNCATE -> {
+          meta.put(Meta.ROW_ID, null);
+          SchemaBuilder builder = SchemaBuilder.struct();
+          layout.addTo(builder);
+          Schema truncateSchema = builder.build();
+          Struct value = new Struct(truncateSchema);
+          Headers headers = new ConnectHeaders();
+          Map<Meta, String> values = withOp(meta, settings.opTruncate());
+          layout.fillBody(value, values);
+          layout.fillHeaders(headers, values);
+          addHeaders(headers, tx, change, index);
           out.add(
-              change(
-                  topic,
-                  s,
+              new SourceRecord(
+                  partition,
                   offsetMap,
-                  tx,
-                  change,
-                  index,
-                  afterKey,
-                  settings.opInsert(),
-                  change.after(),
-                  null,
-                  meta));
-      case DELETE -> {
-        if (settings.tombstonesOnDelete()) {
-          out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
-        } else {
-          out.add(
-              change(
                   topic,
-                  s,
-                  offsetMap,
-                  tx,
-                  change,
-                  index,
-                  beforeKey,
-                  settings.opDelete(),
-                  change.before(),
                   null,
-                  meta));
+                  null,
+                  null,
+                  truncateSchema,
+                  value,
+                  null,
+                  headers));
         }
-      }
-      default -> {
-        if (beforeKey != null && afterKey != null && !Objects.equals(beforeKey, afterKey)) {
-          // a key change: delete, tombstone and insert, whatever the tombstone setting
+        case INSERT ->
+            out.add(
+                change(
+                    topic,
+                    s,
+                    offsetMap,
+                    tx,
+                    change,
+                    index,
+                    afterKey,
+                    settings.opInsert(),
+                    change.after(),
+                    null,
+                    meta));
+        case DELETE -> {
           if (settings.tombstonesOnDelete()) {
             out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
           } else {
@@ -217,39 +206,176 @@ public final class ConfluentFormat implements RecordFormat {
                     null,
                     meta));
           }
-          out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
-          out.add(
-              change(
-                  topic,
-                  s,
-                  offsetMap,
-                  tx,
-                  change,
-                  index,
-                  afterKey,
-                  settings.opInsert(),
-                  change.after(),
-                  null,
-                  meta));
-        } else {
-          Object key = afterKey != null ? afterKey : beforeKey;
-          out.add(
-              change(
-                  topic,
-                  s,
-                  offsetMap,
-                  tx,
-                  change,
-                  index,
-                  key,
-                  settings.opUpdate(),
-                  change.after(),
-                  change.before(),
-                  meta));
         }
+        default -> {
+          if (beforeKey != null && afterKey != null && !Objects.equals(beforeKey, afterKey)) {
+            // a key change: delete, tombstone and insert, whatever the tombstone setting
+            if (settings.tombstonesOnDelete()) {
+              out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
+            } else {
+              out.add(
+                  change(
+                      topic,
+                      s,
+                      offsetMap,
+                      tx,
+                      change,
+                      index,
+                      beforeKey,
+                      settings.opDelete(),
+                      change.before(),
+                      null,
+                      meta));
+            }
+            out.add(tombstone(topic, s, offsetMap, tx, change, index, beforeKey, meta));
+            out.add(
+                change(
+                    topic,
+                    s,
+                    offsetMap,
+                    tx,
+                    change,
+                    index,
+                    afterKey,
+                    settings.opInsert(),
+                    change.after(),
+                    null,
+                    meta));
+          } else {
+            Object key = afterKey != null ? afterKey : beforeKey;
+            out.add(
+                change(
+                    topic,
+                    s,
+                    offsetMap,
+                    tx,
+                    change,
+                    index,
+                    key,
+                    settings.opUpdate(),
+                    change.after(),
+                    change.before(),
+                    meta));
+          }
+        }
+      }
+    if (lobTopics && change.op() != sh.oso.connect.oracle.core.model.Operation.TRUNCATE) {
+      Headers lobHeaders = new ConnectHeaders();
+      addHeaders(lobHeaders, tx, change, index);
+      boolean keyChange =
+          beforeKey != null && afterKey != null && !Objects.equals(beforeKey, afterKey);
+      if (change.op() == sh.oso.connect.oracle.core.model.Operation.DELETE || keyChange) {
+        out.addAll(
+            lobRecords(change.table(), s, change.before(), null, offsetMap, lobHeaders, true));
+      }
+      if (change.op() != sh.oso.connect.oracle.core.model.Operation.DELETE) {
+        java.util.Set<String> touched =
+            change.op() == sh.oso.connect.oracle.core.model.Operation.INSERT || keyChange
+                ? null
+                : change.touchedLobs();
+        out.addAll(
+            lobRecords(change.table(), s, change.after(), touched, offsetMap, lobHeaders, false));
       }
     }
     return out;
+  }
+
+  private List<SourceRecord> lobRecords(
+      sh.oso.connect.oracle.core.model.TableId table,
+      Schemas s,
+      Map<String, Object> image,
+      java.util.Set<String> selected,
+      Map<String, Object> offset,
+      Headers headers,
+      boolean tombstone) {
+    List<SourceRecord> out = new ArrayList<>();
+    if (s.lobs().isEmpty()) return out;
+    if (image == null || s.keyColumns().stream().anyMatch(c -> image.get(c.name()) == null)) {
+      throw new sh.oso.connect.oracle.core.errors.DecodeException(
+          "LOB topic row of " + table.fqn() + " lacks its stable key.",
+          "Enable supplemental logging for every key column; the connector cannot discard unkeyed"
+              + " LOB state.");
+    }
+    Object primary;
+    if (s.lobPrimaryKey().type() == Schema.Type.STRUCT) {
+      Struct key = new Struct(s.lobPrimaryKey());
+      for (ColumnSpec c : s.keyColumns())
+        key.put(
+            c.name(),
+            types.value(c, s.lobPrimaryKey().field(c.name()).schema(), image.get(c.name())));
+      primary = key;
+    } else {
+      ColumnSpec c = s.keyColumns().get(0);
+      primary = types.value(c, s.lobPrimaryKey(), image.get(c.name()));
+    }
+    Schema keySchema =
+        SchemaBuilder.struct()
+            .field("table", Schema.STRING_SCHEMA)
+            .field("column", Schema.STRING_SCHEMA)
+            .field("primary_key", s.lobPrimaryKey())
+            .build();
+    for (ColumnSpec column : s.lobs()) {
+      if (selected != null && !selected.contains(column.name())) continue;
+      byte[] bytes = null;
+      if (!tombstone) {
+        if (!image.containsKey(column.name()))
+          throw new sh.oso.connect.oracle.core.errors.DecodeException(
+              "Complete LOB value unavailable for " + table.fqn() + "." + column.name() + ".",
+              "Restore sufficient undo and flashback access for AS OF commit reselect; topic mode"
+                  + " never publishes a placeholder.");
+        Object value = image.get(column.name());
+        if (value != null) bytes = encodeLob(column, value);
+        if (bytes != null && bytes.length > lobMaxBytes)
+          throw new sh.oso.connect.oracle.core.errors.LobTooLargeException(
+              "LOB topic value exceeds cdc.lob.max.bytes for "
+                  + table.fqn()
+                  + "."
+                  + column.name()
+                  + ".",
+              "Raise cdc.lob.max.bytes before restarting; topic mode requires complete values.");
+      }
+      Struct key =
+          new Struct(keySchema)
+              .put("table", qualified(table))
+              .put("column", column.name())
+              .put("primary_key", primary);
+      out.add(
+          new SourceRecord(
+              partition,
+              offset,
+              lobRouter.topic(table, column.name()),
+              null,
+              keySchema,
+              key,
+              bytes == null ? null : Schema.BYTES_SCHEMA,
+              bytes,
+              null,
+              headers.duplicate()));
+    }
+    return out;
+  }
+
+  private static byte[] encodeLob(ColumnSpec column, Object value) {
+    if (value instanceof byte[] bytes) return bytes;
+    java.nio.charset.Charset charset =
+        column.type() == sh.oso.connect.oracle.core.schema.OracleType.NCLOB
+            ? java.nio.charset.StandardCharsets.UTF_16BE
+            : java.nio.charset.StandardCharsets.UTF_8;
+    try {
+      java.nio.ByteBuffer encoded =
+          charset
+              .newEncoder()
+              .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+              .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+              .encode(java.nio.CharBuffer.wrap(value.toString()));
+      byte[] bytes = new byte[encoded.remaining()];
+      encoded.get(bytes);
+      return bytes;
+    } catch (java.nio.charset.CharacterCodingException e) {
+      throw new sh.oso.connect.oracle.core.errors.DecodeException(
+          "LOB text of column " + column.name() + " is not valid " + charset.name() + ".",
+          "Repair the source text; the connector refuses replacement characters.");
+    }
   }
 
   private static boolean lobOnly(RowChange change, Schemas s) {
@@ -257,7 +383,7 @@ public final class ConfluentFormat implements RecordFormat {
       return true;
     }
     if (change.op() != sh.oso.connect.oracle.core.model.Operation.UPDATE
-        || !RowIds.isSynthetic(change.rowId())
+        || (!RowIds.isSynthetic(change.rowId()) && change.touchedLobs().isEmpty())
         || change.before() == null
         || change.after() == null) {
       return false;
@@ -296,7 +422,8 @@ public final class ConfluentFormat implements RecordFormat {
     headers.addBoolean("cdc.snapshot", true);
     headers.addInt("cdc.schema_version", schema.version());
     Object key = key(s, row.values());
-    return List.of(
+    List<SourceRecord> out = new ArrayList<>();
+    out.add(
         new SourceRecord(
             partition,
             PositionCodec.write(offset),
@@ -308,6 +435,10 @@ public final class ConfluentFormat implements RecordFormat {
             value,
             null,
             headers));
+    if (lobTopics)
+      out.addAll(
+          lobRecords(table, s, row.values(), null, PositionCodec.write(offset), headers, false));
+    return out;
   }
 
   Schemas schemas(TableSchema schema) {
@@ -315,6 +446,8 @@ public final class ConfluentFormat implements RecordFormat {
   }
 
   private Schemas build(TableSchema schema) {
+    if (lobTopics) sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(schema);
+    List<ColumnSpec> lobs = schema.columns().stream().filter(ConfluentTypes::lob).toList();
     List<ColumnSpec> keyColumns = new ArrayList<>();
     if (schema.keySource() != KeySource.ROWID && schema.keySource() != KeySource.NONE) {
       for (String k : schema.keyColumns()) {
@@ -358,7 +491,20 @@ public final class ConfluentFormat implements RecordFormat {
       }
       valueWithBefore = withBefore.field(settings.beforeStateField(), before.build()).build();
     }
-    return new Schemas(keySchema(keyColumns), value.build(), valueWithBefore, keyColumns, columns);
+    Schema lobPrimaryKey =
+        keyColumns.isEmpty()
+            ? null
+            : keyColumns.size() == 1
+                ? types.schema(keyColumns.get(0), true)
+                : keyStruct(keyColumns);
+    return new Schemas(
+        keySchema(keyColumns),
+        value.build(),
+        valueWithBefore,
+        keyColumns,
+        columns,
+        lobs,
+        lobPrimaryKey);
   }
 
   private Schema keySchema(List<ColumnSpec> keyColumns) {

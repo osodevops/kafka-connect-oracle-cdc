@@ -88,3 +88,9 @@ When enabled, Debezium gets a null-key `op=t` envelope with null images; Conflue
 metadata-only `op_type=T` struct, without columns or before-state. That latter shape is an OSO
 extension because no Confluent `T` output was observed. The logical operation is appended after
 UNKNOWN, preserving existing codec ordinals, and only its acknowledged record advances its offset.
+
+Separate LOB topics require stable column keys and complete values. Topic mode refuses keyless
+and ROWID-only LOB tables, missing values, placeholder oversize handling and unsupported XMLTYPE
+bytes; the operator must exclude XMLTYPE or use supported LOB types. Malformed text also stops
+rather than substituting characters. These scope limits are documented, including XMLTYPE where
+black-box output has not settled its representation. Null LOB values tombstone their column key.
