@@ -44,7 +44,9 @@ class TruncateConnectorIT {
     try (ConnectCluster cluster = new ConnectCluster().start()) {
       for (String format : List.of("debezium", "confluent")) {
         String schema =
-            SchemaFixtures.nameFor(getClass()) + "_" + format.toUpperCase(java.util.Locale.ROOT);
+            SchemaFixtures.nameFor(getClass())
+                + "_"
+                + format.substring(0, 3).toUpperCase(java.util.Locale.ROOT);
         String connector = "truncate-" + format;
         String prefix = "trunc-" + format;
         SchemaFixtures.recreate(db, OracleTestDatabase.PDB1, schema);

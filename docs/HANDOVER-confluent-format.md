@@ -102,11 +102,12 @@ Current implementation:
   schemas; exact scale-two rows match, while rounding cases assert the intentional typed failure.
   Field/config/codec/SQL-retention/parser and delivery regressions also pass.
 
-Step 3 is implemented at the `feat(envelope): emit committed truncate records on request` checkpoint.
-`TruncateShapesRefEngineIT` passed and records DDL in its own committed transaction. The optional
-flag, both record shapes, codec ordinal preservation, commit/offset regressions and full unit gate
-pass; engine and connector tiers, including `TruncateConnectorIT`, are pending against the frozen
-checkpoint. LOB topic output and same-topics migration remain steps 4 and 5.
+Step 3 is complete at `5bc0236` plus the short-schema test correction. The reference spike,
+full clean gate, full engine tier and connector matrix passed. The connector matrix met a worker
+startup timeout and a transient heartbeat-consumption failure in two existing regressions; both
+passed unchanged in the focused rerun. `TruncateConnectorIT` passes in both formats after keeping
+its generated schema names within LogMiner's identifier limit. Truncate delivery remains commit
+ordered and advances only acknowledged positions. LOB topic output and same-topics migration remain steps 4 and 5.
 Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
 Maven runs, or install changed modules while its Docker tier is active. The optional RDS run is not
 planned because no RDS instance is up; the remaining cloud lab was destroyed through its workflow.
@@ -345,7 +346,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 ### Step 3 (C3): truncate
 
 - [x] Reference spike, implementation, regressions, generated config docs and full gate.
-- [ ] Engine and connector tiers, then mark the step complete and push.
+- [x] Engine and connector tiers, including unchanged regression reruns; step complete.
 
 1. Engine spike `TruncateShapesRefEngineIT` (T1, `-Dreference.update=true`): how LogMiner shows
    TRUNCATE (OPERATION_CODE, DDL text) and in which transaction.
