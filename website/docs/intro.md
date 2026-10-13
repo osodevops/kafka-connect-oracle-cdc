@@ -41,7 +41,7 @@ site describes as available is in that release and covered by its test suites (s
 | [Migration tools](migration/tools.md) from Confluent and Debezium: configuration translation, takeover SCN, cutover verification | Available |
 | [Amazon RDS for Oracle](database-setup/amazon-rds.md) 19c, non-CDB, and with the CDB architecture from 0.1.3 | Preview |
 | Oracle RAC, Autonomous Database, standby capture | Not available yet |
-| [Confluent-compatible format and separate LOB topics](reference/record-formats.md#confluent-compatible-format), same-topic migration | Implemented for the next release; legal check pending |
+| [Confluent-compatible format and separate LOB topics](reference/record-formats.md#confluent-compatible-format), same-topic migration | Implemented for the next release; release qualification pending |
 | Transaction metadata records, schema change topic | Not available yet |
 
 Oracle Database 19c and later is required. The test suites run against Oracle Database Free,

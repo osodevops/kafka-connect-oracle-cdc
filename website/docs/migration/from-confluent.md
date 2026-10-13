@@ -8,11 +8,17 @@ description: A tested cutover from Confluent's Oracle CDC Source connector, what
 The default migration keeps Confluent's table topics, flat records, key templates and Schema
 Registry subjects. Stop the source connector, translate its settings and start OSO from its
 stored position. Existing consumers continue reading the same topics. This path is implemented
-for the next release; release awaits OSO's legal check on the documented black-box approach.
+for the next release, subject to the release qualification gates.
 
 The earlier migration to new Debezium topics was qualified on Oracle Database Free and RDS for
 Oracle 19c non-CDB. The same-topic qualification uses Oracle Database Free and Confluent 2.15.2
 in disposable local containers. No RDS instance was available for that additional format run.
+
+The format was independently implemented from public documentation and verified by comparing
+external output on synthetic test data. Only the official, unmodified reference connector was
+used under its evaluation licence. No reverse-engineered or decompiled versions were used,
+and no Confluent source code was inspected or copied. Its proprietary connector and libraries
+are not shipped with OSO or run in CI. OSO is not affiliated with or endorsed by Confluent.
 
 ## Before you start
 

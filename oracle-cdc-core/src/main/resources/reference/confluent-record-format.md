@@ -2,6 +2,13 @@
 
 Specification: Confluent's public [configuration reference](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/configuration-properties.html), checked against the external output of its Oracle CDC Source connector 2.15.2 on Oracle Database Free 23ai, 13 October 2026. `ConfluentFormatRefQualIT` runs a hand-placed plugin only in disposable lab containers, refuses CI and records only this suite's test data. No proprietary code or files form part of the specification. The evaluation licence ends on 11 November 2026; runs requiring it must finish by about 4 November 2026.
 
+Development provenance: the format was independently implemented from public documentation.
+The official, unmodified Confluent connector was used only as an external-output reference under
+its public 30-day evaluation licence. No reverse-engineered or decompiled versions were used;
+no Confluent source code was inspected or copied. Its proprietary connector and libraries are
+not shipped with OSO, downloaded by the build or run in CI. The release `NOTICE` records this
+provenance. All proprietary reference and comparison runs finished on 13 October 2026.
+
 Fixtures: `kafka-connect-oracle-cdc/src/test/resources/confluent-reference/`. Fifteen profiles record keys, values, headers and registered schemas. The follow-up adds numeric boundaries, NOT NULL columns, statements with distinct SCNs in one transaction, every metadata field in the body, composite LOB keys and the Avro subject version used by each record. Placeholders preserve equality between volatile values, not their numeric ordering. Diagnostics remain local and are not fixtures. This reference records facts and decisions, never timings.
 
 ## Rows, keys and schemas

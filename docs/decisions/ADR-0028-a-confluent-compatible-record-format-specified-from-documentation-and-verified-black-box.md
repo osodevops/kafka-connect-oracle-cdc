@@ -1,7 +1,7 @@
 # ADR-0028: A Confluent-compatible record format, specified from documentation and verified black-box
 
-**Status:** Accepted, 13 October 2026. Implementation and qualification are complete. Release
-requires OSO's legal check and approval.
+**Status:** Accepted, 13 October 2026. Implementation and format qualification are complete.
+Sion approved release after the licensing research below; technical release gates still apply.
 **Context:** PRD-01 SRC-FMT-2, SRC-FMT-3, SRC-TOP-4 and SRC-LOB-1; PRD-04 MIG-2 and MIG-5.
 
 ## Context
@@ -15,6 +15,12 @@ Confluent's public documentation leaves parts of the format unspecified, includi
 precision, row and commit SCNs, before-state schema changes and LOB keys and encodings. On
 12 October 2026 Sion authorised observing Confluent 2.15.2's external output in a disposable lab
 to settle those questions. Its implementation is never read or copied.
+
+The format was independently implemented from public documentation. The reference was the
+official, unmodified connector, used under its public 30-day evaluation licence. No
+reverse-engineered or decompiled versions were used, and no Confluent source code was inspected
+or copied. Its proprietary connector and libraries are not included in OSO releases. This
+development provenance is published in `NOTICE` and the user documentation.
 
 ## Decision
 
@@ -103,10 +109,38 @@ Migrations can retain topics, consumers and subjects for the qualified configura
 to the documented differences and complete-input requirements. Fixtures protect the format after
 the evaluation licence ends. Existing Debezium users keep their output.
 
-The evaluation licence permits development and test use but does not expressly settle the
-interoperability comparison. OSO must confirm the black-box approach legally before the format
-is released. Acceptance and PR merge authorise implementation; they do not authorise the enabling
-release. The cloud lab is destroyed; disposable qualification containers are removed on suite exit.
+The cloud lab is destroyed; disposable qualification containers are removed on suite exit.
+
+## Licensing research and release decision, 13 October 2026
+
+At Sion's request, Perplexity researched the licensing question and the primary sources were
+checked separately. Sion confirmed that only the public 30-day trial applied, with no subscription
+or separate signed agreement. The local plugin's licence metadata points to Confluent's
+[software evaluation licence](https://www.confluent.io/software-evaluation-license), which
+redirects to the [Confluent License Agreement](https://www.confluent.io/legal/confluent-license-agreement/)
+dated 24 July 2024. Its evaluation grant, reverse-engineering restriction, confidentiality terms
+and California governing law need to be considered together.
+
+[CDPA section 50BA](https://www.legislation.gov.uk/ukpga/1988/48/section/50BA) addresses observation
+and testing by lawful users. The CJEU's
+[SAS Institute v World Programming decision](https://eur-lex.europa.eu/LexUriServ/LexUriServ.do?uri=CELEX:62010CJ0406:EN:HTML)
+distinguishes program functionality and functional file formats from protected program expression.
+These support independent implementation but do not by themselves establish compliance with the
+applicable contract. The distinct
+[US contractual outcome](https://www.ca4.uscourts.gov/opinions/161808.P.pdf) illustrates why
+source-code access and decompilation are not the only relevant contractual questions.
+
+The release review checked the plugin archive and bundled JAR entry names for proprietary
+Confluent packages and libraries, the synthetic fixture provenance, third-party notices and the
+qualification suites' refusal to run in CI. No proprietary Confluent connector or library was
+found in the shipping artefact. The standard Apache-2.0 `LICENSE` remains unchanged; `NOTICE`
+describes the development method and non-affiliation, without adding restrictions for users.
+
+Perplexity recommended software-licensing counsel for any unresolved contractual interpretation,
+and vendor permission if that review identifies a requirement. No solicitor's opinion or vendor
+permission was obtained, and this research is not represented as legal clearance. Sion approved
+proceeding with release after requesting this research and confirmed publishing the provenance
+statement. This records OSO's maintainer decision; the technical release gates remain mandatory.
 
 ## PRD edits
 

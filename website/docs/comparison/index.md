@@ -22,7 +22,7 @@ published instead, so you can measure on your own database.
 | Licence | Apache-2.0 | Proprietary premium connector, Confluent enterprise licence | Apache-2.0 |
 | Capture API | LogMiner | LogMiner | LogMiner, XStream or OpenLogReplicator |
 | Delivery | Exactly-once, with one or more whole Oracle transactions per Kafka transaction; at-least-once otherwise | At-least-once | At-least-once; exactly-once through Kafka Connect, with Kafka transactions per poll batch (`transaction.boundary=poll`) |
-| Record formats | Debezium by default; Confluent-compatible flat format and same-topic cutover implemented for the next release, legal check pending | Flat rows with configurable metadata and key templates | Debezium envelope |
+| Record formats | Debezium by default; Confluent-compatible flat format and same-topic cutover implemented for the next release, release qualification pending | Flat rows with configurable metadata and key templates | Debezium envelope |
 | Tasks | One task; decoding runs on several threads | Task zero mines into a redo log topic; table work is spread across tasks | One task |
 | Long-running transactions | Buffered by the connector, spilled to disk past a heap budget, journaled to Kafka so the restart position can move past them | Buffered in connector memory; a threshold with warn or discard | The restart position stays at the start of the oldest open transaction |
 | Transactions the database lost | Orphan detection against `GV$TRANSACTION`, released or stopped by policy | Not documented | Reported to hold the offset back ([dbz#2683](https://github.com/debezium/dbz/issues/2683)) |

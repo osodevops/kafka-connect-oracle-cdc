@@ -15,11 +15,22 @@ Oracle JDBC driver (com.oracle.database.jdbc:ojdbc11)
 Apache Kafka (https://kafka.apache.org)
   Apache License, Version 2.0. Provided by the Kafka Connect runtime; not bundled.
 
+Development provenance
+----------------------
+
+The Confluent-compatible record format was independently implemented from public documentation
+and verified by comparing external output on OSO's synthetic test data. The official, unmodified
+Confluent Oracle CDC Source connector was used only as a reference in disposable lab containers
+under its evaluation licence. No reverse-engineered or decompiled versions of Confluent software
+were used. No Confluent source code was inspected or copied. Its proprietary connector and
+libraries are not included in OSO releases, downloaded by the build or run in CI.
+
 Trademarks
 ----------
 
 Oracle and Java are registered trademarks of Oracle and/or its affiliates. This project is
 not affiliated with or endorsed by Oracle. Apache Kafka and Kafka are trademarks of the Apache
 Software Foundation. This project is not affiliated with or endorsed by the Apache Software
-Foundation. Confluent is a trademark of Confluent, Inc. Debezium is a trademark of Red Hat, Inc.
-Names are used only to identify the products concerned.
+Foundation. Confluent is a trademark of Confluent, Inc. This project is not affiliated with or
+endorsed by Confluent. Debezium is a trademark of Red Hat, Inc. Names are used only to identify
+the products concerned.

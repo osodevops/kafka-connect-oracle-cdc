@@ -1,9 +1,17 @@
 # Confluent-compatible format qualification, 13 October 2026
 
 ADR-0028's format is implemented for the next release. This evidence verifies the documented
-profiles and the same-topic Avro handover; release still requires OSO's legal check and approval.
+profiles and the same-topic Avro handover. Sion approved release on 13 October 2026 after the
+licensing research recorded in ADR-0028; technical release gates still apply.
 No proprietary connector runs in CI or forms part of the build. All observations use a
 hand-placed Confluent Oracle CDC Source connector 2.15.2 in disposable qualification containers.
+
+The format was independently implemented from public documentation and verified by comparing
+external output on OSO's synthetic test data. The reference connector was the official,
+unmodified distribution, used under its public 30-day evaluation licence. No reverse-engineered
+or decompiled versions were used. No Confluent source code was inspected or copied, and its
+proprietary connector and libraries are not included in OSO releases. The release `NOTICE`
+records this development provenance.
 
 ## Target and scope
 

@@ -37,14 +37,35 @@ Hard rules for this work (also in `CLAUDE.md` and ADR-0028):
 - The Debezium-compatible output stays byte-identical throughout. Every change must keep the
   existing Debezium tests green.
 - Before the format is released, OSO should confirm the black-box approach legally
-  (ADR-0028, Consequences).
+  (ADR-0028, licensing research and release decision). On 13 October Sion requested Perplexity
+  research and approved proceeding with release; this is a maintainer decision, not a
+  solicitor's clearance. Preserve that distinction and the provenance in `NOTICE`.
 
 ## 1. Where everything is right now
 
 The authorised implementation plan is complete. [PR #31](https://github.com/osodevops/kafka-connect-oracle-cdc/pull/31)
 was squash-merged into `main` at `1cfaaf5`. Main contains the format, truncate extension,
 separate LOB topics, same-topic migration tools, accepted ADR-0028 and qualification evidence.
-No enabling release has been authorised; OSO's legal check and user approval remain prerequisites.
+Sion approved the enabling release on 13 October 2026 after requesting Perplexity licensing
+research, and confirmed that only the public 30-day trial applied. The research, primary sources
+and artefact review are recorded in ADR-0028. No solicitor's opinion or vendor permission was
+obtained. Public docs and the release `NOTICE` now state that the implementation is independent,
+the official unmodified connector was only an external-output reference, and no reverse-engineered
+or decompiled versions were used. No Confluent source was inspected or copied.
+
+Release PR #29 (0.1.6) remains open pending technical gates. A fresh
+[nightly run](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38418299236)
+is running on `6b0dde3`, the complete implementation before this documentation-only update.
+It uses only OSO software. Preserve the existing 0.1.x preview scope: no completed 72-hour soak
+or full platform qualification is claimed; those remain prerequisites for 1.0 as documented in
+the README and original handover. Do not bypass a failed nightly or release workflow gate.
+
+The prior scheduled nightly
+[38334075196](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38334075196)
+failed the unchanged worker-kill regression on `23.9-faststart`. The task stopped with a
+`ConcurrentModificationException` while Kafka Connect converted record headers, then failed to
+catch up. This release blocker is under investigation. Preserve all correctness assertions;
+the failure does not establish a successful cutover or a passed nightly.
 
 The fifteen-profile reference and step 1 follow-up are committed at `38e5f71`. Fixtures contain
 only the suite's own test data and normalised volatile values. The reference-only scale-two
@@ -79,7 +100,7 @@ The feature, lab and tools worktrees have been removed after reviewing and priva
 older task preparations. The three ADR-0028 task stashes are removed. The feature history remains
 available in Git. The remaining cloud lab was destroyed through its workflow and all final
 qualification containers are removed. No RDS rerun is planned; live non-CDB format parity is not
-claimed. Release PR #29, Dependabot and unrelated worktrees/development containers are untouched.
+claimed. Dependabot and unrelated worktrees/development containers are untouched.
 
 ## 2. Facts established so far (Confluent 2.15.2, Oracle Database Free 23ai, 13 October 2026)
 
@@ -386,7 +407,9 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 
 - [x] ADR accepted, PRDs and website updated; full gate and website build green.
 - [x] [PR #31](https://github.com/osodevops/kafka-connect-oracle-cdc/pull/31) opened, all checks passed and squash-merged.
-- [ ] Enabling release: requires OSO's legal check and user approval; intentionally deferred.
+- [x] Perplexity licensing research, primary-source review, artefact audit and Sion's release
+  approval recorded; public development provenance added to `NOTICE` and docs.
+- [ ] Enabling release: approved, pending technical release qualification and publication.
 
 1. ADR-0028 status Accepted, recording the key namespace, the per-format truncate and tombstone
    defaults, LOB topics only in this format, and the documented differences.
@@ -396,9 +419,9 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
    - `website/docs/migration/from-confluent.md` rewritten for the same-topics path (today it
      says the format "is not built yet" and always writes new topics);
    - the intro and comparison tables.
-4. Done: PR #31 squash-merges `feat/confluent-format`. Release-please can update its release
-   PR, but the enabling release is intentionally deferred. A `feat` commit gives the next patch
-   version before 1.0. Before cutting it, obtain OSO's legal check and user approval.
+4. Done: PR #31 squash-merges `feat/confluent-format`. Sion subsequently requested the licensing
+   research and approved release. A `feat` commit gives the next patch version before 1.0.
+   After the technical gates pass, merge release-please PR #29; never tag by hand.
 
 ### Step 8: housekeeping
 
@@ -406,7 +429,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 - [x] Qualification containers removed after the final suite.
 - [x] Task-only temporary worktrees and stashes removed after merge; older preparations privately preserved.
 
-- Release PR #29 (0.1.6, docs only) is open and not urgent.
+- Release PR #29 (0.1.6, includes the format feature) is open; release is approved, pending gates.
 - The Dependabot backlog (Kafka 4.3, JUnit 6, Testcontainers 2 majors) is not in this goal.
 - RAC 3d, standby and Autonomous Database stay blocked on Sion's Oracle and OCI accounts.
 
@@ -454,6 +477,8 @@ cannot be read from fixtures.
 
 Steps 1 through 8 are complete within the authorised scope. PR #31 is merged, ADR-0028 is
 accepted, all local and PR gates passed, evidence is committed and task housekeeping is complete.
-The cloud lab and qualification containers are removed. The only release precondition still open
-is OSO's legal check and user approval; do not merge the enabling release PR before those arrive.
-XMLTYPE LOB bytes and live non-CDB format parity remain documented limits.
+The cloud lab and qualification containers are removed. Sion approved release after requesting
+licensing research, which is documented as a maintainer decision rather than solicitor clearance.
+The provenance notice is public and included in the plugin's `NOTICE`. Technical release
+qualification is in progress; release PR #29 has not been merged. XMLTYPE LOB bytes and live
+non-CDB format parity remain documented limits.

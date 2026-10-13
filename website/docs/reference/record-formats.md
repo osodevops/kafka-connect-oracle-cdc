@@ -10,8 +10,8 @@ The connector writes Debezium-compatible change records: the envelope with `befo
 Oracle connector, so consumers and sink connectors written for that format read these records.
 This remains the default (`cdc.output.format=debezium`). The
 [Confluent-compatible format](#confluent-compatible-format) keeps the flat rows, keys and topics
-of Confluent's Oracle CDC Source connector. That format is implemented for the next release and
-awaits OSO's legal check before release. The sections below describe the default format unless
+of Confluent's Oracle CDC Source connector. That format is implemented for the next release,
+subject to the release qualification gates. The sections below describe the default format unless
 stated otherwise.
 
 How records are serialised (JSON, Avro, Protobuf) is up to the worker's `key.converter` and
@@ -320,7 +320,12 @@ leaves the value unavailable.
 
 Set `cdc.output.format=confluent`. The converter remains the worker's or connector's configured
 converter. The same-topic Avro path uses the existing converter, registry and subject strategy.
-The format is specified from public documentation and the recorded output of Confluent 2.15.2;
+The format was independently implemented from public documentation and verified against the
+external output of the official, unmodified Confluent 2.15.2 connector in disposable lab
+containers under its evaluation licence. No reverse-engineered or decompiled versions were
+used, and no Confluent source code was inspected or copied. Its proprietary connector and
+libraries are not included in OSO releases or run in CI. OSO is not affiliated with or endorsed
+by Confluent;
 [the migration guide](../migration/from-confluent.md) lists the differences and cutover procedure.
 
 The value is an unnamed required struct. Supported table columns appear in table order, followed

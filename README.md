@@ -3,7 +3,7 @@
 Open-source (Apache-2.0) change data capture source connector for Apache Kafka Connect that
 reads Oracle Database redo through LogMiner.
 
-**Status: preview.** The current release is 0.1.2, on
+**Status: preview.** The current release is 0.1.5, on
 [Maven Central](https://central.sonatype.com/namespace/sh.oso) (group `sh.oso`) and the
 [GitHub releases](https://github.com/osodevops/kafka-connect-oracle-cdc/releases) page, which carries
 the plugin ZIP. Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
@@ -61,6 +61,14 @@ subscription; see [SUPPORT.md](SUPPORT.md). Security issues: see [SECURITY.md](S
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
+The Confluent-compatible record format was independently implemented from public documentation
+and verified against external output from the official, unmodified connector in disposable lab
+containers under its evaluation licence. No reverse-engineered or decompiled versions were used,
+and no Confluent source code was inspected or copied. Its proprietary connector and libraries
+are not shipped with OSO or run in CI. See the development provenance in [NOTICE](NOTICE) and
+[the qualification evidence](docs/qualification/2026-10-13-confluent-format/README.md).
+
 Oracle and Java are registered trademarks of Oracle and/or its affiliates. This project is not
 affiliated with or endorsed by Oracle. Apache Kafka is a trademark of the Apache Software
-Foundation.
+Foundation. Confluent is a trademark of Confluent, Inc. This project is not affiliated with or
+endorsed by Confluent.

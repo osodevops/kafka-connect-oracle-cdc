@@ -62,6 +62,9 @@ never by restarting the database.
   disposable lab container for black-box output comparison (ADR-0028): never in CI, never
   decompiled, read or committed. Debezium code may only be copied with
   its Apache-2.0 header kept and an entry in NOTICE, and only after review.
+- Preserve the development provenance in `NOTICE`: no reverse-engineered or decompiled versions
+  of Confluent software were used. Any authorised reference run must use the official, unmodified
+  connector and observe external output only. This provenance notice does not change Apache-2.0.
 - Offsets only encode what the framework acknowledged.
 - Every data-loss bug gets a regression test before the fix merges. Regression tests are
   named by invariant and tagged with the public issue (`@Tag("dbz-2504")`).
