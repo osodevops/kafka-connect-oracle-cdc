@@ -271,8 +271,7 @@ class ConfluentFormatRefQualIT {
     return counts;
   }
 
-  private Map<String, String> config(
-      ConnectCluster cluster, Profile p, String schema, String name) {
+  Map<String, String> config(ConnectCluster cluster, Profile p, String schema, String name) {
     Map<String, String> d = db.connectorDatabaseProps();
     String pdb = d.get("cdc.database.pdbs");
     String first = pdb == null || pdb.isBlank() ? d.get("cdc.database.service") : pdb;
