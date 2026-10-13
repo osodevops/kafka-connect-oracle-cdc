@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.6](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.5...v0.1.6) (2026-10-13)
+
+
+### Features
+
+* **envelope:** add Confluent-compatible records and same-topic cutover ([1cfaaf5](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/1cfaaf593946c6d3ac11a3c6e86a97e41fda1fe2))
+
+
+### Bug Fixes
+
+* **ci:** run long release qualification locally ([3710e77](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/3710e778695edc8020286b61c80e524bd545ecda))
+* **release:** record approved 0.1.6 qualification exception ([07076e5](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/07076e59f20e708211714dbebe025d58806c7ff2))
+* **release:** sign off generated release commits ([5b6f8cd](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/5b6f8cdb449e7c87d708fc7fb386ba5595ca0c4b))
+
+
+### Documentation
+
+* add comprehensive Confluent format guide and examples ([2387f1d](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/2387f1dc369197266e847fb037e2614960376dcb))
+* **adr:** ADR-0028, a Confluent-compatible record format verified black-box ([cf03167](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/cf03167bf25227c128b1467bcef7be31b99d954f))
+* handover for the Confluent-compatible format work ([47dda97](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/47dda9704f698655ee18e69457b455a8a263cefa))
+* handover, DATE as timestamp observed ([7a0e8f0](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/7a0e8f09a8a115faa750aa846643c2a663fc5acb))
+* handover, feature branch commits after the rebase ([36a89b8](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/36a89b8d528260ec39df8b9c385bc9f6f944faf8))
+* handover, reference recorded and committed ([cb0517e](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/cb0517e5b8b774b4d9c3a87f06a0fb303d9e2bb6))
+* handover, the feature branch is on origin ([6e02b1c](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/6e02b1c47510e56b9f050374de7e7615d2173153))
+* **handover:** close the Confluent format plan after merge ([6b0dde3](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/6b0dde3a85cfa108119e1c7febca8e1a0116e635))
+* publish independent format development provenance ([29ac6cb](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/29ac6cb3488a1e4a2c60a1e9059b53e8150beb7d))
+* the documentation moves to kafkacdcconnector.com ([705ec45](https://github.com/osodevops/kafka-connect-oracle-cdc/commit/705ec4556e3ea9e4a8128341fc73f4a0d82aefa9))
+
 ## [0.1.5](https://github.com/osodevops/kafka-connect-oracle-cdc/compare/v0.1.4...v0.1.5) (2026-10-12)
 
 
