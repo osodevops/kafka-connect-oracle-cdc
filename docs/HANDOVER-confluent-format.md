@@ -63,15 +63,17 @@ section 4. A subset run rewrites only its own profiles.
 
 ### Feature worktree (`../kafka-connect-oracle-cdc-fmt`, branch `feat/confluent-format`)
 
-Rebased on `main` after `d321d02`, so the fixtures are on the branch too. Three commits of its own:
+Rebased on `main` after `d321d02`, so the fixtures are on the branch too. It has three commits of
+its own, listed here with their IDs as of 13 October 2026. The IDs change with every rebase, so
+find the commits by subject (`git log --oneline main..feat/confluent-format`):
 
 | Commit | Content | State |
 |---|---|---|
-| `39e3316` | fix(envelope): each record of a change owns its headers (`DebeziumEnvelope` passed one `ConnectHeaders` to a delete and its tombstone, so `RecordQueueSink` added `cdc.split` twice). Test `DebeziumEnvelopeTest.eachRecordOfAChangeOwnsItsHeaders` | Full gate green |
-| `aaa1025` | refactor(envelope): `envelope/RecordFormat` interface (`partition()`, `records(...)`, `snapshotRecords(...)` returning a list, `create(config, router, databaseName)`); `DebeziumEnvelope implements RecordFormat`; `RecordQueueSink` and `OracleCdcSourceTask` use it. Only the last record of the last snapshot row carries the completed position | Full gate green |
-| `5fc249f` | feat(envelope): Confluent-compatible format, first cut (work in progress). See the list below | **Compiles only. No tests yet. The generated configuration reference is not regenerated, so the full gate fails on the docs check** |
+| `d7e62a7` | fix(envelope): each record of a change owns its headers (`DebeziumEnvelope` passed one `ConnectHeaders` to a delete and its tombstone, so `RecordQueueSink` added `cdc.split` twice). Test `DebeziumEnvelopeTest.eachRecordOfAChangeOwnsItsHeaders` | Full gate green |
+| `de8c43f` | refactor(envelope): `envelope/RecordFormat` interface (`partition()`, `records(...)`, `snapshotRecords(...)` returning a list, `create(config, router, databaseName)`); `DebeziumEnvelope implements RecordFormat`; `RecordQueueSink` and `OracleCdcSourceTask` use it. Only the last record of the last snapshot row carries the completed position | Full gate green |
+| `f592941` | feat(envelope): Confluent-compatible format, first cut (work in progress). See the list below | **Compiles only. No tests yet. The generated configuration reference is not regenerated, so the full gate fails on the docs check** |
 
-What `5fc249f` contains:
+What the `feat(envelope)` commit contains:
 
 - `kafka-connect-oracle-cdc/src/main/java/sh/oso/connect/oracle/envelope/confluent/`:
   - `ConfluentFormat`: implements `RecordFormat`.
