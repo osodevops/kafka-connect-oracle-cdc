@@ -34,7 +34,7 @@ import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.position.PositionCodec;
 import sh.oso.connect.oracle.delivery.AckTracker;
 import sh.oso.connect.oracle.delivery.RecordQueueSink;
-import sh.oso.connect.oracle.envelope.DebeziumEnvelope;
+import sh.oso.connect.oracle.envelope.RecordFormat;
 import sh.oso.connect.oracle.envelope.TopicRouter;
 
 /**
@@ -175,7 +175,7 @@ public class OracleCdcSourceTask extends SourceTask {
       router =
           new TopicRouter(
               config.topicTemplate(session.cdb()), config.topicPrefix(), session.databaseName());
-      DebeziumEnvelope envelope = new DebeziumEnvelope(config, router, session.databaseName());
+      RecordFormat envelope = RecordFormat.create(config, router, session.databaseName());
       sink =
           new RecordQueueSink(
               envelope,

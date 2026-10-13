@@ -49,7 +49,7 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  * {@code cdc.field.name.adjustment.mode} set, per-table schema names and column field names are
  * adjusted ({@link NameAdjustment}); values are still looked up by the column's own name.
  */
-public final class DebeziumEnvelope {
+public final class DebeziumEnvelope implements RecordFormat {
 
   public static final String CONNECTOR_NAME = "oracle-cdc";
 
@@ -127,6 +127,7 @@ public final class DebeziumEnvelope {
             .build();
   }
 
+  @Override
   public Map<String, Object> partition() {
     return partition;
   }
@@ -136,6 +137,7 @@ public final class DebeziumEnvelope {
    * of events of the same table so far in the transaction; {@code offset} is the position after
    * this event is acknowledged.
    */
+  @Override
   public List<SourceRecord> records(
       CommittedTransaction tx,
       int index,
@@ -251,6 +253,19 @@ public final class DebeziumEnvelope {
    * PRD-02 SNAP-8: a row read by a snapshot chunk as of {@code scn}, as {@code op=r} with {@code
    * source.snapshot} set to {@code marker} ({@code first}, {@code true} or {@code last}).
    */
+  @Override
+  public List<SourceRecord> snapshotRecords(
+      TableId table,
+      sh.oso.connect.oracle.core.snapshot.SnapshotRow row,
+      TableSchema schema,
+      long scn,
+      long readAtMs,
+      String marker,
+      Position offset) {
+    return List.of(snapshotRecord(table, row, schema, scn, readAtMs, marker, offset));
+  }
+
+  /** The one record a snapshot row becomes in this format. */
   public SourceRecord snapshotRecord(
       TableId table,
       sh.oso.connect.oracle.core.snapshot.SnapshotRow row,
