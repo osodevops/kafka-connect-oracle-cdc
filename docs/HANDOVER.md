@@ -2,6 +2,8 @@
 
 **Written:** 5 October 2026, updated 7 October 2026, for whoever (person or model) continues the build.
 **Read first:** `CLAUDE.md` (rules), this file, then `docs/decisions/` and the PRDs under `docs/prd/`.
+**Current work (13 October 2026):** the Confluent-compatible record format. Continue from
+`docs/HANDOVER-confluent-format.md`; this file is background for it.
 **Working rules that override everything else:** no silent data loss; LogMiner only; offsets only encode
 what Kafka Connect acknowledged; every data-loss bug gets a regression test before its fix; push,
 merge release PRs or change repository settings only when Sion asks; conventional commits with `git commit -s` and the trailer
