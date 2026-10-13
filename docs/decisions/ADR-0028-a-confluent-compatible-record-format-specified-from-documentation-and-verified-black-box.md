@@ -1,7 +1,8 @@
 # ADR-0028: A Confluent-compatible record format, specified from documentation and verified black-box
 
 **Status:** Accepted, 13 October 2026. Implementation and format qualification are complete.
-Sion approved release after the licensing research below; technical release gates still apply.
+Sion approved release after the licensing research below. The scoped 0.1.6 qualification exception
+is recorded in the release decision; format qualification and provenance remain unchanged.
 **Context:** PRD-01 SRC-FMT-2, SRC-FMT-3, SRC-TOP-4 and SRC-LOB-1; PRD-04 MIG-2 and MIG-5.
 
 ## Context
@@ -140,7 +141,10 @@ Perplexity recommended software-licensing counsel for any unresolved contractual
 and vendor permission if that review identifies a requirement. No solicitor's opinion or vendor
 permission was obtained, and this research is not represented as legal clearance. Sion approved
 proceeding with release after requesting this research and confirmed publishing the provenance
-statement. This records OSO's maintainer decision; the technical release gates remain mandatory.
+statement. This records OSO's maintainer decision. Sion subsequently authorised publishing 0.1.6
+without waiting for outstanding long qualification. The [scoped release decision](../qualification/2026-10-13-release-0.1.6/README.md)
+records T2 as waived and reuses existing green CI for unchanged software inputs; it does not change
+future release gates or any regression test.
 
 ## PRD edits
 

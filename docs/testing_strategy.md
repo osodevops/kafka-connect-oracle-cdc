@@ -139,3 +139,8 @@ within the original heap budget. Evidence expires after seven days, and its test
 build inputs must match the release; project release versions alone are normalised. This changes
 where qualification runs, without reducing its scope or any test assertion. Instructions are in
 [Local release qualification](../release/LOCAL-T2.md).
+
+For preview 0.1.6 only, the maintainer authorised immediate publication without waiting for
+outstanding T2 qualification. Existing green CI is reused for unchanged software inputs, and
+incomplete T2 is recorded as waived. This exception cannot apply to another version. See the
+[release decision](qualification/2026-10-13-release-0.1.6/README.md).

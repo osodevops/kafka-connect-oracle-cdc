@@ -58,24 +58,23 @@ capture configuration, JSON records, operation/key sequences, metadata layouts, 
 mappings, separate LOB topics, truncate, Avro, migration and every documented difference together.
 It is linked from the sidebar, README, format reference and migration guide.
 
-Release PR #29 (0.1.6) remains open pending technical gates. Sion objected to running hours-long
-qualification on hosted GitHub runners. The
-[hosted nightly](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38418299236)
-was cancelled, the workflow disabled, its schedule removed and its optional manual jobs restricted
-to a dedicated self-hosted Linux lab runner. The full T2 matrix now runs on local Docker, one
-database image at a time, in an isolated checkout of `5b6f8cd`. It uses only OSO software, with
-the same 1,000 worker kills and five million row transaction, and no reduced test assertions.
-The release gate can verify a committed local receipt for the full matrix and unchanged source,
-test and build inputs. Instructions and the evidence checker are in `release/LOCAL-T2.md`.
-Preserve the existing 0.1.x preview scope: no completed 72-hour soak
-or full platform qualification is claimed; those remain prerequisites for 1.0 as documented in
-the README and original handover. Do not bypass a failed nightly or release workflow gate.
+Release PR #29 (0.1.6) is being published under Sion's explicit instruction to proceed without
+waiting for outstanding tests. The 0.1.6-only exception is recorded in
+`docs/qualification/2026-10-13-release-0.1.6/README.md`: prior green CI is reused for unchanged
+software inputs; incomplete T2 is waived, never called a pass. The local qualification and its
+old release watcher have been stopped. Preserve all regression tests and future release gates.
 
-Both engine tiers, both connector tiers and both container qualification tiers passed in that
-hosted nightly on the two database images. Its long T2 suites were cancelled for runner cost,
-so that run does not qualify the release. Local qualification is in progress. Subsequent changes
-are documentation, a unit regression and release automation; production code is identical to
-`6b0dde3`. Do not restart long tests on hosted runners.
+The [hosted nightly](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38418299236)
+was cancelled after Sion objected to hours-long hosted runs, and the workflow is disabled. Its
+schedule is removed and optional manual jobs use a dedicated self-hosted lab runner. The replacement
+local T2 run was also stopped following the immediate-publication instruction; it is incomplete.
+Both engine tiers, both connector tiers and both container qualification tiers passed in the hosted
+run on both database images. The existing green main and release-PR CI checks are complete.
+Production code is identical to their tested revision; later changes are docs and release automation.
+
+Preserve the existing 0.1.x preview scope: no completed 72-hour soak or full platform qualification
+is claimed; those remain prerequisites for 1.0. The 0.1.6 exception does not authorise restarting
+long tests on hosted runners or weakening any regression assertion.
 
 The prior scheduled nightly
 [38334075196](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38334075196)
@@ -85,8 +84,8 @@ catch up. PR #31 already corrected the shared headers in `DebeziumEnvelope`: eac
 owns its header list. A focused `RecordQueueSinkTest` regression now verifies stable iteration,
 one split flag per record and unchanged acknowledgement positions in both formats. Restoring the
 old shared-header behaviour makes that regression fail; the current implementation passes.
-No further production change was needed. Preserve all correctness assertions; complete green T2
-evidence is still required before release, now collected locally.
+No further production change was needed. Preserve all correctness assertions. Full T2 is explicitly
+waived for 0.1.6 under the recorded maintainer decision; it remains required for future releases.
 
 Release PR #29's first DCO run failed because release-please generated its commit without a
 `Signed-off-by` line. The root release-please configuration now supplies the bot's sign-off for

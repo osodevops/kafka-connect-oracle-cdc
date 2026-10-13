@@ -1,0 +1,11 @@
+{
+  "version": "0.1.6",
+  "tag": "v0.1.6",
+  "approvedBy": "Sion Smith",
+  "approvedOn": "2026-10-13",
+  "decision": "Publish this preview without waiting for outstanding long T2 qualification; reuse existing green CI for unchanged capture, test and build inputs.",
+  "t2Status": "waived, not completed",
+  "sourceCommit": "5b6f8cdb449e7c87d708fc7fb386ba5595ca0c4b",
+  "sourceInputsSha256": "fd2ae5ddcfa620c4110bcc7b4a7cb79c19c0806c15c208ea2d14cbafc6aa16bb",
+  "ciRun": 38425197078
+}

@@ -13,6 +13,8 @@ name: Release
 #   Bundle Central dry run: release profile, throwaway signature, bundle contents checked
 # T3 soak and T4 qualification stay a maintainer sign-off before the release pull request is merged;
 # add required reviewers to the `release` environment to record that sign-off on every release.
+# The recorded 0.1.6 maintainer exception reuses green CI for identical inputs and waives T2.
+# It never treats cancelled/incomplete qualification as a pass and cannot apply to another version.
 #
 # Secrets (check them with verify-release-secrets.yml): CENTRAL_USERNAME, CENTRAL_TOKEN (or the
 # organisation's OSSRH_USERNAME and OSSRH_TOKEN, which hold Central Portal tokens),
@@ -58,6 +60,8 @@ jobs:
     name: validate release and versions
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      preview_waiver: ${{ steps.preview.outputs.approved }}
     env:
       TAG: ${{ inputs.tag_name }}
       VERSION: ${{ inputs.version }}
@@ -89,9 +93,14 @@ jobs:
             exit 1
           fi
 
+      - name: Check the recorded 0.1.6 maintainer exception
+        id: preview
+        run: python3 release/check_preview_waiver.py "$VERSION" "$TAG"
+
   gate-t0:
     name: gate T0 (Java ${{ matrix.java }})
     needs: validate
+    if: needs.validate.outputs.preview_waiver != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -112,6 +121,7 @@ jobs:
   gate-t1:
     name: gate T1 ${{ matrix.tier }}
     needs: validate
+    if: needs.validate.outputs.preview_waiver != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -153,6 +163,7 @@ jobs:
   gate-t2:
     name: gate T2 (local evidence or lab nightly)
     needs: validate
+    if: needs.validate.outputs.preview_waiver != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -214,6 +225,7 @@ jobs:
   gate-bundle:
     name: gate Central bundle (dry run)
     needs: validate
+    if: needs.validate.outputs.preview_waiver != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -232,7 +244,14 @@ jobs:
 
   publish-central:
     name: sign and deploy to Maven Central
-    needs: [gate-t0, gate-t1, gate-t2, gate-bundle]
+    needs: [validate, gate-t0, gate-t1, gate-t2, gate-bundle]
+    if: >-
+      ${{
+        !cancelled() && needs.validate.result == 'success' &&
+        (needs.validate.outputs.preview_waiver == 'true' ||
+         (needs.gate-t0.result == 'success' && needs.gate-t1.result == 'success' &&
+          needs.gate-t2.result == 'success' && needs.gate-bundle.result == 'success'))
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: release

@@ -95,6 +95,9 @@ gate in docs/testing_strategy.md section 9. Commits carry a DCO sign-off (`git c
 Long T2 Docker suites run locally, never on GitHub-hosted runners. The nightly workflow is manual
 and self-hosted only. Use `release/run-local-t2.sh` in an isolated checkout and commit the checked
 receipt as described in `release/LOCAL-T2.md`; failed or partial qualification still blocks release.
+For 0.1.6 only, Sion explicitly waived outstanding qualification and authorised immediate preview
+publication. The recorded exception reuses prior green CI for unchanged software inputs and never
+claims full T2 passed. See `docs/qualification/2026-10-13-release-0.1.6/README.md`.
 
 ## Support and security policy (public)
 
