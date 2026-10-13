@@ -107,3 +107,9 @@ NUMBER values needing rounding to `numeric.default.scale` stop with CDC-3001, in
 Confluent's snapshots rounded HALF_EVEN. Check the configured scale before cutover. Separate LOB
 topics require complete values and a stable column key; OSO removes old LOB keys and republishes
 values under a changed row key, whereas Confluent 2.15.2 left the old LOB state behind.
+
+The compatible translation pins `cdc.key.missing=none` for the source's keyless-table behaviour.
+Separate LOB topics still refuse a table without a stable column key. Matching explicit Avro
+key/value converter overrides are also copied to `cdc.journal.converter` and its settings, so
+schema and transaction journal readback survive a restart. Inherited worker converters or
+different key/value codecs require the report's explicit journal-reader follow-up.

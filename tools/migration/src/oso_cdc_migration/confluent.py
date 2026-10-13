@@ -627,6 +627,45 @@ def finalise_tables(ctx: Context) -> None:
 
 def finalise_pins(ctx: Context) -> None:
     if compatible(ctx):
+        ctx.setting(
+            "cdc.key.missing", "none", "Confluent writes null keys for tables without a column key."
+        )
+        key_converter = ctx.get("key.converter")
+        value_converter = ctx.get("value.converter")
+        key_settings = {
+            k.removeprefix("key.converter."): v
+            for k, v in ctx.source.items()
+            if k.startswith("key.converter.")
+        }
+        value_settings = {
+            k.removeprefix("value.converter."): v
+            for k, v in ctx.source.items()
+            if k.startswith("value.converter.")
+        }
+        if key_converter and value_converter and not value_converter.endswith("JsonConverter"):
+            if key_converter == value_converter and key_settings == value_settings:
+                ctx.setting(
+                    "cdc.journal.converter",
+                    value_converter,
+                    "Reads internal schema and journal records with the pipeline's converter.",
+                )
+                for key, value in value_settings.items():
+                    ctx.setting(
+                        "cdc.journal.converter." + key,
+                        value,
+                        "Matches the existing key/value converter configuration.",
+                    )
+            else:
+                ctx.follow_up(
+                    "Internal schema and journal readers require matching key/value converters "
+                    "and settings when cdc.kafka.bootstrap.servers is enabled; "
+                    "the source has different codecs."
+                )
+        else:
+            ctx.follow_up(
+                "If the worker uses Avro or Protobuf, configure cdc.journal.converter and "
+                "cdc.journal.converter.* to match before enabling cdc.kafka.bootstrap.servers."
+            )
         ctx.setting("cdc.tombstones.on.delete", "false", "Confluent's default, pinned when unset.")
         ctx.setting(
             "cdc.lob.mode",

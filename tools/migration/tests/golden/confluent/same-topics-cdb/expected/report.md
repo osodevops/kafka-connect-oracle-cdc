@@ -8,7 +8,7 @@
 | Exactly-once check | not checked: no --connect-url given |
 | Exit code | 2, success with manual follow-ups |
 
-24 source properties: 19 mapped, 5 mapped with a change, 0 dropped and 0 needing manual action. 5 follow-ups.
+24 source properties: 19 mapped, 5 mapped with a change, 0 dropped and 0 needing manual action. 6 follow-ups.
 
 ## Follow-ups
 
@@ -16,7 +16,8 @@
 2. Separate LOB topics require stable column keys, complete values and sufficient undo for AS OF commit reselect. OSO moves LOB state on key changes; Confluent 2.15.2 did not. (`lob.topic.name.template`)
 3. OSO refuses NUMBER values needing rounding to fit numeric.default.scale, including snapshots (CDC-3001); Confluent snapshots rounded HALF_EVEN. Increase the scale before cutover when needed. (`numeric.default.scale`)
 4. The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.
-5. Exactly-once delivery was not configured because the target Connect cluster was not checked (no --connect-url given). Run the translator again with `--connect-url`, or add `exactly.once.support=required` and `transaction.boundary=connector` yourself once the workers run with `exactly.once.source.support=enabled`.
+5. If the worker uses Avro or Protobuf, configure cdc.journal.converter and cdc.journal.converter.* to match before enabling cdc.kafka.bootstrap.servers.
+6. Exactly-once delivery was not configured because the target Connect cluster was not checked (no --connect-url given). Run the translator again with `--connect-url`, or add `exactly.once.support=required` and `transaction.boundary=connector` yourself once the workers run with `exactly.once.source.support=enabled`.
 
 ## Settings added by the translator
 
@@ -26,6 +27,7 @@
 | `cdc.output.format` | `confluent` | Preserves table topics, flat rows, key templates and Schema Registry subjects. |
 | `cdc.topic.prefix` | `orders-cdc` | Names internal topics and the offset partition; table topics stay unchanged with Confluent output and are prefixed with Debezium output. |
 | `cdc.tables.case.sensitive` | `true` | Confluent matches table expressions case-sensitively (MIG-3). |
+| `cdc.key.missing` | `none` | Confluent writes null keys for tables without a column key. |
 | `cdc.snapshot.mode` | `none` | A takeover streams from the old connector's position, without a snapshot. |
 | `cdc.start.scn` | `1000` | The old connector's position (--start-scn); honoured while the new connector has no stored offset. |
 

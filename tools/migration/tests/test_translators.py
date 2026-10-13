@@ -248,3 +248,34 @@ def test_without_a_start_scn_the_report_asks_for_the_takeover(tmp_path, capsys):
     assert "cdc.start.scn" not in out["config"]
     assert any("takeover_scn.py" in f["text"] for f in report["follow_ups"])
     assert code == EXIT_FOLLOW_UPS
+
+
+def test_same_topic_migration_pins_keyless_behaviour_and_matching_avro_journal_codec(
+    tmp_path, capsys
+):
+    from oso_cdc_migration.configio import load
+    from oso_cdc_migration.confluent import SPEC
+    from oso_cdc_migration.translator_cli import translator_main
+
+    source = tmp_path / "source.json"
+    config = {
+        "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+        "oracle.server": "db",
+        "oracle.sid": "FREE",
+        "oracle.pdb.name": "FREEPDB1",
+        "oracle.username": "CDC",
+        "table.inclusion.regex": "FREEPDB1[.]APP[.].*",
+    }
+    for side in ("key", "value"):
+        config[side + ".converter"] = "io.confluent.connect.avro.AvroConverter"
+        config[side + ".converter.schema.registry.url"] = "http://registry:8081"
+    source.write_text(json.dumps({"name": "old", "config": config}))
+    output = tmp_path / "target.json"
+    code = translator_main(
+        SPEC, ["--input", str(source), "--output", str(output), "--start-scn", "1000"]
+    )
+    assert code in (0, 2)
+    target = load(str(output)).config
+    assert target["cdc.key.missing"] == "none"
+    assert target["cdc.journal.converter"] == "io.confluent.connect.avro.AvroConverter"
+    assert target["cdc.journal.converter.schema.registry.url"] == "http://registry:8081"

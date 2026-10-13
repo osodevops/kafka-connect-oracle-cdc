@@ -11,6 +11,7 @@
     "cdc.database.sid": "ORCLCDB",
     "cdc.database.user": "C##MYUSER",
     "cdc.heartbeat.interval.ms": "30000",
+    "cdc.key.missing": "none",
     "cdc.lob.mode": "topic",
     "cdc.lob.topic.template": "orders-cdc.lob.${pdb}.${schema}.${table}.${column}",
     "cdc.on.decode.error": "fail",

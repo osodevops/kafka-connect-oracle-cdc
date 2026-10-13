@@ -9,6 +9,7 @@
     "cdc.database.port": "1521",
     "cdc.database.sid": "ORCLDB",
     "cdc.database.user": "MYUSER",
+    "cdc.key.missing": "none",
     "cdc.lob.mode": "skip",
     "cdc.mining.fetch.size": "1",
     "cdc.output.format": "confluent",

@@ -35,6 +35,10 @@
       "properties": []
     },
     {
+      "text": "If the worker uses Avro or Protobuf, configure cdc.journal.converter and cdc.journal.converter.* to match before enabling cdc.kafka.bootstrap.servers.",
+      "properties": []
+    },
+    {
       "text": "Exactly-once delivery was not configured because the target Connect cluster was not checked (no --connect-url given). Run the translator again with `--connect-url`, or add `exactly.once.support=required` and `transaction.boundary=connector` yourself once the workers run with `exactly.once.source.support=enabled`.",
       "properties": []
     }
@@ -59,6 +63,11 @@
       "key": "cdc.tables.case.sensitive",
       "value": "true",
       "reason": "Confluent matches table expressions case-sensitively (MIG-3)."
+    },
+    {
+      "key": "cdc.key.missing",
+      "value": "none",
+      "reason": "Confluent writes null keys for tables without a column key."
     },
     {
       "key": "cdc.tombstones.on.delete",
@@ -221,6 +230,7 @@
     "cdc.database.port": "1521",
     "cdc.database.sid": "ORCLDB",
     "cdc.database.user": "MYUSER",
+    "cdc.key.missing": "none",
     "cdc.lob.mode": "skip",
     "cdc.mining.fetch.size": "1",
     "cdc.output.format": "confluent",

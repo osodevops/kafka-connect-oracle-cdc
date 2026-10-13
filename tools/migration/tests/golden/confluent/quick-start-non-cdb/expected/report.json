@@ -35,6 +35,10 @@
       "properties": []
     },
     {
+      "text": "If the worker uses Avro or Protobuf, configure cdc.journal.converter and cdc.journal.converter.* to match before enabling cdc.kafka.bootstrap.servers.",
+      "properties": []
+    },
+    {
       "text": "Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.",
       "properties": []
     },
@@ -63,6 +67,11 @@
       "key": "cdc.tables.case.sensitive",
       "value": "true",
       "reason": "Confluent matches table expressions case-sensitively (MIG-3)."
+    },
+    {
+      "key": "cdc.key.missing",
+      "value": "none",
+      "reason": "Confluent writes null keys for tables without a column key."
     },
     {
       "key": "cdc.tombstones.on.delete",
@@ -220,6 +229,7 @@
     "cdc.database.port": "1521",
     "cdc.database.sid": "ORCLDB",
     "cdc.database.user": "MYUSER",
+    "cdc.key.missing": "none",
     "cdc.lob.mode": "skip",
     "cdc.mining.fetch.size": "1",
     "cdc.output.format": "confluent",
