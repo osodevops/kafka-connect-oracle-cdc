@@ -65,7 +65,8 @@ section 4. A subset run rewrites only its own profiles.
 
 Rebased on `main` after `d321d02`, so the fixtures are on the branch too. It has three commits of
 its own, listed here with their IDs as of 13 October 2026. The IDs change with every rebase, so
-find the commits by subject (`git log --oneline main..feat/confluent-format`):
+find the commits by subject (`git log --oneline main..feat/confluent-format`). The branch is
+pushed to `origin` as a backup, with no pull request yet; open one only at step 7:
 
 | Commit | Content | State |
 |---|---|---|
