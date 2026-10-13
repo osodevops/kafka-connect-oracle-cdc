@@ -33,6 +33,10 @@ on:
       tag_name:
         required: true
         type: string
+      artifact_run:
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       version:
@@ -43,8 +47,13 @@ on:
         description: The release-please release name (vX.Y.Z); it must already exist
         required: true
         type: string
+      artifact_run:
+        description: Completed publication run to recover assets without redeploying Central
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -62,11 +71,14 @@ jobs:
     timeout-minutes: 10
     outputs:
       preview_waiver: ${{ steps.preview.outputs.approved }}
+      recover_assets: ${{ steps.recovery.outputs.enabled }}
+      artifact_run: ${{ steps.recovery.outputs.artifact_run }}
     env:
       TAG: ${{ inputs.tag_name }}
       VERSION: ${{ inputs.version }}
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       GH_TOKEN: ${{ github.token }}
+      ARTIFACT_RUN: ${{ inputs.artifact_run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,10 +109,39 @@ jobs:
         id: preview
         run: python3 release/check_preview_waiver.py "$VERSION" "$TAG"
 
+      - name: Validate the original signed publication before recovering assets
+        id: recovery
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          run_id = os.environ.get("ARTIFACT_RUN", "")
+          enabled = bool(run_id)
+          if enabled:
+              assert re.fullmatch(r"[1-9][0-9]*", run_id), "invalid publication run"
+              repo = os.environ["GITHUB_REPOSITORY"]
+              run = json.loads(subprocess.check_output(["gh", "run", "view", run_id, "--repo", repo,
+                                                       "--json", "status,headSha,jobs"], text=True))
+              sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+              assert run["status"] == "completed" and run["headSha"] == sha, "publication revision mismatch"
+              assert any(j["name"].endswith("sign and deploy to Maven Central") and j["conclusion"] == "success"
+                         for j in run["jobs"]), "original Central publication did not succeed"
+              artifacts = json.loads(subprocess.check_output(["gh", "api",
+                  f"repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100"], text=True))["artifacts"]
+              assert any(a["name"] == "release-files" and not a["expired"] for a in artifacts), "no release files"
+              with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
+                  summary.write(f"Recover assets from signed publication {run_id}, commit {sha}; do not redeploy Central.\n")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"enabled={str(enabled).lower()}\nartifact_run={run_id}\n")
+          PY
+
   gate-t0:
     name: gate T0 (Java ${{ matrix.java }})
     needs: validate
-    if: needs.validate.outputs.preview_waiver != 'true'
+    if: needs.validate.outputs.preview_waiver != 'true' && needs.validate.outputs.recover_assets != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -121,7 +162,7 @@ jobs:
   gate-t1:
     name: gate T1 ${{ matrix.tier }}
     needs: validate
-    if: needs.validate.outputs.preview_waiver != 'true'
+    if: needs.validate.outputs.preview_waiver != 'true' && needs.validate.outputs.recover_assets != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -163,7 +204,7 @@ jobs:
   gate-t2:
     name: gate T2 (local evidence or lab nightly)
     needs: validate
-    if: needs.validate.outputs.preview_waiver != 'true'
+    if: needs.validate.outputs.preview_waiver != 'true' && needs.validate.outputs.recover_assets != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -225,7 +266,7 @@ jobs:
   gate-bundle:
     name: gate Central bundle (dry run)
     needs: validate
-    if: needs.validate.outputs.preview_waiver != 'true'
+    if: needs.validate.outputs.preview_waiver != 'true' && needs.validate.outputs.recover_assets != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -247,7 +288,7 @@ jobs:
     needs: [validate, gate-t0, gate-t1, gate-t2, gate-bundle]
     if: >-
       ${{
-        !cancelled() && needs.validate.result == 'success' &&
+        !cancelled() && needs.validate.result == 'success' && needs.validate.outputs.recover_assets != 'true' &&
         (needs.validate.outputs.preview_waiver == 'true' ||
          (needs.gate-t0.result == 'success' && needs.gate-t1.result == 'success' &&
           needs.gate-t2.result == 'success' && needs.gate-bundle.result == 'success'))
@@ -294,10 +335,14 @@ jobs:
 
   release-assets:
     name: attach plugin ZIP, CLI, SBOM and checksums
-    needs: publish-central
+    needs: [validate, publish-central]
+    if: >-
+      ${{ !cancelled() && needs.validate.result == 'success' &&
+          (needs.publish-central.result == 'success' || needs.validate.outputs.recover_assets == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      actions: read
       contents: write
       id-token: write
       attestations: write
@@ -310,6 +355,8 @@ jobs:
         with:
           name: release-files
           path: dist
+          run-id: ${{ needs.validate.outputs.artifact_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Unpack the plugin for the SBOM scan
         run: unzip -q "dist/osodevops-kafka-connect-oracle-cdc-${VERSION}.zip" -d sbom-input
       - name: SBOM of the plugin ZIP (syft, SPDX)
@@ -343,10 +390,14 @@ jobs:
 
   publish-image:
     name: oracle-cdc-doctor image to GHCR
-    needs: publish-central
+    needs: [validate, publish-central]
+    if: >-
+      ${{ !cancelled() && needs.validate.result == 'success' &&
+          (needs.publish-central.result == 'success' || needs.validate.outputs.recover_assets == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
       packages: write
       id-token: write
@@ -361,6 +412,8 @@ jobs:
         with:
           name: release-files
           path: dist
+          run-id: ${{ needs.validate.outputs.artifact_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Put the released CLI jar in the build context
         id: context
         run: |
