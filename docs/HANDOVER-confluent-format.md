@@ -64,8 +64,12 @@ The prior scheduled nightly
 [38334075196](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38334075196)
 failed the unchanged worker-kill regression on `23.9-faststart`. The task stopped with a
 `ConcurrentModificationException` while Kafka Connect converted record headers, then failed to
-catch up. This release blocker is under investigation. Preserve all correctness assertions;
-the failure does not establish a successful cutover or a passed nightly.
+catch up. PR #31 already corrected the shared headers in `DebeziumEnvelope`: each emitted record
+owns its header list. A focused `RecordQueueSinkTest` regression now verifies stable iteration,
+one split flag per record and unchanged acknowledgement positions in both formats. Restoring the
+old shared-header behaviour makes that regression fail; the current implementation passes.
+No further production change was needed. Preserve all correctness assertions; a green fresh
+nightly is still required before release.
 
 The fifteen-profile reference and step 1 follow-up are committed at `38e5f71`. Fixtures contain
 only the suite's own test data and normalised volatile values. The reference-only scale-two

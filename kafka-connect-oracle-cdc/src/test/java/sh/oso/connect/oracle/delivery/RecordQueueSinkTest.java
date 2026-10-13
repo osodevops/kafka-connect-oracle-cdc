@@ -167,6 +167,60 @@ class RecordQueueSinkTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("oso-30")
+  void splitRecordHeadersNeverChangeAfterPublication() throws Exception {
+    for (boolean confluent : List.of(false, true)) {
+      RecordQueueSink sink = sink(Position.initial(100, IDENT), confluent);
+      sink.exactlyOnce(1, Long.MAX_VALUE);
+      RowChange move =
+          new RowChange(
+              T,
+              Operation.UPDATE,
+              Map.of("ID", java.math.BigDecimal.ONE, "NAME", "before"),
+              Map.of("ID", new java.math.BigDecimal(2), "NAME", "after"),
+              false,
+              "R1",
+              rba(120, 20),
+              K1,
+              Instant.EPOCH,
+              1);
+      RowChange insert = tx(K1, 1, rba(130, 30), 21).events().get(0);
+      CommittedTransaction tx =
+          new CommittedTransaction(
+              K1,
+              move.id(),
+              rba(110, 10),
+              rba(130, 30),
+              Instant.EPOCH,
+              1,
+              "APP",
+              null,
+              List.of(move, insert));
+      sink.committed(tx, 0, ResumePoint.single(1, tx.commitId()));
+      List<SourceRecord> records =
+          sink.drain(100, 0).stream()
+              .filter(r -> r.headers().lastWithName("cdc.xid") != null)
+              .toList();
+      assertThat(records).hasSize(4);
+      for (int i = 0; i < records.size(); i++) {
+        assertThat(records.get(i).headers().allWithName("cdc.split")).toIterable().hasSize(1);
+        for (int j = i + 1; j < records.size(); j++) {
+          assertThat(records.get(i).headers()).isNotSameAs(records.get(j).headers());
+        }
+      }
+      // Kafka Connect iterates a record's headers while converting it. A producer or transform
+      // modifying another record must neither invalidate that iterator nor change its bytes.
+      var iterator = records.get(0).headers().iterator();
+      records.get(1).headers().addBoolean("consumer-local", true);
+      assertThat(iterator).toIterable().hasSize(7);
+      assertThat(records.get(0).headers().lastWithName("consumer-local")).isNull();
+      assertThat(PositionCodec.read(records.get(0).sourceOffset()).eventIndex()).isZero();
+      assertThat(PositionCodec.read(records.get(2).sourceOffset()).eventIndex()).isEqualTo(1);
+      assertThat(PositionCodec.read(records.get(3).sourceOffset()).eventIndex()).isEqualTo(2);
+    }
+  }
+
+  @Test
   @org.junit.jupiter.api.Tag("dbz-2544")
   void onlyTheFinalLobRecordAcknowledgesAKeyChangeAndClosesItsKafkaTransaction() throws Exception {
     RecordQueueSink sink = sink(Position.initial(100, IDENT), true, false, true);
