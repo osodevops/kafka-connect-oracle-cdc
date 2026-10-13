@@ -193,7 +193,9 @@ and decisions, never timings). That file does not exist yet.
   The code uses HALF_UP.
 - FLOAT(n) becomes a double.
 - CHAR, VARCHAR2, NCHAR and NVARCHAR2 become strings, with CHAR and NCHAR blank-padded.
-- DATE becomes a Connect Date: days since the epoch, with the time of day dropped.
+- DATE becomes a Connect Date: days since the epoch, with the time of day dropped. With
+  `oracle.date.mapping=timestamp` (profile `date-timestamp`), DATE becomes a Connect Timestamp
+  keeping the time of day, in UTC milliseconds.
 - TIMESTAMP(0, 3, 6, 9) becomes a Connect Timestamp in UTC milliseconds, truncated towards
   negative infinity (`1969-12-31 23:59:59.123456789` gives -877).
 - TIMESTAMP WITH TIME ZONE becomes the correct instant in milliseconds. WITH LOCAL TIME ZONE
@@ -244,7 +246,8 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 ### Step 1: finish and record the reference
 
 1. Wait for the 14-profile run to end, then check that all 14 directories exist and look at the
-   three profiles not yet read: `date-timestamp`, `tombstones` and `lob-topics`. In
+   two profiles not yet read: `tombstones` and `lob-topics` (`date-timestamp` is read, section
+   2). In
    `lob-topics`, record the LOB topic names, the key shape (Confluent documents table, column
    and primary key), the value type per LOB kind, the order relative to the row record, and the
    tombstones on delete and key change.
