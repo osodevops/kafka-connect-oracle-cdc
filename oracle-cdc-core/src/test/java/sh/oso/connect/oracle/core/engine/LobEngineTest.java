@@ -127,6 +127,16 @@ class LobEngineTest {
   }
 
   @Test
+  void confluentRowsTrackSmallLobAssignmentsEvenWithoutSeparateTopics() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"C\" = 'new'", 5, "five"), R5)
+        .commit(tx);
+    run(engine(LobAssembler.Mode.SKIP, 1 << 20, true).withLobTracking(true));
+    assertThat(sink.committed.get(0).events().get(0).touchedLobs()).containsExactly("C");
+  }
+
+  @Test
   void lobNullAssignmentsAndAssemblyRetainTheirTouchedColumns() throws Exception {
     TxKey tx = fake.tx(1, 1, 1);
     fake.start(tx, "APP")

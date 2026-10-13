@@ -536,7 +536,10 @@ public final class ConfluentFormat implements RecordFormat {
     }
     for (ColumnSpec c : s.keyColumns()) {
       if (image.get(c.name()) == null) {
-        return null;
+        throw new sh.oso.connect.oracle.core.errors.DecodeException(
+            "Confluent record image lacks declared key column " + c.name() + ".",
+            "Enable supplemental logging for every key column; an unkeyed delete or key move"
+                + " cannot maintain the existing topic state.");
       }
     }
     if (s.key().type() == Schema.Type.STRUCT) {
@@ -573,6 +576,10 @@ public final class ConfluentFormat implements RecordFormat {
       Map<String, Object> before,
       Map<Meta, String> meta) {
     boolean withBefore = before != null && s.valueWithBefore() != null;
+    if (change.partial()) {
+      requireCompleteImage(s, image);
+      if (withBefore) requireCompleteImage(s, before);
+    }
     Schema schema = withBefore ? s.valueWithBefore() : s.value();
     Headers headers = new ConnectHeaders();
     Struct value = row(schema, s, image, op, meta, headers);
@@ -608,13 +615,27 @@ public final class ConfluentFormat implements RecordFormat {
     return values;
   }
 
+  private static void requireCompleteImage(Schemas s, Map<String, Object> image) {
+    if (image == null || s.columns().stream().anyMatch(c -> !image.containsKey(c.name())))
+      throw new sh.oso.connect.oracle.core.errors.DecodeException(
+          "Confluent flat row image is incomplete.",
+          "Enable ALL-column supplemental logging; unknown values cannot be published as null.");
+  }
+
   private void fillColumns(Struct v, Schemas s, Map<String, Object> image) {
     if (image == null) {
-      return;
+      throw new sh.oso.connect.oracle.core.errors.DecodeException(
+          "Confluent flat row has no row image.",
+          "Restore supplemental logging; the connector refuses a record without its row.");
     }
     for (ColumnSpec c : s.columns()) {
       Field f = v.schema().field(c.name());
-      v.put(f, types.value(c, f.schema(), image.get(c.name())));
+      Object raw = image.get(c.name());
+      if (raw == null && !f.schema().isOptional())
+        throw new sh.oso.connect.oracle.core.errors.DecodeException(
+            "Confluent row lacks required column " + c.name() + ".",
+            "Enable ALL-column supplemental logging and verify the column's NOT NULL constraint.");
+      v.put(f, types.value(c, f.schema(), raw));
     }
   }
 

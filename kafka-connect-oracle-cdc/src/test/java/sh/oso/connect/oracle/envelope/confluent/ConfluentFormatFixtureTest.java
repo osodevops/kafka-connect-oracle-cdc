@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.TestFactory;
 import sh.oso.connect.oracle.OracleCdcSourceConnectorConfig;
 import sh.oso.connect.oracle.core.buffer.CommittedTransaction;
 import sh.oso.connect.oracle.core.errors.DecodeException;
+import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RedoRecordId;
 import sh.oso.connect.oracle.core.model.RedoText;
 import sh.oso.connect.oracle.core.model.RowChange;
@@ -56,6 +58,7 @@ import sh.oso.connect.oracle.core.model.TxKey;
 import sh.oso.connect.oracle.core.model.Xid;
 import sh.oso.connect.oracle.core.position.DatabaseIdentity;
 import sh.oso.connect.oracle.core.position.Position;
+import sh.oso.connect.oracle.core.schema.KeySource;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.core.snapshot.SnapshotRow;
 import sh.oso.connect.oracle.envelope.TopicRouter;
@@ -85,6 +88,92 @@ class ConfluentFormatFixtureTest {
   static final Pattern VOLATILE = Pattern.compile("<(scn|ts|rowid):(\\d+)>");
   static final Pattern RAW_ROWID =
       Pattern.compile("(?<![A-Za-z0-9+/])AAAAAAA(\\d{11})(?![A-Za-z0-9+/])");
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void aTombstoneDeleteNeverDiscardsAChangeWhoseDeclaredKeyIsMissing() {
+    ConfluentFixtureData.Data data = ConfluentFixtureData.data("NUMS");
+    RowChange change =
+        new RowChange(
+            data.schema().table(),
+            Operation.DELETE,
+            Map.of(),
+            null,
+            true,
+            "R1",
+            new RedoRecordId(100, "r", 0),
+            TX,
+            Instant.EPOCH);
+    CommittedTransaction tx =
+        new CommittedTransaction(
+            TX,
+            change.id(),
+            null,
+            new RedoRecordId(200, "c", 0),
+            Instant.EPOCH,
+            1,
+            "SCHEMA",
+            null,
+            List.of(change));
+    assertThatThrownBy(() -> format("tombstones").records(tx, 0, 1, data.schema(), OFFSET))
+        .isInstanceOf(DecodeException.class)
+        .hasMessageContaining("key");
+  }
+
+  @Test
+  void missingRequiredColumnsAndUnsupportedKeyTypesStopWithTypedErrors() {
+    TableSchema nums = ConfluentFixtureData.data("NUMS").schema();
+    assertThatThrownBy(
+            () ->
+                format("default")
+                    .snapshotRecords(
+                        nums.table(),
+                        new SnapshotRow(Map.of("ID", BigDecimal.ONE), null),
+                        nums,
+                        100,
+                        0,
+                        "true",
+                        OFFSET))
+        .isInstanceOf(DecodeException.class)
+        .hasMessageContaining("NN");
+    TableSchema exotic = ConfluentFixtureData.data("EXOTIC").schema();
+    assertThatThrownBy(
+            () -> format("default").schemas(exotic.withKey(List.of("F_BINF"), KeySource.OVERRIDE)))
+        .isInstanceOf(DecodeException.class)
+        .hasMessageContaining("F_BINF");
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void partialFlatImagesNeverTurnUnknownColumnsIntoNull() {
+    TableSchema schema = ConfluentFixtureData.data("NUMS").schema();
+    Map<String, Object> row = Map.of("ID", BigDecimal.ONE, "NN", "kept");
+    RowChange change =
+        new RowChange(
+            schema.table(),
+            Operation.UPDATE,
+            row,
+            row,
+            true,
+            "R1",
+            new RedoRecordId(100, "r", 0),
+            TX,
+            Instant.EPOCH);
+    CommittedTransaction tx =
+        new CommittedTransaction(
+            TX,
+            change.id(),
+            null,
+            new RedoRecordId(200, "c", 0),
+            Instant.EPOCH,
+            1,
+            "SCHEMA",
+            null,
+            List.of(change));
+    assertThatThrownBy(() -> format("default").records(tx, 0, 1, schema, OFFSET))
+        .isInstanceOf(DecodeException.class)
+        .hasMessageContaining("incomplete");
+  }
 
   @TestFactory
   Stream<DynamicTest> jsonFixtures() throws Exception {

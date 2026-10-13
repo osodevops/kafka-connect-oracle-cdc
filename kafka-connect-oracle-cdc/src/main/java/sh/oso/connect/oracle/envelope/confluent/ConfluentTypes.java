@@ -27,7 +27,6 @@ import org.apache.kafka.connect.data.Decimal;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Timestamp;
-import org.apache.kafka.connect.errors.DataException;
 import sh.oso.connect.oracle.core.errors.DecodeException;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 
@@ -135,13 +134,13 @@ public final class ConfluentTypes {
       case TIMESTAMP_LTZ:
         return Timestamp.builder();
       default:
-        throw new DataException(
+        throw new DecodeException(
             "Column "
                 + c.name()
                 + " has type "
                 + c.typeText()
-                + ", which the Confluent format"
-                + " leaves out");
+                + ", which cannot be a key in the Confluent format.",
+            "Choose supported key columns or the Debezium format; key columns cannot be omitted.");
     }
   }
 

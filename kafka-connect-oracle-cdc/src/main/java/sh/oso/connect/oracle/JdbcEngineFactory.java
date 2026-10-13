@@ -380,6 +380,8 @@ public final class JdbcEngineFactory implements EngineFactory {
       engine.withSqlText(config.keepsSqlText());
       engine.withTruncate(config.truncateEmit());
       engine.withLobTopics(core.lobMode() == CoreConfig.LobMode.TOPIC);
+      engine.withLobTracking(
+          config.outputFormat() == OracleCdcSourceConnectorConfig.OutputFormat.CONFLUENT);
       // CORE-MINE-6: 0 means the number of cores minus one, at most 8
       int threads = core.getInt(CoreConfig.MINING_DECODE_THREADS);
       engine.withDecodeThreads(

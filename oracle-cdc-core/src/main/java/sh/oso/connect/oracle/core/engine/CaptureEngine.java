@@ -104,6 +104,7 @@ public final class CaptureEngine {
   private volatile boolean keepSql;
   private volatile boolean emitTruncate;
   private volatile boolean lobTopics;
+  private volatile boolean trackLobs;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -270,6 +271,13 @@ public final class CaptureEngine {
   /** Separate LOB topics reselect only touched columns, or all columns for a key change. */
   public CaptureEngine withLobTopics(boolean enabled) {
     this.lobTopics = enabled;
+    if (enabled) withLobTracking(true);
+    return this;
+  }
+
+  /** Confluent row suppression needs touched columns even when separate topics are disabled. */
+  public CaptureEngine withLobTracking(boolean enabled) {
+    this.trackLobs = enabled;
     this.lobs.tracking(enabled);
     return this;
   }
@@ -909,7 +917,7 @@ public final class CaptureEngine {
     try {
       return d.op().isLobOp()
           ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema, excluded)
-          : decoder.decode(d, schema, excluded, keepSql, lobTopics);
+          : decoder.decode(d, schema, excluded, keepSql, trackLobs);
     } catch (RuntimeException ex) {
       return ex; // raised in order when the row is applied
     }
@@ -930,7 +938,7 @@ public final class CaptureEngine {
     try {
       Object pre = predecoded(d);
       change =
-          pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded, keepSql, lobTopics);
+          pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded, keepSql, trackLobs);
       if (keepSql && !excluded.mayExclude(d.table())) {
         change =
             change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sqlRedo(), d.sqlUndo()));
