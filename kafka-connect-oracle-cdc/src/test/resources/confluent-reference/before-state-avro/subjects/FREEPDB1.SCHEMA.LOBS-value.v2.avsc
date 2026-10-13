@@ -1,0 +1,78 @@
+{
+  "type" : "record",
+  "name" : "ConnectDefault",
+  "namespace" : "io.confluent.connect.avro",
+  "fields" : [ {
+    "name" : "ID",
+    "type" : {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 10,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "10"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    }
+  }, {
+    "name" : "V",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "table",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "scn",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "op_type",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "op_ts",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "current_ts",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "row_id",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "username",
+    "type" : [ "null", "string" ],
+    "default" : null
+  }, {
+    "name" : "before",
+    "type" : [ "null", {
+      "type" : "record",
+      "name" : "ConnectDefault2",
+      "fields" : [ {
+        "name" : "ID",
+        "type" : {
+          "type" : "bytes",
+          "scale" : 0,
+          "precision" : 10,
+          "connect.version" : 1,
+          "connect.parameters" : {
+            "scale" : "0",
+            "connect.decimal.precision" : "10"
+          },
+          "connect.name" : "org.apache.kafka.connect.data.Decimal",
+          "logicalType" : "decimal"
+        }
+      }, {
+        "name" : "V",
+        "type" : [ "null", "string" ],
+        "default" : null
+      } ]
+    } ],
+    "default" : null
+  } ]
+}

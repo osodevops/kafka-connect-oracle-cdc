@@ -188,6 +188,52 @@ public final class ConnectCluster implements AutoCloseable {
     return this;
   }
 
+  /**
+   * Confluent Schema Registry as the worker reaches it (needs {@link
+   * #withConfluentSchemaRegistry}).
+   */
+  public static final String CONFLUENT_SCHEMA_REGISTRY_URL = "http://schema-registry:8081";
+
+  public static final String CONFLUENT_SCHEMA_REGISTRY_IMAGE =
+      System.getProperty(
+          "confluent.schema.registry.image", "confluentinc/cp-schema-registry:7.9.2");
+
+  private boolean confluentRegistry;
+
+  /**
+   * Adds Confluent Schema Registry on the cluster network instead of Apicurio, reachable from the
+   * worker at {@link #CONFLUENT_SCHEMA_REGISTRY_URL} and from the test at {@link
+   * #confluentSchemaRegistryUrl()}; call before {@link #start}. For the Confluent format suites
+   * (ADR-0028), whose Avro subjects must match what Confluent's own converter registers.
+   */
+  public ConnectCluster withConfluentSchemaRegistry() {
+    confluentRegistry = true;
+    registry =
+        new GenericContainer<>(CONFLUENT_SCHEMA_REGISTRY_IMAGE)
+            .withNetwork(OracleTestDatabase.NETWORK)
+            .withNetworkAliases("schema-registry")
+            .withExposedPorts(8081)
+            .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
+            .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
+            .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:19092")
+            .withEnv("SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR", "1")
+            .waitingFor(
+                Wait.forHttp("/subjects")
+                    .forPort(8081)
+                    .forStatusCode(200)
+                    .withStartupTimeout(Duration.ofMinutes(3)))
+            .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("schema-registry"));
+    return this;
+  }
+
+  /** Confluent Schema Registry's REST API from the test JVM. */
+  public String confluentSchemaRegistryUrl() {
+    if (registry == null || !confluentRegistry) {
+      throw new IllegalStateException("call withConfluentSchemaRegistry() first");
+    }
+    return "http://" + registry.getHost() + ":" + registry.getMappedPort(8081);
+  }
+
   /** The registry's v3 API from the test JVM; needs {@link #withSchemaRegistry()}. */
   public String schemaRegistryUrl() {
     if (registry == null) {
@@ -204,7 +250,9 @@ public final class ConnectCluster implements AutoCloseable {
     kafka.start();
     if (registry != null) {
       registry.start();
-      LOG.info("Schema registry at {}", schemaRegistryUrl());
+      LOG.info(
+          "Schema registry at {}",
+          confluentRegistry ? confluentSchemaRegistryUrl() : schemaRegistryUrl());
     }
     connect.start();
     LOG.info("Connect worker at {}", restUrl());

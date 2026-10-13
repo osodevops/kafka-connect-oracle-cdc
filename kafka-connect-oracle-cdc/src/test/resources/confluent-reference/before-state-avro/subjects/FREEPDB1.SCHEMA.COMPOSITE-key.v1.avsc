@@ -1,0 +1,23 @@
+{
+  "type" : "record",
+  "name" : "ConnectDefault",
+  "namespace" : "io.confluent.connect.avro",
+  "fields" : [ {
+    "name" : "A",
+    "type" : {
+      "type" : "bytes",
+      "scale" : 0,
+      "precision" : 5,
+      "connect.version" : 1,
+      "connect.parameters" : {
+        "scale" : "0",
+        "connect.decimal.precision" : "5"
+      },
+      "connect.name" : "org.apache.kafka.connect.data.Decimal",
+      "logicalType" : "decimal"
+    }
+  }, {
+    "name" : "B",
+    "type" : "string"
+  } ]
+}
