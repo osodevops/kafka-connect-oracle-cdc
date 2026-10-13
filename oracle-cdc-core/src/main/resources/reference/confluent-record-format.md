@@ -134,7 +134,10 @@ The subsequent parity and in-place cutover suites must record any further differ
   record owns its diagnostic headers. Only the final record of a row carries its completed
   delivery position and transaction boundary.
 
-- Topic-mode savepoint rollback groups remain invisible and are never reselected or republished.
+- A LOB group downgraded by a savepoint rollback remains ambiguous (ADR-0015): it can contain
+  an earlier committed call. Topic mode reselects its touched columns AS OF the commit SCN and
+  emits their final values without a table row. It never discards the group or publishes undone
+  fragment bytes.
   A snapshot restart repeats its chunk until the final LOB record is acknowledged; acknowledging
   the row alone cannot skip that row's later LOB records.
 

@@ -246,20 +246,23 @@ class ConfluentLobFixtureTest {
 
   @Test
   @org.junit.jupiter.api.Tag("dbz-2504")
-  void rolledBackLobGroupsNeverRepublishUnchangedState() {
+  void anAmbiguousRollbackPublishesItsFinalReselectedLobValueWithoutATableRow() {
     TableSchema schema = ConfluentFixtureData.data("LOBS2").schema();
     Map<String, Object> row =
         ConfluentFixtureData.row("A", ConfluentFixtureData.decimal("1"), "B", "a", "C", "kept");
-    assertThat(
-            change(
-                format(Map.of()),
-                schema,
-                Operation.UPDATE,
-                row,
-                row,
-                Set.of("C"),
-                RowIds.inert(RowIds.lobGroup("R1", "1"))))
-        .isEmpty();
+    List<SourceRecord> records =
+        change(
+            format(Map.of()),
+            schema,
+            Operation.UPDATE,
+            row,
+            row,
+            Set.of("C"),
+            RowIds.inert(RowIds.lobGroup("R1", "1")));
+    assertThat(records).hasSize(1);
+    assertThat(records.get(0).topic()).startsWith("lob.");
+    assertThat((byte[]) records.get(0).value())
+        .isEqualTo("kept".getBytes(java.nio.charset.StandardCharsets.UTF_8));
   }
 
   @Test

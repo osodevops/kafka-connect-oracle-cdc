@@ -152,7 +152,31 @@ class LobEngineTest {
 
   @Test
   @org.junit.jupiter.api.Tag("dbz-2504")
-  void topicModeNeverReselectsARolledBackLobGroup() throws Exception {
+  void aMergedLobGroupRetainsTheCommittedCallBeforeItsSavepointRollback() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 101, "kept"), R5);
+    fake.dmlWithRowId(
+        tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 105, "undone"), R5);
+    fake.undo(tx, Operation.UPDATE, DOCS, undoUpdate("\"C\" = EMPTY_CLOB()"), R5).commit(tx);
+    List<List<String>> selected = new ArrayList<>();
+    run(
+        engine(LobAssembler.Mode.RESELECT, 1 << 20, true)
+            .withLobTopics(true)
+            .withReselector(
+                (schema, change, scn, columns) -> {
+                  selected.add(columns);
+                  return Map.of("C", "final committed content");
+                }));
+    assertThat(sink.committed.get(0).events()).hasSize(1);
+    RowChange recovered = sink.committed.get(0).events().get(0);
+    assertThat(selected).containsExactly(List.of("C"));
+    assertThat(recovered.after()).containsEntry("C", "final committed content");
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2504")
+  void topicModeResolvesAnAmbiguousRollbackToOnlyItsFinalTouchedLobValue() throws Exception {
     TxKey tx = fake.tx(1, 1, 1);
     fake.start(tx, "APP")
         .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NAME\" = 'kept'", 5, "five"), R5);
@@ -168,10 +192,12 @@ class LobEngineTest {
             .withLobTopics(true)
             .withReselector(
                 (schema, change, scn, columns) -> {
-                  throw new AssertionError("Rolled-back LOB state must remain invisible");
+                  assertThat(columns).containsExactly("C");
+                  return Map.of("C", "small five");
                 }));
     assertThat(sink.committed.get(0).events()).hasSize(2);
     assertThat(RowIds.isInert(sink.committed.get(0).events().get(1).rowId())).isTrue();
+    assertThat(sink.committed.get(0).events().get(1).after()).containsEntry("C", "small five");
   }
 
   @Test

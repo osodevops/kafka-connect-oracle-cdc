@@ -124,7 +124,6 @@ public final class ConfluentFormat implements RecordFormat {
       TableSchema schema,
       Position offset) {
     RowChange change = tx.events().get(index);
-    if (lobTopics && RowIds.isInert(change.rowId())) return List.of();
     if (change.op() == sh.oso.connect.oracle.core.model.Operation.TRUNCATE && !emitTruncate) {
       return List.of();
     }

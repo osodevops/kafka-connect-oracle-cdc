@@ -26,7 +26,6 @@ import sh.oso.connect.oracle.core.errors.LobTooLargeException;
 import sh.oso.connect.oracle.core.errors.OraErrorClassifier;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
-import sh.oso.connect.oracle.core.model.RowIds;
 import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.ColumnSpec;
 import sh.oso.connect.oracle.core.schema.OracleType;
@@ -132,7 +131,7 @@ final class ReselectingEvents extends AbstractList<RowChange> implements Committ
   }
 
   private RowChange reselect(RowChange c) {
-    if (c.op() == Operation.DELETE || c.after() == null || topicMode && RowIds.isInert(c.rowId())) {
+    if (c.op() == Operation.DELETE || c.after() == null) {
       return c;
     }
     try {

@@ -94,6 +94,13 @@ class ConfluentLobTopicsConnectorIT {
               "UPDATE docs SET v = 'v2' WHERE id = 1",
               "UPDATE docs SET id = 2 WHERE id = 1",
               "DELETE FROM docs WHERE id = 2");
+          work.setAutoCommit(false);
+          exec(work, append(" kept"));
+          java.sql.Savepoint savepoint = work.setSavepoint("lob_before_undone");
+          exec(work, append(" undone"));
+          work.rollback(savepoint);
+          work.commit();
+          work.setAutoCommit(true);
         }
         OracleSql.archiveLogCurrent(db);
         rows.addAll(
@@ -111,7 +118,7 @@ class ConfluentLobTopicsConnectorIT {
         String topic = "lob-it.lob.FREEPDB1." + schema + ".DOCS." + column;
         try (KafkaConsumer<String, String> consumer =
             cluster.consumer("lob-check-" + column, topic)) {
-          int count = column.equals("C") ? 6 : 5;
+          int count = column.equals("C") ? 7 : 5;
           List<ConsumerRecord<String, String>> records =
               ConnectCluster.consume(consumer, count, Duration.ofMinutes(2), Duration.ofSeconds(3));
           assertThat(records).hasSize(count);
@@ -124,12 +131,18 @@ class ConfluentLobTopicsConnectorIT {
           }
           assertThat(keys)
               .containsExactlyElementsOf(
-                  column.equals("C") ? List.of(0, 1, 1, 1, 2, 2) : List.of(0, 1, 1, 2, 2));
-          assertThat(records.get(count - 3).value()).isNull();
-          assertThat(records.get(count - 1).value()).isNull();
+                  column.equals("C") ? List.of(0, 1, 1, 1, 2, 2, 0) : List.of(0, 1, 1, 2, 2));
+          int movedIndex = column.equals("C") ? 4 : 3;
+          assertThat(records.get(movedIndex - 1).value()).isNull();
+          assertThat(records.get(movedIndex + 1).value()).isNull();
+          if (column.equals("C"))
+            assertThat(
+                    Base64.getDecoder()
+                        .decode(ConnectCluster.json(records.get(6).value()).asText()))
+                .isEqualTo("seed clob kept".getBytes(StandardCharsets.UTF_8));
           byte[] moved =
               Base64.getDecoder()
-                  .decode(ConnectCluster.json(records.get(count - 2).value()).asText());
+                  .decode(ConnectCluster.json(records.get(movedIndex).value()).asText());
           byte[] expected =
               column.equals("C")
                   ? ("large clob " + "x".repeat(6000)).getBytes(StandardCharsets.UTF_8)
@@ -144,6 +157,15 @@ class ConfluentLobTopicsConnectorIT {
     } finally {
       SchemaFixtures.drop(db, OracleTestDatabase.PDB1, schema);
     }
+  }
+
+  private static String append(String text) {
+    return "DECLARE content CLOB; BEGIN SELECT c INTO content FROM docs WHERE id = 0 FOR UPDATE; "
+        + "DBMS_LOB.WRITEAPPEND(content, "
+        + text.length()
+        + ", '"
+        + text
+        + "'); END;";
   }
 
   private static void exec(Connection connection, String... sql) throws Exception {
