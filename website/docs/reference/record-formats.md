@@ -398,6 +398,8 @@ Only the final record of a row advances its completed offset, including during s
   images stop with CDC-3001, so ALL-column supplemental logging is required.
 - OSO adds `cdc.*` diagnostic headers.
 - SQL text is suppressed where column exclusions may apply.
+- Requested SQL retains nine fractional timestamp digits, where Confluent 2.15.2 emits three.
+  The Timestamp column values match at millisecond precision.
 - OSO moves LOB state on row key changes. Confluent 2.15.2 left the old LOB key behind.
 - `cdc.truncate.emit=true` is an OSO extension: a null-key metadata-only `T` struct with no
   row columns or before-state. No Confluent truncate record was observed; the default is off.

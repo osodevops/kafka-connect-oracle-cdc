@@ -49,6 +49,8 @@ Differences are explicit:
   images stop with CDC-3001, so ALL-column supplemental logging is required.
 - OSO adds diagnostic `cdc.*` headers and suppresses redo/undo text where column exclusions
   may apply.
+- Requested SQL retains nine fractional timestamp digits, where Confluent 2.15.2 emits three.
+  Timestamp column values remain at the same millisecond precision.
 - OSO removes old LOB keys and publishes values under a changed row key; Confluent 2.15.2 left
   old LOB state behind.
 - Optional truncate emission is an OSO metadata-only `T` extension. Both defaults are off;

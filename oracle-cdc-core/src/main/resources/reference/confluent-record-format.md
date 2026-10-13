@@ -107,6 +107,10 @@ The reference enables large LOB support and uses `${connectorName}.lob.${fullyQu
 - OSO refuses Decimal rounding in snapshots, where Confluent rounds HALF_EVEN.
 - OSO retains additional `cdc.*` diagnostic headers; Confluent has none by default.
 - OSO suppresses redo and undo text for tables a column exclusion may touch, to avoid exposing excluded data.
+- Requested SQL preserves OSO's nine-digit timestamp literals. Confluent's SQL uses three
+  fractional digits; OSO retains the source precision in its mining session and emitted text.
+  For example, the workload's `1969-12-31 23:59:59.123456789` appears unchanged in OSO's
+  `TO_TIMESTAMP` literal and as `.123` in Confluent's. Row Timestamp values agree at milliseconds.
 - OSO will maintain LOB state across key changes with old-key tombstones and new-key values; Confluent 2.15.2 did not emit those records.
 - Explicit truncate emission is an OSO extension: null key and a metadata-only `T` struct, without row columns or before-state. Default emission remains off. `truncate-shapes.md` records its own committed DDL transaction and delivery order.
 
@@ -159,3 +163,10 @@ The subsequent parity and in-place cutover suites must record any further differ
 
 - The live NCLOB-null assignment publishes required zero-length bytes in Confluent 2.15.2.
   OSO matches that shape; row deletion and old-key removal retain null-valued tombstones.
+
+- Confluent's requested SQL uses three fractional timestamp digits, including TIMESTAMP(6)
+  and TIMESTAMP(9). OSO's fixed NLS mining formats use nine digits so capture never discards
+  sub-millisecond source precision. The qualification asserts OSO's exact SQL against the
+  independently defined workload literals; it does not truncate OSO text or ignore SQL fields.
+  All other SQL text and all row values remain compared. This is a documented SQL-text
+  difference, not a change to either format's established Timestamp column mapping.

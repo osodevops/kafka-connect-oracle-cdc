@@ -99,3 +99,9 @@ The live comparison observed Confluent's all-A LogMiner ROWID placeholder on an 
 insert. OSO publishes the resolved real locator when available, or null otherwise; this metadata
 difference is documented. Complete supported row images and declared key values are required for
 flat output. Incomplete images stop with CDC-3001 instead of publishing unknown values as null.
+
+Requested redo and undo SQL retain OSO's nine fractional timestamp digits; Confluent 2.15.2's
+text has three. OSO keeps the fixed FF9 mining formats to preserve source precision, and publishes
+that text unchanged. Row Timestamp values still match at millisecond precision. The live suite
+asserts the exact higher-precision SQL from its independently defined workload and compares all
+other text. This is a documented difference rather than a reason to truncate captured SQL.

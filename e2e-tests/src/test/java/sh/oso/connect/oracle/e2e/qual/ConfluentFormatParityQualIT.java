@@ -107,6 +107,7 @@ class ConfluentFormatParityQualIT {
               assertLobMoveDifference(expected, actual);
             } else {
               assertLobInsertRowIdDifference(expected, actual, topic, profile);
+              assertSqlTimestampPrecisionDifference(expected, actual, topic, profile);
               assertThat(actual)
                   .as(profile.name() + " " + topic)
                   .containsExactlyElementsOf(expected);
@@ -131,6 +132,9 @@ class ConfluentFormatParityQualIT {
               .containsExactlyInAnyOrderElementsOf(
                   records.keySet().stream().filter(t -> t.startsWith(old + ".")).toList());
           evidence.param("profile." + profile.name(), "records and schemas compared");
+          if (profile.props().containsKey("output.redo.field"))
+            evidence.param(
+                "difference.sqlTimestampPrecision", "source FF3; OSO FF9 asserted from workload");
         } catch (Throwable failure) {
           failures.add(new AssertionError("Profile " + profile.name(), failure));
           evidence.param("profile." + profile.name(), "FAIL");
@@ -257,5 +261,58 @@ class ConfluentFormatParityQualIT {
     withoutMove.remove(move + 1);
     withoutMove.remove(move);
     assertThat(withoutMove).containsExactlyElementsOf(expected);
+  }
+
+  private static void assertSqlTimestampPrecisionDifference(
+      List<JsonNode> expected,
+      List<JsonNode> actual,
+      String topic,
+      ConfluentFormatRefQualIT.Profile profile) {
+    if (!topic.endsWith(".TYPES") && !topic.endsWith(".EXOTIC")) return;
+    assertThat(actual).hasSize(expected.size());
+    for (int i = 0; i < expected.size(); i++) {
+      for (String property : List.of("output.redo.field", "output.undo.field")) {
+        String field = profile.props().getOrDefault(property, "");
+        if (field.isEmpty()) continue;
+        JsonNode source = expected.get(i).path("value").path(field);
+        if (!source.isTextual()) continue;
+        // Do not truncate the captured SQL to make it look like Confluent's FF3 session.
+        // Assert the exact FF9 literals from our independently defined workload instead.
+        String precise = sqlAtMiningPrecision(source.asText());
+        assertThat(actual.get(i).path("value").path(field).asText())
+            .as(profile.name() + " " + topic + " " + field + " preserves timestamp precision")
+            .isEqualTo(precise);
+        ((ObjectNode) expected.get(i).path("value")).put(field, precise);
+      }
+    }
+  }
+
+  /** The reference workload's exact literals, not a general SQL normaliser. */
+  static String sqlAtMiningPrecision(String sql) {
+    String ts3 = "TO_TIMESTAMP('2024-03-01 10:11:12.123')";
+    if (sql.contains(ts3)) {
+      int first = sql.indexOf(ts3);
+      int second = sql.indexOf(ts3, first + ts3.length());
+      assertThat(second).as("workload has TIMESTAMP(3) then TIMESTAMP(6)").isGreaterThan(first);
+      assertThat(sql.indexOf(ts3, second + ts3.length())).isEqualTo(-1);
+      sql =
+          sql.substring(0, first)
+              + "TO_TIMESTAMP('2024-03-01 10:11:12.123000000')"
+              + sql.substring(first + ts3.length(), second)
+              + "TO_TIMESTAMP('2024-03-01 10:11:12.123456000')"
+              + sql.substring(second + ts3.length());
+    }
+    return sql.replace(
+            "TO_TIMESTAMP('1969-12-31 23:59:59.123')",
+            "TO_TIMESTAMP('1969-12-31 23:59:59.123456789')")
+        .replace(
+            "TO_TIMESTAMP('2024-03-01 10:11:12.000')",
+            "TO_TIMESTAMP('2024-03-01 10:11:12.000000000')")
+        .replace(
+            "TO_TIMESTAMP_TZ('2024-03-01 10:11:12.123 +02:00')",
+            "TO_TIMESTAMP_TZ('2024-03-01 10:11:12.123456000 +02:00')")
+        .replace(
+            "TO_TIMESTAMP_TZ('2024-03-01 10:11:12.123')",
+            "TO_TIMESTAMP_TZ('2024-03-01 10:11:12.123456000')");
   }
 }

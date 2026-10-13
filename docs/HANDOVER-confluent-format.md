@@ -69,79 +69,53 @@ section 4. A subset run rewrites only its own profiles.
 
 ### Feature worktree (`../kafka-connect-oracle-cdc-fmt`, branch `feat/confluent-format`)
 
-Rebased on the reference follow-up `38e5f71`. C2.2 is complete in `f9eb5ce`; the full
-`clean verify -DskipE2E` gate, engine tier and connector tier passed against that frozen revision.
-Generated configuration and error references are current. Every existing Debezium test remains green.
-The branch is pushed as a backup, with no PR or format release yet.
+The branch is rebased on `38e5f71` and backed up through `96bbab4`. Implementation is complete;
+no feature PR or enabling release exists yet. Final qualification and documentation acceptance
+remain. Debezium is still the default and its existing regressions remain green.
 
-| Commit after rebase | Content | State |
+| Step | Implementation | Verification checkpoint |
 |---|---|---|
-| `c613a38` | Each record owns its headers | Verified |
-| `5faf6b6` | RecordFormat interface, sink/task integration and snapshot final-record offsets | Verified |
-| `fe8e5f6` | Initial Confluent format and optional durable SQL text | Superseded by the corrections below |
-| `f9eb5ce` | Fixture parity, numeric mappings, required columns, tombstone corrections and typed exact-scale/overflow errors | Full gate, engine and connector tiers green |
+| 2: flat format | `f9eb5ce`, safety review `51a4535` | Fixtures, generated references and full clean gate |
+| 3: truncate | `5bc0236`, identifier correction `be11ce8` | Full gate, engine and connector tiers; unchanged transient regressions passed focused reruns |
+| 4: LOB topics | `a3c7dc3`, savepoint correction `3294f56`, null bytes `96bbab4` | Full gate, both live SQL-output variants and LOB parity; final connector tier running |
+| 5: same-topic migration | `8c1cd3a`, keyless/Avro correction `328ad10` | 340 Python tests, lint/format, generated references and fixture-backed connector test |
+| 6: live comparison | `c0f744b`, strengthened cutover `7510fe9`, wire framing `bf1f0ea` | Eleven profiles passed at `bf1f0ea`; LOB profile and strengthened Avro cutover passed at `96bbab4`; SQL profiles need their final rerun |
+| 7: website and PRDs | `28f974b` plus subsequent corrections | Website build passed; ADR acceptance and PR still pending |
 
-Current implementation:
+Current behaviour:
 
-- `envelope/confluent/ConfluentFormat`, `FieldLayout`, `ConfluentTypes`, `ConfluentSettings` and
-  `ConfluentFormatConfig` implement flat values, scalar/struct/concatenated keys, metadata renames,
-  headers and nesting, before-state schema switching, all numeric mappings and both DATE mappings.
-- SCN is the row SCN; commit SCN follows it in the body. NOT NULL non-key columns are required.
-  Plain deletes with tombstones enabled emit only a tombstone; key changes emit two tombstones
-  then insert. A concatenated key on a keyless table retains its optional string schema and null value.
-- Decimal scales are exact: any value needing rounding stops with typed CDC-3001 in snapshots
-  and streaming. Primitive integer overflow also stops typed. These decisions are in ADR-0028.
-- `RedoText` is an optional trailing RowChange codec field. Old payloads still decode; a change
-  without SQL retains its old bytes. Size estimation, LOB assembly, reselect and column projection
-  preserve or safely suppress it. SQL text is never retained where a column exclusion may apply.
-- Requested SQL output retains LogMiner ROWID predicates and delimiters. Its separate parser mode
-  leaves the legacy delimiter regression intact. The flag is visible to parallel decode threads.
-- LOB-only changes emit no table record. A transaction with an invisible tail receives an ordered
-  position heartbeat, including when periodic heartbeats are off, so offsets and EOS still close safely.
-- `ConfluentFormatFixtureTest` compares the recorded JSON keys, values, non-cdc headers and Avro
-  schemas; exact scale-two rows match, while rounding cases assert the intentional typed failure.
-  Field/config/codec/SQL-retention/parser and delivery regressions also pass.
+- Flat values, scalar/struct/concatenated keys, metadata renames, headers and nesting, before-state
+  schema switching, every numeric mapping and both DATE mappings follow the recorded profiles.
+  Row SCNs, required columns, tombstone-only deletes and key-change sequences are verified.
+- Decimal rounding and integer overflow stop typed with CDC-3001. Missing declared keys,
+  incomplete supported flat images, required-column failures and unsupported key types also stop.
+- Optional SQL retention preserves old payloads when disabled and safely suppresses text wherever
+  column exclusions may apply. `1ea1d18` retains complete LogMiner LOB blocks and restores DML/DDL
+  delimiters after CSF assembly, including undo present only in an earlier fragment.
+- Confluent-only touched-LOB tracking suppresses LOB-only table updates in every Confluent mode;
+  Debezium retains its previous journal bytes. Topic mode requires stable column keys and complete
+  supported values. Null assignments publish required zero-length bytes; deletes use tombstones.
+- Merged savepoint groups can retain an earlier committed DBMS_LOB call (ADR-0015). Topic mode
+  reselects final touched values AS OF commit and emits no table row. Both live SQL-output variants
+  passed the two-append/rollback regression. Only the final record acknowledges row/snapshot progress.
+- The strengthened same-topic Avro cutover passed final values, every committed row, a transaction
+  spanning the switch, both subjects and cached reader schemas, rollback exclusion and stop/resume
+  internal Avro readback. Top-level bytes framing is protected without a proprietary dependency.
 
-Step 3 is complete at `5bc0236` plus the short-schema test correction. The reference spike,
-full clean gate, full engine tier and connector matrix passed. The connector matrix met a worker
-startup timeout and a transient heartbeat-consumption failure in two existing regressions; both
-passed unchanged in the focused rerun. `TruncateConnectorIT` passes in both formats after keeping
-its generated schema names within LogMiner's identifier limit. Truncate delivery remains commit
-ordered and advances only acknowledged positions. Step 4 and step 5 implementation checkpoints are `a3c7dc3` and `8c1cd3a`. The combined revision
-`c0f744b` passed the clean gate, all 59 engine tests and all 31 connector tests, including live LOB
-topics and the fixture-backed default-topic test. The latest safety review is in `51a4535`:
-missing declared keys, incomplete supported flat images, required columns and unsupported key
-types stop with CDC-3001. Confluent-only touched-LOB tracking suppresses small LOB-only updates;
-Debezium journal bytes keep their legacy form. Its clean gate passes. The migration suite passes
-339 tests; `328ad10` also preserves keyless tables and explicit matching Avro journal codecs.
+The final three-profile rerun at `96bbab4` passed LOB topics and cutover. All-fields and renamed
+matched row values but exposed three-digit Confluent SQL timestamp literals versus OSO's exact
+nine-digit mining text. This is now a documented difference; the qualification asserts the exact
+OSO literals from the independently defined workload and retains comparison of all other SQL,
+rows, schemas and metadata. Its full clean gate passes. The final engine tier passed all 59 tests;
+the connector tier is running against the frozen production implementation. After it finishes,
+rerun all-fields and renamed from the SQL precision qualification update.
 
-Step 6's first live run passed same-topic Avro handover but found a metadata difference on LOB
-inserts: Confluent publishes the all-A ROWID placeholder, OSO resolves the real locator. The
-reference and ADR record it. The parity comparator now constrains that exact difference; it still
-compares row SCN and all other metadata. The strengthened `7510fe9` cutover checks final database
-values, both subjects, cached reader schemas and stop/resume readback. The strengthened same-topic cutover passed, including final values and stop/resume readback.
-Parity's default profile passed; its Avro pass exposed the public wire protocol's special handling
-of top-level bytes, now covered by an Apache-Avro-only framing regression. The comparator retains
-all assertions and collects profile failures so every selected profile is exercised.
-
-The final LOB review corrects an overbroad inert-group suppression: ADR-0015 groups can include a
-committed earlier DBMS_LOB call and an undone later call. Topic mode reselects final touched LOB
-values AS OF commit and emits no table row. A new failing regression proves recovery of the earlier
-call, and the live LOB test now includes the merged savepoint case. Its clean gate is green;
-the focused live LOB savepoint test passes against `bf1f0ea`. All 14 parity profiles and the
-strengthened same-topic Avro cutover are running from that frozen lab revision, followed by the
-final engine and connector tiers. The Python migration suite now passes 340 tests. The running parity suite exposed an Oracle SQL
-shape change when verbatim output disables NO_SQL_DELIMITER: LOB declarations and writes split
-into different redo rows. The fix retains that option and restores row/DDL delimiters after CSF
-assembly, including undo carried only by an earlier fragment. Unit regressions and the full clean
-gate pass; the live SQL-output profiles and the now-parameterised LOB worker test must rerun on
-the fix after the current frozen qualification finishes. No release is
-cut; the proposed website explicitly marks the format as implemented for the next release.
-No PR or release exists. Prepared step 7 website/PRD prose is now in the feature checkout, with
-legal release approval still pending. The tools worktree retains an earlier prose copy.
-Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
-Maven runs, or install changed modules while its Docker tier is active. The optional RDS run is not
-planned because no RDS instance is up; the remaining cloud lab was destroyed through its workflow.
+Long suites use `../kafka-connect-oracle-cdc-fmt-lab`. Never edit it while Maven runs or install
+changed modules while its Docker tier is active. `../kafka-connect-oracle-cdc-fmt-tools` and the
+three ADR-0028 task stashes hold older preparations already integrated into the feature branch;
+preserve them until the housekeeping review. The optional RDS run is not planned because no
+instance is up. The remaining cloud lab was destroyed through its workflow. Legal approval is
+still required before an enabling release; release PR #29 remains untouched.
 
 ## 2. Facts established so far (Confluent 2.15.2, Oracle Database Free 23ai, 13 October 2026)
 
@@ -173,7 +147,9 @@ These are recorded in `oracle-cdc-core/src/main/resources/reference/confluent-re
   available. This explicit metadata difference is recorded in the reference and ADR.
 - Redo and undo fields hold LogMiner's SQL_REDO and SQL_UNDO verbatim, including `ROWID = '...'`.
   A key change's `D` and `I` both carry the update's text. For a LOB insert the redo has
-  `EMPTY_CLOB()` and `EMPTY_BLOB()`.
+  `EMPTY_CLOB()` and `EMPTY_BLOB()`. Confluent's SQL uses three fractional timestamp digits;
+  OSO retains nine from its fixed mining formats, a documented precision-preserving difference.
+  Timestamp column values still agree at milliseconds.
 - The before-state field appears **only on `U` records**, as a struct of the columns, and the field
   is then present in the schema. Insert, delete, snapshot and both halves of a key change have no
   before-state field at all, so update records use a different value schema. In Avro this alternates
@@ -426,6 +402,10 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 
 ### Step 6 (C6): verification against Confluent (before about 4 November 2026)
 
+- [x] Reference, live comparison and strengthened same-topic Avro cutover suites implemented.
+- [x] Eleven profiles at `bf1f0ea`, LOB topics and same-topic cutover at `96bbab4` verified.
+- [ ] Final SQL profiles with exact precision difference asserted; publish sanitised evidence.
+
 1. `ConfluentFormatParityQualIT`: both connectors on the same changes. Records are compared per
    key, field by field, excluding `current_ts`. Avro schemas are compared canonically and with
    Schema Registry compatibility checks.
@@ -498,10 +478,9 @@ cannot be read from fixtures.
 
 ## Latest live qualification checkpoint
 
-The full 14-profile run at `bf1f0ea` completed: 11 profiles passed (default, both Avro variants,
-struct and concatenated keys, every best-fit/precision mapping, DATE timestamp and tombstones).
-All-fields and renamed stopped on the now-fixed Oracle LOB SQL prelude split (`1ea1d18`). The
-LOB profile established required zero-length bytes for NCLOB NULL assignment; the implementation
-now matches it. Its row deletes and old-key cleanup remain tombstones. Same-topic Avro cutover
-passed again, including final values, both subjects and stop/resume readback. The three affected
-profiles and full final tiers must run on these fixes before completion. No assertion is removed.
+The final production implementation is `96bbab4`. The clean quality gate and final engine tier
+are green; the final connector tier is running in the frozen lab checkout. LOB topics and the
+strengthened same-topic Avro cutover passed. SQL-output profiles will rerun with their exact,
+documented timestamp precision difference asserted. Finish evidence, ADR acceptance and PR merge,
+then remove only this task's temporary worktrees and stashes. No enabling release without the
+legal check and user approval. The cloud lab is destroyed.
