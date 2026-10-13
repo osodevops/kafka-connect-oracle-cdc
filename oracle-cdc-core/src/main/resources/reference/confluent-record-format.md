@@ -150,3 +150,9 @@ The subsequent parity and in-place cutover suites must record any further differ
   UPDATE/DELETE image stops with CDC-3001 rather than replacing unknown fields with null or
   emitting an ineffective null-key tombstone. Required column and unsupported key-type failures
   are also typed. ALL-column supplemental logging is required for complete flat row state.
+
+- Oracle splits a LOB's locator declarations from its write/trim bodies when SQL delimiters are
+  retained by the mining session. `NO_SQL_DELIMITER` reconstructs the complete locator block for
+  each LOB fragment. Requested SQL output therefore retains ROWID predicates, keeps that mining
+  option and restores the DML/DDL terminator only after the final CSF piece. LOB blocks are left
+  intact. External SQL text is checked against Confluent's all-fields and renamed profiles.

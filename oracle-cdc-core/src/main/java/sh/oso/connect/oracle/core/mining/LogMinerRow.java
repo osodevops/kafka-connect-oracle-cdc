@@ -70,6 +70,17 @@ public record LogMinerRow(
     return new TxKey(srcConId, xid == null ? Xid.ZERO : xid);
   }
 
+  /** SQL output restores terminators after CSF assembly; LOB blocks retain their full prelude. */
+  public LogMinerRow withSqlDelimiters() {
+    int code = operationCode;
+    if (csf || (code != 1 && code != 2 && code != 3 && code != 5)) return this;
+    return withSql(delimited(sqlRedo), delimited(sqlUndo));
+  }
+
+  private static String delimited(String sql) {
+    return sql == null || sql.isBlank() || sql.endsWith(";") ? sql : sql + ";";
+  }
+
   /** The same row with continued SQL text appended (CSF continuation). */
   LogMinerRow withSql(String redo, String undo) {
     return new LogMinerRow(

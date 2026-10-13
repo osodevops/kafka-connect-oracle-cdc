@@ -31,13 +31,21 @@ import sh.oso.connect.oracle.core.model.TableId;
 public final class LogMinerRowAdapter {
 
   private final Map<sh.oso.connect.oracle.core.mining.ObjectKey, TableId> tablesByObject;
+  private final boolean restoreSqlDelimiters;
   private LogMinerRow pending;
   private StringBuilder redo;
   private StringBuilder undo;
 
   public LogMinerRowAdapter(
       Map<sh.oso.connect.oracle.core.mining.ObjectKey, TableId> tablesByObject) {
+    this(tablesByObject, false);
+  }
+
+  public LogMinerRowAdapter(
+      Map<sh.oso.connect.oracle.core.mining.ObjectKey, TableId> tablesByObject,
+      boolean restoreSqlDelimiters) {
     this.tablesByObject = Map.copyOf(tablesByObject);
+    this.restoreSqlDelimiters = restoreSqlDelimiters;
   }
 
   /** Returns the event for this row, or null when the row is a continuation still being joined. */
@@ -111,6 +119,7 @@ public final class LogMinerRowAdapter {
   }
 
   MiningEvent toEvent(LogMinerRow r) {
+    if (restoreSqlDelimiters) r = r.withSqlDelimiters();
     Operation op = r.op();
     switch (op) {
       case START:

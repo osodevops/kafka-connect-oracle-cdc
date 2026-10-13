@@ -130,7 +130,12 @@ values AS OF commit and emits no table row. A new failing regression proves reco
 call, and the live LOB test now includes the merged savepoint case. Its clean gate is green;
 the focused live LOB savepoint test passes against `bf1f0ea`. All 14 parity profiles and the
 strengthened same-topic Avro cutover are running from that frozen lab revision, followed by the
-final engine and connector tiers. The Python migration suite now passes 340 tests. No release is
+final engine and connector tiers. The Python migration suite now passes 340 tests. The running parity suite exposed an Oracle SQL
+shape change when verbatim output disables NO_SQL_DELIMITER: LOB declarations and writes split
+into different redo rows. The fix retains that option and restores row/DDL delimiters after CSF
+assembly, including undo carried only by an earlier fragment. Unit regressions and the full clean
+gate pass; the live SQL-output profiles and the now-parameterised LOB worker test must rerun on
+the fix after the current frozen qualification finishes. No release is
 cut; the proposed website explicitly marks the format as implemented for the next release.
 No PR or release exists. Prepared step 7 website/PRD prose is now in the feature checkout, with
 legal release approval still pending. The tools worktree retains an earlier prose copy.
@@ -163,7 +168,9 @@ These are recorded in `oracle-cdc-core/src/main/resources/reference/confluent-re
 - Snapshot rows: `op_type=R`, `scn` and the commit SCN are both the snapshot SCN (one per table),
   and `op_ts`, `row_id`, `username`, redo and undo are null.
 - `op_ts` has second resolution (milliseconds ending in 000). `current_ts` is the write time.
-- `username` is the database user. `row_id` is the ROWID.
+- `username` is the database user. `row_id` is the ROWID. The live comparison found the all-A
+  LogMiner placeholder on Confluent's out-of-row LOB INSERT; OSO resolves the real locator when
+  available. This explicit metadata difference is recorded in the reference and ADR.
 - Redo and undo fields hold LogMiner's SQL_REDO and SQL_UNDO verbatim, including `ROWID = '...'`.
   A key change's `D` and `I` both carry the update's text. For a LOB insert the redo has
   `EMPTY_CLOB()` and `EMPTY_BLOB()`.

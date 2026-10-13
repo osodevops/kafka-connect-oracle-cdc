@@ -44,7 +44,7 @@ public final class LogMinerEventSource implements EventSource {
     this.inventory = inventory;
     this.session = session;
     this.filter = filter;
-    this.adapter = new LogMinerRowAdapter(objects.byObject());
+    this.adapter = new LogMinerRowAdapter(objects.byObject(), session.restoresSqlDelimiters());
     this.mode = mode;
   }
 
@@ -126,7 +126,7 @@ public final class LogMinerEventSource implements EventSource {
   /** Swaps the pushed-down ids after a DDL step cut (ADR-0001). */
   public void update(ResolvedObjects objects, MiningFilter newFilter) {
     this.filter = newFilter;
-    this.adapter = new LogMinerRowAdapter(objects.byObject());
+    this.adapter = new LogMinerRowAdapter(objects.byObject(), session.restoresSqlDelimiters());
   }
 
   @Override

@@ -27,6 +27,26 @@ import org.junit.jupiter.api.Test;
 
 class JdbcLogMinerSessionSqlTextTest {
   @Test
+  void requestedSqlRestoresOneDelimiterOnlyAfterTheFinalCsfPieceAndNeverAltersLobBlocks()
+      throws Exception {
+    for (int code : List.of(1, 2, 3, 5, 10, 11, 29)) {
+      for (boolean continued : List.of(false, true)) {
+        java.sql.ResultSet result = org.mockito.Mockito.mock(java.sql.ResultSet.class);
+        org.mockito.Mockito.when(result.getInt(11)).thenReturn(code);
+        org.mockito.Mockito.when(result.getInt(25)).thenReturn(continued ? 1 : 0);
+        org.mockito.Mockito.when(result.getString(33)).thenReturn("redo");
+        org.mockito.Mockito.when(result.getString(34)).thenReturn("undo");
+        LogMinerRow row = JdbcLogMinerSession.map(result).withSqlDelimiters();
+        boolean delimited = !continued && code < 10;
+        assertThat(row.sqlRedo()).isEqualTo(delimited ? "redo;" : "redo");
+        assertThat(row.sqlUndo()).isEqualTo(delimited ? "undo;" : "undo");
+        assertThat(row.csf()).isEqualTo(continued);
+        assertThat(row.operationCode()).isEqualTo(code);
+      }
+    }
+  }
+
+  @Test
   void onlyRequestedSqlTextChangesTheMiningFlagsInBothDictionaryModes() throws Exception {
     for (DictionaryMode mode : DictionaryMode.values()) {
       for (boolean enabled : List.of(false, true)) {
@@ -58,7 +78,8 @@ class JdbcLogMinerSessionSqlTextTest {
           session.start(100, 200, mode);
           String start = calls.get(0);
           assertThat(start.contains("NO_ROWID_IN_STMT")).isEqualTo(!enabled);
-          assertThat(start.contains("NO_SQL_DELIMITER")).isEqualTo(!enabled);
+          // Oracle otherwise splits the locator declaration from its LOB writes.
+          assertThat(start).contains("NO_SQL_DELIMITER");
           assertThat(start).doesNotContain("COMMITTED_DATA_ONLY", "SKIP_CORRUPTION");
           assertThat(start)
               .contains(

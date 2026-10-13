@@ -83,10 +83,15 @@ public final class JdbcLogMinerSession implements LogMinerSource {
     this.rangeOnly = rangeOnly;
   }
 
-  /** ADR-0028: retain ROWID predicates and SQL delimiters when publishing redo or undo text. */
+  /** ADR-0028: retain ROWID predicates; the row adapter restores complete SQL terminators. */
   public JdbcLogMinerSession withVerbatimSql(boolean enabled) {
     this.verbatimSql = enabled;
     return this;
+  }
+
+  @Override
+  public boolean restoresSqlDelimiters() {
+    return verbatimSql;
   }
 
   @Override
@@ -146,9 +151,9 @@ public final class JdbcLogMinerSession implements LogMinerSource {
     }
     String sql = mode == DictionaryMode.ONLINE_CATALOG ? START_ONLINE : START_REDO_DICT;
     if (verbatimSql) {
-      sql =
-          sql.replace(" + DBMS_LOGMNR.NO_ROWID_IN_STMT", "")
-              .replace(" + DBMS_LOGMNR.NO_SQL_DELIMITER", "");
+      // NO_SQL_DELIMITER also gives each LOB fragment its locator prelude. Without it Oracle
+      // returns declaration and body as separate rows. Keep it and restore DML terminators.
+      sql = sql.replace(" + DBMS_LOGMNR.NO_ROWID_IN_STMT", "");
     }
     try (CallableStatement cs = c.prepareCall(sql)) {
       cs.setLong(1, startScn);

@@ -31,7 +31,8 @@ import java.util.Map;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import sh.oso.connect.oracle.e2e.support.ConnectCluster;
 import sh.oso.connect.oracle.e2e.support.OracleSql;
 import sh.oso.connect.oracle.e2e.support.OracleTestDatabase;
@@ -45,8 +46,9 @@ import sh.oso.connect.oracle.e2e.support.SchemaFixtures;
 class ConfluentLobTopicsConnectorIT {
   private final OracleTestDatabase db = OracleTestDatabase.get();
 
-  @Test
-  void snapshotsChangesAndKeyMovesKeepEveryLobColumnConsistent() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void snapshotsChangesAndKeyMovesKeepEveryLobColumnConsistent(boolean sqlText) throws Exception {
     String schema = SchemaFixtures.nameFor(getClass());
     String rowTopic = "lob-it.FREEPDB1." + schema + ".DOCS";
     SchemaFixtures.recreate(db, OracleTestDatabase.PDB1, schema);
@@ -69,6 +71,10 @@ class ConfluentLobTopicsConnectorIT {
       config.put("cdc.output.format", "confluent");
       config.put("cdc.snapshot.mode", "initial");
       config.put("cdc.lob.mode", "topic");
+      if (sqlText) {
+        config.put("cdc.output.confluent.redo.field", "redo");
+        config.put("cdc.output.confluent.undo.field", "undo");
+      }
       config.put("cdc.lob.topic.template", "${prefix}.lob.${pdb}.${schema}.${table}.${column}");
       config.put("cdc.output.confluent.numeric.mapping", "best_fit_or_decimal");
       config.put("cdc.poll.linger.ms", "100");
@@ -113,6 +119,11 @@ class ConfluentLobTopicsConnectorIT {
                   ? "tombstone"
                   : ConnectCluster.json(row.value()).path("op_type").asText());
         assertThat(operations).containsExactly("R", "I", "U", "D", "tombstone", "I", "D");
+        if (sqlText)
+          for (ConsumerRecord<String, String> record : rows)
+            if (record.value() != null
+                && !ConnectCluster.json(record.value()).path("op_type").asText().equals("R"))
+              assertThat(ConnectCluster.json(record.value()).path("redo").asText()).endsWith(";");
       }
       for (String column : List.of("C", "N", "B")) {
         String topic = "lob-it.lob.FREEPDB1." + schema + ".DOCS." + column;
