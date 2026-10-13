@@ -10,6 +10,9 @@ Registry subjects. Stop the source connector, translate its settings and start O
 stored position. Existing consumers continue reading the same topics. This path is implemented
 for the next release, subject to the release qualification gates.
 
+For configuration and record examples before planning a cutover, see
+[Confluent-compatible records](../guides/confluent-compatible-records.md).
+
 The earlier migration to new Debezium topics was qualified on Oracle Database Free and RDS for
 Oracle 19c non-CDB. The same-topic qualification uses Oracle Database Free and Confluent 2.15.2
 in disposable local containers. No RDS instance was available for that additional format run.

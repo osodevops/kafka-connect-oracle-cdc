@@ -53,12 +53,21 @@ obtained. Public docs and the release `NOTICE` now state that the implementation
 the official unmodified connector was only an external-output reference, and no reverse-engineered
 or decompiled versions were used. No Confluent source was inspected or copied.
 
+The public `website/docs/guides/confluent-compatible-records.md` brings the feature overview,
+capture configuration, JSON records, operation/key sequences, metadata layouts, numeric and DATE
+mappings, separate LOB topics, truncate, Avro, migration and every documented difference together.
+It is linked from the sidebar, README, format reference and migration guide.
+
 Release PR #29 (0.1.6) remains open pending technical gates. A fresh
 [nightly run](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38418299236)
 is running on `6b0dde3`, the complete implementation before this documentation-only update.
 It uses only OSO software. Preserve the existing 0.1.x preview scope: no completed 72-hour soak
 or full platform qualification is claimed; those remain prerequisites for 1.0 as documented in
 the README and original handover. Do not bypass a failed nightly or release workflow gate.
+
+Both engine tiers, both connector tiers and both container qualification tiers passed in that
+fresh nightly on the two database images. The long T2 fault suites are still running. Subsequent
+changes are documentation and a unit regression only; production code is identical to `6b0dde3`.
 
 The prior scheduled nightly
 [38334075196](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38334075196)

@@ -67,6 +67,8 @@ containers under its evaluation licence. No reverse-engineered or decompiled ver
 and no Confluent source code was inspected or copied. Its proprietary connector and libraries
 are not shipped with OSO or run in CI. See the development provenance in [NOTICE](NOTICE) and
 [the qualification evidence](docs/qualification/2026-10-13-confluent-format/README.md).
+The [practical format guide](website/docs/guides/confluent-compatible-records.md) explains the
+new features with configuration and record examples.
 
 Oracle and Java are registered trademarks of Oracle and/or its affiliates. This project is not
 affiliated with or endorsed by Oracle. Apache Kafka is a trademark of the Apache Software

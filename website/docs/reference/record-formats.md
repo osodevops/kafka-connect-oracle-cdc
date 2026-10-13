@@ -325,7 +325,8 @@ external output of the official, unmodified Confluent 2.15.2 connector in dispos
 containers under its evaluation licence. No reverse-engineered or decompiled versions were
 used, and no Confluent source code was inspected or copied. Its proprietary connector and
 libraries are not included in OSO releases or run in CI. OSO is not affiliated with or endorsed
-by Confluent;
+by Confluent. [The practical guide](../guides/confluent-compatible-records.md) provides complete
+configuration and record examples;
 [the migration guide](../migration/from-confluent.md) lists the differences and cutover procedure.
 
 The value is an unnamed required struct. Supported table columns appear in table order, followed
