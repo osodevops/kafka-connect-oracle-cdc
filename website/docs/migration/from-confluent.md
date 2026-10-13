@@ -5,47 +5,60 @@ description: A tested cutover from Confluent's Oracle CDC Source connector, what
 
 # Migrating from Confluent Oracle CDC Source
 
-The migration tools translate a Confluent Oracle CDC Source connector, take over from its stored
-position without a new snapshot, and verify the result against the database. The procedure on
-this page was run end to end with Confluent's connector 2.15.2 on a Confluent Platform 7.9 Connect
-worker, under a live workload, with a transaction left open across the switch: every committed row
-reached Kafka, the open transaction was delivered by the new connector, and
-`verify_cutover.py` matched the table to the topics by count and hash. It ran against Oracle
-Database Free and against Amazon RDS for Oracle 19c (non-CDB) on 12 October 2026; the
-qualification suite `ConfluentCutoverQualIT` repeats it.
+The default migration keeps Confluent's table topics, flat records, key templates and Schema
+Registry subjects. Stop the source connector, translate its settings and start OSO from its
+stored position. Existing consumers continue reading the same topics. This path is implemented
+for the next release; release awaits OSO's legal check on the documented black-box approach.
+
+The earlier migration to new Debezium topics was qualified on Oracle Database Free and RDS for
+Oracle 19c non-CDB. The same-topic qualification uses Oracle Database Free and Confluent 2.15.2
+in disposable local containers. No RDS instance was available for that additional format run.
 
 ## Before you start
 
-- **Kafka Connect.** The takeover reads the old connector's offset through the Connect REST API
-  and needs `PUT /connectors/{name}/stop` and `GET /connectors/{name}/offsets` (KIP-875: Apache
-  Kafka 3.5 and later, Confluent Platform 7.5 and later). Install this connector's plugin in the
-  same Connect cluster; it runs on Confluent Platform workers as well as Apache Kafka ones.
-- **Where Confluent's connector cannot run.** Confluent documents that its connector does not
-  support Amazon RDS for Oracle with the CDB architecture, RDS read replicas or Autonomous
-  Database. This connector captures RDS with the CDB architecture from inside the tenant
-  database (see [Amazon RDS for Oracle](../database-setup/amazon-rds.md)), so such a database
-  starts with this connector rather than migrating to it.
-- **Consumers.** The record format changes (next section). Plan the consumer move with the teams
-  that own them before the cutover.
-- **Database user.** Run `oracle-cdc-doctor setup-sql` and apply its script; Confluent's user may
-  lack grants this connector needs, and the doctor names them.
+- Install this connector's plugin in the same Connect cluster. The takeover needs
+  `PUT /connectors/{name}/stop` and `GET /connectors/{name}/offsets`, available from Kafka 3.5
+  and Confluent Platform 7.5.
+- Preserve the converter, registry URL and subject strategy used by the existing pipeline.
+  Matching key/value converter overrides also configure the internal journal reader. For a converter inherited from worker settings, configure `cdc.journal.converter` and its settings before enabling internal topic readback. Converter libraries belong on the worker; the build never downloads Confluent's connector.
+- Apply `oracle-cdc-doctor setup-sql` and run its checks. Separate LOB topics need stable column
+  keys, complete values and undo sufficient for AS OF commit reselect.
+- Review the differences below. Confluent documents no support for RDS CDB, read replicas or
+  Autonomous Database; such installations start with OSO rather than migrating from Confluent.
 
-## What changes for consumers
+## What stays, and the documented differences
 
-This connector writes Debezium-compatible change events. A Confluent-compatible flat format is not
-built yet, so the translation always writes to **new topics**: the topic prefix, a dot, then the
-name Confluent used. Confluent's topics stop receiving changes at the cutover.
+| Item | Default same-topic path |
+|---|---|
+| Table topics | Existing template, without an added prefix |
+| Value and metadata | Flat row, configured `output.*` names, operation values, nesting and headers |
+| Key | Existing scalar, struct or concatenated template; `cdc.key.missing=none` preserves null keys for keyless tables |
+| NUMBER and DATE | Existing numeric mapping, default scale and DATE mapping |
+| LOB topics | Existing template; CLOB UTF-8, NCLOB UTF-16BE, BLOB raw bytes |
+| Deletes | Source tombstone setting, including tombstone-only deletes when enabled |
+| Avro | Existing topic subjects and compatible schemas with the same converter |
+| Redo log topic | Retired; OSO mines inside its task |
 
-| | Confluent Oracle CDC Source (defaults) | This connector |
-|---|---|---|
-| Topic | `${fullyQualifiedTableName}`, for example `PDB1.APP.ORDERS` | `<prefix>.PDB1.APP.ORDERS` after the translation |
-| Value | The row's columns plus `table`, `scn`, `op_type`, `op_ts`, `current_ts`, `row_id` and `username` | An envelope: `before`, `after`, `source` (with `scn`, `commit_scn` and the transaction id), `op`, `ts_ms` |
-| Operation codes | `op_type`: `I`, `U`, `D`, `R` for snapshot rows, `T` for truncate | `op`: `c`, `u`, `d`, `r`, `t` |
-| Key | The primary key value for a one-column key (`key.template` default), a struct otherwise | A struct of the key columns |
-| NUMBER | With `numeric.mapping=none`, a Connect Decimal; the JSON converter writes it as base64 bytes unless its `decimal.format` is `NUMERIC` | With `cdc.decimal.mode=precise` (the translation of `none`), NUMBER(p,0) up to 18 digits is an integer and other NUMBER values are Connect Decimals |
-| Deletes | `op_type=D` with the row; a tombstone only with `emit.tombstone.on.delete=true` | `op=d` with the row in `before`; a tombstone when `cdc.tombstones.on.delete=true` |
-| Redo log topic | `${connectorName}-${databaseName}-redo-log`, one partition | None: mining happens inside the task |
-| LOB columns | Separate LOB topics, with `lob.topic.name.template` | Inline, left out, or read again as of the commit SCN (`cdc.lob.mode`) |
+Differences are explicit:
+
+- A NUMBER needing rounding to its configured Decimal scale stops with CDC-3001, even during
+  snapshots. Confluent snapshots rounded HALF_EVEN. Raise the scale if needed before cutover.
+- Out-of-row LOB inserts can carry a resolved real ROWID in OSO where Confluent publishes
+  LogMiner's all-A placeholder.
+- Flat output requires complete supported row images and declared key values. Incomplete
+  images stop with CDC-3001, so ALL-column supplemental logging is required.
+- OSO adds diagnostic `cdc.*` headers and suppresses redo/undo text where column exclusions
+  may apply.
+- OSO removes old LOB keys and publishes values under a changed row key; Confluent 2.15.2 left
+  old LOB state behind.
+- Optional truncate emission is an OSO metadata-only `T` extension. Both defaults are off;
+  no Confluent truncate output was observed.
+- Topic mode refuses unsupported XMLTYPE bytes, keyless or ROWID-only LOB tables and incomplete
+  or oversized values. XMLTYPE representation remains unsettled by the recorded comparison.
+
+For an intentional consumer format change, pass `--format=debezium`. That path writes new
+prefixed topics and the `before`, `after`, `source`, `op` envelope. Keep the earlier history in
+the source topics until their retention and consumers allow retirement.
 
 ## 1. Translate the configuration
 
@@ -56,7 +69,9 @@ uv run python migrate_from_confluent.py --input confluent-connector.json \
 ```
 
 `--input` takes the connector as `GET /connectors/{name}` returns it. `--topic-prefix` sets
-`cdc.topic.prefix`, which starts every new topic name and names the connector's internal topics; it
+`cdc.topic.prefix`, which names internal topics and the offset partition. Table topics retain
+their existing names in the default Confluent format; the prefix starts new table topics only
+with `--format=debezium`. It
 defaults to the Confluent connector's name. Every source property is classified as mapped, mapped
 with a change, dropped (with the reason) or manual (with an instruction), and the report lists the
 follow-ups. The main translations:
@@ -66,14 +81,17 @@ follow-ups. The main translations:
 | `oracle.server`, `oracle.port`, `oracle.username`, `oracle.password` | `cdc.database.host`, `cdc.database.port`, `cdc.database.user`, `cdc.database.password` |
 | `oracle.sid`, `oracle.service.name`, `oracle.pdb.name` | `cdc.database.sid`, `cdc.database.service`, `cdc.database.pdbs` |
 | `table.inclusion.regex`, `table.exclusion.regex` | `cdc.tables.include`, `cdc.tables.exclude`, with `cdc.tables.case.sensitive=true` as in Confluent. Without a PDB the SID is removed from the start of each alternative, because the connector then matches `SCHEMA.TABLE` |
-| `table.topic.name.template` (or its default) | `cdc.topic.template`, starting with `${prefix}.`: `${databaseName}` becomes `${pdb}` with a PDB and `${database}` without, `${schemaName}` becomes `${schema}`, `${tableName}` becomes `${table}`, `${fullyQualifiedTableName}` becomes all three, `${connectorName}` the old connector's name. Other variables are manual |
+| `table.topic.name.template` (or its default) | `cdc.topic.template`, without an added prefix by default: `${databaseName}` becomes `${pdb}` with a PDB and `${database}` without, `${schemaName}` becomes `${schema}`, `${tableName}` becomes `${table}`, `${fullyQualifiedTableName}` becomes all three, `${connectorName}` the old connector's name. Other variables are manual |
 | `start.from` | `cdc.snapshot.mode=none`, because the takeover starts at `cdc.start.scn` |
 | `max.batch.size`, `poll.linger.ms`, `query.timeout.ms`, `max.retry.time.ms` | `cdc.poll.max.records`, `cdc.poll.linger.ms`, `cdc.mining.query.timeout.ms`, `cdc.retry.max.time.ms` |
 | `snapshot.row.fetch.size`, `redo.log.row.fetch.size`, `snapshot.threads.per.task` | `cdc.snapshot.fetch.size`, `cdc.mining.fetch.size`, `cdc.snapshot.threads` |
 | `heartbeat.interval.ms` | `cdc.heartbeat.interval.ms` when above zero; otherwise the connector's default heartbeat stays |
 | `log.mining.transaction.age.threshold.ms` and `log.mining.transaction.threshold.breached.action` | With `discard`: `cdc.transaction.max.age.ms` and `cdc.transaction.max.age.action=discard`. With `warn`: nothing, as there is no warn-only limit |
 | `behavior.on.dictionary.mismatch`, `behavior.on.unparsable.statement` | `cdc.on.decode.error`: `fail`, or `dlq` when either was `log` |
-| `numeric.mapping` `none`, `best_fit` or `best_fit_or_decimal` | `cdc.decimal.mode=precise` |
+| `output.*`, `key.template` | `cdc.output.confluent.*`, preserving field layout and key shape |
+| `numeric.mapping`, `numeric.default.scale` | `cdc.output.confluent.numeric.mapping`, `cdc.output.confluent.numeric.default.scale`; legacy `best_fit` becomes `best_fit_or_decimal` |
+| `oracle.date.mapping` | `cdc.output.confluent.date.mapping` |
+| `lob.topic.name.template` | `cdc.lob.topic.template` and `cdc.lob.mode=topic`; `${columnName}` becomes `${column}` |
 | `emit.tombstone.on.delete` | `cdc.tombstones.on.delete` with the source value; `false`, Confluent's default, when the source leaves it out |
 | `log.mining.archive.destination.name`, `log.sensitive.data`, `redo.log.row.poll.username.exclude` | `cdc.archive.destination`, `cdc.log.sensitive.data`, `cdc.users.exclude` |
 | `oracle.ssl.truststore.file`, `oracle.ssl.truststore.password`, `retry.error.codes`, `ldap.url` | `cdc.database.tls.truststore.location`, `cdc.database.tls.truststore.password`, `cdc.retry.extra.error.codes`, `cdc.database.url` |
@@ -84,9 +102,7 @@ Dropped: the redo log topic and its consumer settings, `confluent.license` and t
 settings, `connection.pool.*`, `oracle.dictionary.mode`, the redo poll interval, the corruption
 topic (corrupt redo stops the task), and buffering, validation and placement settings.
 
-Manual: the `output.*` record format settings, `key.template`, `oracle.date.mapping`, other
-`numeric.mapping` values, a non-default `numeric.default.scale`, `lob.topic.name.template`,
-`redo.log.row.poll.username.include`, a time zone other than UTC, `oracle.fan.events.enable=true`
+Manual: unsupported template variables, `redo.log.row.poll.username.include`, a time zone other than UTC, `oracle.fan.events.enable=true`
 (RAC is not supported yet), Kerberos and LDAP credentials, and any unknown property. The
 translation masks the database password; set the capture user and its password from
 `setup-sql` before creating the connector.
@@ -115,7 +131,7 @@ Because Confluent starts each mining session at the oldest open transaction
 every commit it has not delivered. The takeover uses the lowest `scn` as `cdc.start.scn`, checks
 that the archived logs from it still exist and that the database incarnation matches, and reports
 the highest table `cscn` as the last commit Confluent delivered. Changes committed between the two
-reach the new topics again: an overlap, never a gap. A transaction that is open when Confluent
+reach the same topics again: an overlap, never a gap. A transaction that is open when Confluent
 stops and commits later is delivered by the new connector.
 
 ## 3. Start the new connector
@@ -126,33 +142,38 @@ nothing has to pause.
 
 ## 4. Verify
 
-Once the new connector has passed the check SCN, compare the table with both connectors' topics:
+Once the new connector has passed the check SCN, compare flat-topic values with the database.
+The JSON verifier recognises the compatible format, Decimal schema scales, DATE mapping,
+renamed metadata and per-column numeric mappings:
 
 ```bash
 uv run python verify_cutover.py --input oso-connector-registered.json \
-    --table APP.ORDERS --confluent-topic PDB1.APP.ORDERS \
+    --table APP.ORDERS --confluent-baseline-connector confluent-oracle-cdc \
     --db-dsn db.example.com:1521/PDB1 --db-user CDC --db-password-env ORACLE_PASSWORD \
     --bootstrap-servers kafka:9092 --connect-url http://connect:8083 --connector orders-oso \
     --output cutover-evidence.json --report verification.md
 ```
 
-Confluent's topic is read first and by key: a key it delivered and the new connector never touched
-counts as present when the table has it, and its values are not compared, because their encoding
-depends on `numeric.mapping` and the converter. Every key the new connector delivered is compared
-value by value. A key in neither topic, or a key only Confluent's topic still holds after the
-table lost it, fails the check. The tool reads topics written with the JSON converter; see
-[Cutover verification](cutover-verification.md) for the evidence file and its limits.
+Streaming verification needs `cdc.commit_scn` or the configured commit-SCN field. For historical Confluent records without that metadata, `--confluent-baseline-connector`
+checks that the source remains STOPPED with unchanged offsets throughout verification. Its final
+table commit SCN fences those historical values, and the check SCN must be at or above that fence.
+Without either proof, verification is INCONCLUSIVE. The tool reads JSON, requires stable keys and lists omitted types and LOB columns
+as ignored. The Avro qualification separately verifies an unchanged reader and subject reuse.
+See [Cutover verification](cutover-verification.md) for the evidence file and limits.
 
-## 5. Move consumers and retire the old pipeline
+With `--format=debezium`, add `--confluent-topic` to read the old flat topic as a key-only
+baseline before comparing new envelope values.
 
-Point consumers at the new topics. Each new topic holds the changes from the takeover on; the
-earlier history stays in Confluent's topic for as long as its retention keeps it. Consumers that
-apply changes by key handle the overlap without duplicates in their state. When nothing reads them
-any more, delete the Confluent connector, its table topics, its redo log topic and, if no other
-Confluent connector uses it, the `_confluent-command` licence topic.
+## 5. Retire the old pipeline
+
+Keep table and LOB topics, their subjects and their consumers on the same-topic path. After the
+agreed rollback period, delete the stopped Confluent connector and retire its redo log and
+internal topics when no other connector uses them. The new connector uses its own internal
+schema and transaction journal topics. Do not delete the shared table or LOB topics.
 
 ## Rolling back
 
 Until the Confluent connector is deleted, its offset is unchanged. If verification fails, delete
 the new connector, then resume Confluent's with `PUT /connectors/{name}/resume`: it continues from
-where it stopped, and the new topics can be deleted.
+where it stopped. On the same-topic path keep the table and LOB topics and handle overlap
+idempotently by key. Only the explicit Debezium migration has separate new topics to retire.

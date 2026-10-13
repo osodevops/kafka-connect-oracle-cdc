@@ -55,11 +55,11 @@ A production Kafka Connect source that captures inserts, updates, deletes, trunc
 
 | ID | Requirement |
 |---|---|
-| SRC-TOP-1 | `cdc.topic.prefix` (required) and `cdc.topic.template` (default `${prefix}.${pdb}.${schema}.${table}` for CDB, `${prefix}.${schema}.${table}` otherwise). Variables: `prefix`, `pdb`, `schema`, `table`, `database`. |
+| SRC-TOP-1 | `cdc.topic.prefix` (required for internal topics and offsets) and `cdc.topic.template`. Debezium defaults to `${prefix}.${pdb}.${schema}.${table}` in a CDB or `${prefix}.${schema}.${table}` otherwise. Confluent defaults to `${pdb}.${schema}.${table}` or `${database}.${schema}.${table}`, preserving existing topics. Variables: `prefix`, `pdb`, `schema`, `table`, `database`. |
 | SRC-TOP-2 | Keys: `cdc.key.mode` = `primary_key` (default; falls back to the first unique index with all NOT NULL columns), `rowid`, or `none`. Per-table override `cdc.key.columns` as `SCHEMA.TABLE:COL1,COL2;...`. |
 | SRC-TOP-3 | Tables with no usable key: `cdc.key.missing` = `fail` (default, at validation) or `rowid` (warns that ROWID changes on row movement) or `none`. |
-| SRC-TOP-4 | Primary key changes emit a delete and tombstone for the old key followed by an insert or create for the new key, both inside the same Kafka transaction. |
-| SRC-TOP-5 | `cdc.tombstones.on.delete` (default true). |
+| SRC-TOP-4 | Primary key changes preserve each format's delete, tombstone and insert sequence inside the Kafka transaction. Confluent topic-mode LOBs remove old keys and publish complete new-key values; only the final record advances the completed offset. |
+| SRC-TOP-5 | `cdc.tombstones.on.delete` defaults true for Debezium and false for Confluent. Enabled Confluent deletes emit only a tombstone; key changes emit two old-key tombstones and the new-key insert, matching the recorded reference. |
 | SRC-TOP-6 | Internal topics: schema topic (PRD-03), transaction journal (PRD-00), ops topic `${prefix}.cdc.ops`, optional transaction metadata topic `${prefix}.cdc.transactions`, heartbeat topic `${prefix}.cdc.heartbeat`, signal topic `${prefix}.cdc.signals`. The connector creates internal topics with correct settings if allowed (`topic.creation.enable`), otherwise validation checks they exist with compaction where required. |
 
 ### 4.4 Record format (SRC-FMT)
@@ -67,8 +67,8 @@ A production Kafka Connect source that captures inserts, updates, deletes, trunc
 | ID | Requirement |
 |---|---|
 | SRC-FMT-1 | `cdc.output.format=debezium` (default): value envelope with `before`, `after`, `source`, `op` (`c`, `u`, `d`, `r`, `t`), `ts_ms`, `ts_us`, `ts_ns`, optional `transaction` block. Field names, op codes, schema names and logical types follow the [Debezium Oracle connector documentation](https://debezium.io/documentation/reference/stable/connectors/oracle.html) for the selected compatibility level `cdc.output.debezium.version` (default `3`). `source` includes `version`, `connector` (`oracle`), `name`, `ts_ms`, `snapshot`, `db`, `schema`, `table`, `txId`, `scn`, `commit_scn`, `rs_id`, `ssn`, `redo_thread`, `user_name`, `row_id`, plus our additions under `source.redo` (`event_index`, `event_count`, `partial`, `reselect`). |
-| SRC-FMT-2 | `cdc.output.format=confluent` (Phase 2): flat row value matching Confluent Oracle CDC: one field per column plus `table`, `scn`, `op_type` (R, I, U, D, T), `op_ts`, `current_ts`, `row_id`, `username`, and optional before-state, commit SCN, redo and undo fields, with names and op values configurable through `cdc.output.confluent.*` exactly as listed in `research/confluent_oracle_connectors_detail.md` section 1.4. |
-| SRC-FMT-3 | Truncate: `op=t` record per table (Debezium format) or `op_type=T` (Confluent format); `cdc.truncate.emit` (default true). |
+| SRC-FMT-2 | `cdc.output.format=confluent` (ADR-0028): flat row value matching Confluent Oracle CDC: one field per column plus `table`, `scn`, `op_type` (R, I, U, D, T), `op_ts`, `current_ts`, `row_id`, `username`, and optional before-state, commit SCN, redo and undo fields, with names and op values configurable through `cdc.output.confluent.*` exactly as listed in `research/confluent_oracle_connectors_detail.md` section 1.4. |
+| SRC-FMT-3 | Truncate: `cdc.truncate.emit=false` in both formats. When enabled, emit a null-key `op=t` envelope for Debezium or a metadata-only `op_type=T` struct for Confluent. The latter is an OSO extension; no Confluent truncate output was observed (ADR-0028). |
 | SRC-FMT-4 | Headers on every record: `cdc.scn`, `cdc.commit_scn`, `cdc.xid`, `cdc.event_index`, `cdc.event_count`, `cdc.schema_version`. |
 | SRC-FMT-5 | Types: `cdc.decimal.mode` = `precise` (default, Connect Decimal), `string`, `double`, `best_fit` (integers to INT8 to INT64 by precision, others Decimal); `cdc.decimal.default.scale` (default 127 for unconstrained NUMBER is reported as variable scale in Debezium format); `cdc.temporal.mode` = `adaptive` (default), `connect`, `iso_string`; `cdc.temporal.timezone` (default UTC) for DATE and TIMESTAMP; `cdc.binary.mode` = `bytes`, `base64`, `hex`. |
 
@@ -76,7 +76,7 @@ A production Kafka Connect source that captures inserts, updates, deletes, trunc
 
 | ID | Requirement |
 |---|---|
-| SRC-LOB-1 | `cdc.lob.mode` = `skip` (default; LOB columns omitted), `inline` (assembled from redo; unchanged LOBs in updates carry `cdc.unavailable.placeholder`, default `__cdc_unavailable_value`), `reselect` (unavailable or unassembled values fetched AS OF commit SCN, PRD-00 CORE-DEC-7), or `topic` (Phase 2; Confluent-compatible LOB topics keyed by table, column and primary key, template `cdc.lob.topic.template`). |
+| SRC-LOB-1 | `cdc.lob.mode` = `skip` (default; LOB columns omitted), `inline` (assembled from redo; unchanged LOBs in updates carry `cdc.unavailable.placeholder`, default `__cdc_unavailable_value`), `reselect` (unavailable or unassembled values fetched AS OF commit SCN, PRD-00 CORE-DEC-7), or `topic` (Confluent format only; separate byte topics keyed by table, column and primary key, template `cdc.lob.topic.template` with `${column}`; requires stable column keys and complete values). |
 | SRC-LOB-2 | `cdc.lob.max.bytes` (default 1048576) with `cdc.lob.oversize.action` = `fail` or `placeholder`. |
 | SRC-LOB-3 | LOB handling never forces re-reading transactions from their start (contrast with Debezium `lob.enabled`, PP-03). |
 
@@ -133,13 +133,17 @@ Structured JSON events: `startup`, `position-committed` (sampled), `log-switch-d
 | `cdc.key.mode` | enum | `primary_key` | `primary_key`, `rowid`, `none` |
 | `cdc.key.columns` | string | empty | Per-table key overrides |
 | `cdc.key.missing` | enum | `fail` | `fail`, `rowid`, `none` |
-| `cdc.tombstones.on.delete` | boolean | true | Tombstones |
-| `cdc.truncate.emit` | boolean | true | Truncate events |
-| `cdc.output.format` | enum | `debezium` | `debezium` or `confluent` (Phase 2) |
+| `cdc.tombstones.on.delete` | boolean | true for Debezium, false for Confluent | Confluent enabled deletes emit only tombstones; key changes retain the observed sequence |
+| `cdc.truncate.emit` | boolean | false | Optional truncate events in both formats |
+| `cdc.output.format` | enum | `debezium` | `debezium` or `confluent` (ADR-0028) |
 | `cdc.output.debezium.version` | int | 3 | Envelope compatibility level |
-| `cdc.output.confluent.*` | various | Confluent defaults | Field names and op values (Phase 2) |
+| `cdc.output.confluent.*` | various | Confluent defaults | Metadata names, nesting, header placement, operation values, before-state and key template |
 | `cdc.decimal.mode` | enum | `precise` | Numeric mapping |
-| `cdc.decimal.default.scale` | int | 127 | Scale for unconstrained NUMBER in Confluent format |
+| `cdc.output.confluent.numeric.mapping` | enum | `none` | `none`, `best_fit_or_decimal`, `best_fit_or_double`, `best_fit_or_string`, `precision_only` |
+| `cdc.output.confluent.numeric.default.scale` | int | 127 | Exact scale for unconstrained NUMBER; values requiring rounding stop with CDC-3001 |
+| `cdc.output.confluent.date.mapping` | enum | `date` | Connect Date days or `timestamp` milliseconds |
+| `cdc.output.confluent.key.template` | string | `${primaryKeyStructOrValue}` | Scalar-or-struct, struct or concatenated key |
+| `cdc.lob.topic.template` | string | `${prefix}.lob.${pdb}.${schema}.${table}.${column}` in a CDB | Separate LOB column routing in topic mode |
 | `cdc.temporal.mode` | enum | `adaptive` | Temporal mapping |
 | `cdc.schema.name.adjustment.mode` | enum | `none` | `none`, `avro`, `avro_unicode` (ADR-0020) |
 | `cdc.field.name.adjustment.mode` | enum | `none` | `none`, `avro`, `avro_unicode` (ADR-0020) |
@@ -180,7 +184,7 @@ Structured JSON events: `startup`, `position-committed` (sampled), `log-switch-d
 - [ ] Quiet database for 48 hours: offsets advance, no ORA-01291 on restart, no writes to source.
 - [ ] Validation rejects: missing ARCHIVELOG, missing supplemental logging on a captured table, a captured table with an identity column, a captured name over 30 characters, missing privileges.
 - [ ] Signal-driven snapshot of one table works in archive-only mode with no source writes.
-- [ ] Phase 2: `confluent` format output is byte-identical (JSON converter) to Confluent output fixtures recorded from Confluent's connector in the lab and consistent with its documented examples (ADR-0028).
+- [ ] ADR-0028: Confluent keys, values and schemas match committed external JSON and Avro fixtures, except the documented differences; live parity and same-topic Avro cutover qualifications pass. Release requires the legal check.
 
 ## Appendix A: Debezium property mapping (for `migrate_from_debezium`)
 

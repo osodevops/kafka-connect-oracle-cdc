@@ -128,7 +128,10 @@ The final LOB review corrects an overbroad inert-group suppression: ADR-0015 gro
 committed earlier DBMS_LOB call and an undone later call. Topic mode reselects final touched LOB
 values AS OF commit and emits no table row. A new failing regression proves recovery of the earlier
 call, and the live LOB test now includes the merged savepoint case. Its clean gate is green;
-focused live verification, the remaining parity profiles and final tiers are next.
+the focused live LOB savepoint test passes against `bf1f0ea`. All 14 parity profiles and the
+strengthened same-topic Avro cutover are running from that frozen lab revision, followed by the
+final engine and connector tiers. The Python migration suite now passes 340 tests. No release is
+cut; the proposed website explicitly marks the format as implemented for the next release.
 No PR or release exists. Prepared step 7 website/PRD prose is now in the feature checkout, with
 legal release approval still pending. The tools worktree retains an earlier prose copy.
 Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
