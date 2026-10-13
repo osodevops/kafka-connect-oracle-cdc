@@ -94,3 +94,8 @@ and ROWID-only LOB tables, missing values, placeholder oversize handling and uns
 bytes; the operator must exclude XMLTYPE or use supported LOB types. Malformed text also stops
 rather than substituting characters. These scope limits are documented, including XMLTYPE where
 black-box output has not settled its representation. Null LOB values tombstone their column key.
+
+The live comparison observed Confluent's all-A LogMiner ROWID placeholder on an out-of-row LOB
+insert. OSO publishes the resolved real locator when available, or null otherwise; this metadata
+difference is documented. Complete supported row images and declared key values are required for
+flat output. Incomplete images stop with CDC-3001 instead of publishing unknown values as null.

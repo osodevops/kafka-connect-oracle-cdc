@@ -95,6 +95,9 @@ class ConfluentInPlaceCutoverQualIT {
       JsonNode before =
           ConfluentFormatRefQualIT.get(registry + "/subjects/" + subject + "/versions/latest");
       Schema readerSchema = new Schema.Parser().parse(before.path("schema").asText());
+      JsonNode beforeKey =
+          ConfluentFormatRefQualIT.get(registry + "/subjects/" + topic + "-key/versions/latest");
+      Schema keyReaderSchema = new Schema.Parser().parse(beforeKey.path("schema").asText());
       // Written before stop, committed only once OSO is running. Its earlier redo must survive.
       try (Connection spanning = db.workload(schema)) {
         spanning.setAutoCommit(false);
@@ -173,8 +176,17 @@ class ConfluentInPlaceCutoverQualIT {
         work.rollback();
       }
       db.archiveLogCurrent();
-      var records = ConfluentFormatLab.read(cluster, List.of(topic), 24, Duration.ofMinutes(5));
-      Map<Integer, String> rows = new TreeMap<>();
+      ConfluentFormatLab.read(cluster, List.of(topic), 24, Duration.ofMinutes(5));
+      cluster.lifecycle(next, "stop");
+      cluster.awaitConnectorState(next, "STOPPED", Duration.ofMinutes(2));
+      cluster.lifecycle(next, "resume");
+      cluster.awaitRunning(next, Duration.ofMinutes(3));
+      try (Connection work = db.workload(schema)) {
+        ConfluentFormatRefQualIT.exec(work, "INSERT INTO orders VALUES (902, 'after restart', 12)");
+      }
+      db.archiveLogCurrent();
+      var records = ConfluentFormatLab.read(cluster, List.of(topic), 25, Duration.ofMinutes(5));
+      Map<Integer, Map<String, Object>> rows = new TreeMap<>();
       int osoRecords = 0;
       for (var record : records) {
         if (record.value() == null) continue;
@@ -191,18 +203,49 @@ class ConfluentInPlaceCutoverQualIT {
         GenericRecord row =
             new GenericDatumReader<GenericRecord>(writer, readerSchema)
                 .read(null, DecoderFactory.get().binaryDecoder(wire, 5, wire.length - 5, null));
-        rows.put(((Number) row.get("ID")).intValue(), row.get("NAME").toString());
+        byte[] keyWire = record.key();
+        Schema keyWriter =
+            new Schema.Parser()
+                .parse(
+                    ConfluentFormatRefQualIT.get(
+                            registry + "/schemas/ids/" + ByteBuffer.wrap(keyWire, 1, 4).getInt())
+                        .path("schema")
+                        .asText());
+        Object key =
+            new GenericDatumReader<>(keyWriter, keyReaderSchema)
+                .read(
+                    null, DecoderFactory.get().binaryDecoder(keyWire, 5, keyWire.length - 5, null));
+        int rowId = ((Number) row.get("ID")).intValue();
+        assertThat(((Number) key).intValue()).isEqualTo(rowId);
+        rows.put(
+            rowId,
+            Map.of(
+                "NAME", row.get("NAME").toString(), "QTY", ((Number) row.get("QTY")).intValue()));
         if (record.headers().lastHeader("cdc.commit_scn") != null) osoRecords++;
       }
       Set<Integer> expected = new java.util.TreeSet<>();
       for (int id = 1; id <= 20; id++) expected.add(id);
-      expected.addAll(List.of(100, 900, 901));
+      expected.addAll(List.of(100, 900, 901, 902));
       assertThat(rows.keySet()).containsExactlyInAnyOrderElementsOf(expected);
-      assertThat(osoRecords).isGreaterThanOrEqualTo(3);
+      assertThat(osoRecords).isGreaterThanOrEqualTo(4);
+      Map<Integer, Map<String, Object>> databaseRows = new TreeMap<>();
+      try (Connection work = db.workload(schema);
+          java.sql.Statement statement = work.createStatement();
+          java.sql.ResultSet result = statement.executeQuery("SELECT id, name, qty FROM orders")) {
+        while (result.next())
+          databaseRows.put(
+              result.getInt(1), Map.of("NAME", result.getString(2), "QTY", result.getInt(3)));
+      }
+      assertThat(rows).isEqualTo(databaseRows);
+      assertThat(rows.get(100).get("QTY")).isEqualTo(11);
       JsonNode after =
           ConfluentFormatRefQualIT.get(registry + "/subjects/" + subject + "/versions/latest");
       assertThat(after.path("id")).isEqualTo(before.path("id"));
       assertThat(after.path("version")).isEqualTo(before.path("version"));
+      JsonNode afterKey =
+          ConfluentFormatRefQualIT.get(registry + "/subjects/" + topic + "-key/versions/latest");
+      assertThat(afterKey.path("id")).isEqualTo(beforeKey.path("id"));
+      assertThat(afterKey.path("version")).isEqualTo(beforeKey.path("version"));
       cluster.awaitRunning(next, Duration.ofSeconds(10));
       cluster.delete(next);
       cluster.delete(old);

@@ -137,3 +137,13 @@ The subsequent parity and in-place cutover suites must record any further differ
 - Topic-mode savepoint rollback groups remain invisible and are never reselected or republished.
   A snapshot restart repeats its chunk until the final LOB record is acknowledged; acknowledging
   the row alone cannot skip that row's later LOB records.
+
+## Live comparison differences
+
+- On an out-of-row LOB insert, Confluent 2.15.2 publishes LogMiner's all-A ROWID placeholder.
+  OSO's LOB assembly resolves and publishes the real locator when available, or null when it is
+  unavailable. Row SCN and all other row metadata remain independently compared.
+- Flat rows require complete supported column images and every declared key value. An incomplete
+  UPDATE/DELETE image stops with CDC-3001 rather than replacing unknown fields with null or
+  emitting an ineffective null-key tombstone. Required column and unsupported key-type failures
+  are also typed. ALL-column supplemental logging is required for complete flat row state.

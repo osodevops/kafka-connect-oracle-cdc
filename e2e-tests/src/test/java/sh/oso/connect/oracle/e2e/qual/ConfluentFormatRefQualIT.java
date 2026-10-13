@@ -517,7 +517,7 @@ class ConfluentFormatRefQualIT {
     Thread.sleep(45_000);
     List<String> topics =
         cluster.topics().stream()
-            .filter(t -> t.startsWith(prefix) && !t.contains("redo-log"))
+            .filter(t -> t.startsWith(prefix) && !t.contains("redo-log") && !t.contains(".cdc."))
             .sorted()
             .toList();
     try (KafkaConsumer<byte[], byte[]> c =

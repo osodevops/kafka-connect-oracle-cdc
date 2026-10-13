@@ -105,6 +105,7 @@ class ConfluentFormatParityQualIT {
             if (profile.name().equals("lob-topics") && topic.endsWith(".LOBS2.C")) {
               assertLobMoveDifference(expected, actual);
             } else {
+              assertLobInsertRowIdDifference(expected, actual, topic, profile);
               assertThat(actual)
                   .as(profile.name() + " " + topic)
                   .containsExactlyElementsOf(expected);
@@ -198,6 +199,39 @@ class ConfluentFormatParityQualIT {
     String[] names = path.split("\\.");
     for (int i = 0; i < names.length - 1; i++) value = value.path(names[i]);
     if (value instanceof ObjectNode object) object.put(names[names.length - 1], "<volatile>");
+  }
+
+  private static void assertLobInsertRowIdDifference(
+      List<JsonNode> expected,
+      List<JsonNode> actual,
+      String topic,
+      ConfluentFormatRefQualIT.Profile profile) {
+    if (!topic.endsWith(".LOBS") && !topic.endsWith(".LOBS2")) return;
+    String op = profile.props().getOrDefault("output.op.type.field", "op_type");
+    String insert = profile.props().getOrDefault("output.op.type.insert.value", "I");
+    String rowId = profile.props().getOrDefault("output.row.id.field", "row_id");
+    for (int i = 0; i < Math.min(expected.size(), actual.size()); i++) {
+      JsonNode source = expected.get(i).path("value");
+      JsonNode target = actual.get(i).path("value");
+      if (!source.path(op).asText().equals(insert)) continue;
+      // Confluent exposes LogMiner's all-A placeholder for an out-of-row LOB insert.
+      // OSO's assembly resolves the real locator when available; keep the difference explicit.
+      if (source.path(rowId).asText().equals("AAAAAAAAAAAAAAAAAA")) {
+        assertThat(target.path(rowId).asText()).matches("[A-Za-z0-9+/]{18}");
+        ((ObjectNode) target).put(rowId, "AAAAAAAAAAAAAAAAAA");
+      }
+      if (rowId.startsWith("header:")) {
+        String name = rowId.substring(7);
+        for (JsonNode h : expected.get(i).path("headers"))
+          if (h.path("key").asText().equals(name)
+              && h.path("value").asText().equals("AAAAAAAAAAAAAAAAAA"))
+            for (JsonNode a : actual.get(i).path("headers"))
+              if (a.path("key").asText().equals(name)) {
+                assertThat(a.path("value").asText()).matches("[A-Za-z0-9+/]{18}");
+                ((ObjectNode) a).put("value", "AAAAAAAAAAAAAAAAAA");
+              }
+      }
+    }
   }
 
   private static void assertLobMoveDifference(List<JsonNode> expected, List<JsonNode> actual) {
