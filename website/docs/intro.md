@@ -15,7 +15,7 @@ silently.
 
 ## Status
 
-The current release is 0.1.2, on [Maven Central](https://central.sonatype.com/namespace/sh.oso)
+The current release is 0.1.6, on [Maven Central](https://central.sonatype.com/namespace/sh.oso)
 and the [GitHub release page](https://github.com/osodevops/kafka-connect-oracle-cdc/releases). It
 is a preview: releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
 instance, and the 19c and 21c qualification and a 72-hour soak come before 1.0. Everything this
@@ -41,7 +41,7 @@ site describes as available is in that release and covered by its test suites (s
 | [Migration tools](migration/tools.md) from Confluent and Debezium: configuration translation, takeover SCN, cutover verification | Available |
 | [Amazon RDS for Oracle](database-setup/amazon-rds.md) 19c, non-CDB, and with the CDB architecture from 0.1.3 | Preview |
 | Oracle RAC, Autonomous Database, standby capture | Not available yet |
-| [Confluent-compatible format and separate LOB topics](reference/record-formats.md#confluent-compatible-format), same-topic migration | Implemented for the next release; release qualification pending |
+| [Confluent-compatible format and separate LOB topics](reference/record-formats.md#confluent-compatible-format), same-topic migration | Available from 0.1.6 |
 | Transaction metadata records, schema change topic | Not available yet |
 
 Oracle Database 19c and later is required. The test suites run against Oracle Database Free,

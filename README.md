@@ -3,7 +3,7 @@
 Open-source (Apache-2.0) change data capture source connector for Apache Kafka Connect that
 reads Oracle Database redo through LogMiner.
 
-**Status: preview.** The current release is 0.1.5, on
+**Status: preview.** The current release is 0.1.6, on
 [Maven Central](https://central.sonatype.com/namespace/sh.oso) (group `sh.oso`) and the
 [GitHub releases](https://github.com/osodevops/kafka-connect-oracle-cdc/releases) page, which carries
 the plugin ZIP. Releases before 1.0 are tested on Oracle Database Free 23ai and 26ai, single
@@ -30,6 +30,9 @@ product requirements and design decisions are in [`docs/`](docs/README_index.md)
   dictionary from the redo.
 - **Multi-PDB capture** from one LogMiner session.
 - **Debezium-compatible records**, column exclusion, and Avro-safe schema and field names.
+- **Confluent-compatible flat records**, metadata and key templates, separate LOB topics,
+  optional truncate records and same-topic cutover. See the
+  [practical guide](https://kafkacdcconnector.com/guides/confluent-compatible-records).
 - **Operability built in.** `oracle-cdc-doctor` (preflight checks, setup script, redo profile,
   sizing, lag explanation), `oracle-cdc-admin` (offsets, resnapshot, open transactions, journal
   inspection), task metrics with a Grafana dashboard and Prometheus alerts, and a runbook per
@@ -37,8 +40,7 @@ product requirements and design decisions are in [`docs/`](docs/README_index.md)
 - **Migration tools** from Debezium Oracle and Confluent Oracle CDC Source: configuration
   translation, a takeover SCN, and cutover verification.
 
-Not available yet: Oracle RAC, Amazon RDS for Oracle, Autonomous Database, capture from a standby,
-and a record format compatible with Confluent's Oracle CDC Source.
+Not available yet: Oracle RAC, Amazon RDS for Oracle, Autonomous Database and capture from a standby.
 
 ## Building
 

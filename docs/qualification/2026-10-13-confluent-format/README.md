@@ -1,6 +1,6 @@
 # Confluent-compatible format qualification, 13 October 2026
 
-ADR-0028's format is implemented for the next release. This evidence verifies the documented
+ADR-0028's format is included in release 0.1.6. This evidence verifies the documented
 profiles and the same-topic Avro handover. Sion approved release on 13 October 2026 after the
 licensing research recorded in ADR-0028; technical release gates still apply.
 No proprietary connector runs in CI or forms part of the build. All observations use a

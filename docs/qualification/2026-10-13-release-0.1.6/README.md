@@ -24,3 +24,12 @@ opinion or vendor permission.
 Release version validation, signing, Central publication, artefact checksums, SBOM/provenance and
 the release environment approval remain in place. A full 72-hour soak, full platform matrix,
 live non-CDB format parity and XMLTYPE LOB representation are not claimed as complete.
+
+## Publication
+
+PR #29 merged at `a7489b9`. Signed Central publication passed in
+[run 38447716371](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38447716371).
+All four module/parent POMs are available on Maven Central. The GitHub plugin ZIP, CLI, SBOM and
+checksums were attached by asset recovery
+[run 38455317985](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38455317985),
+using the original signed publication's release files without redeploying Central.

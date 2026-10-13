@@ -7,8 +7,8 @@ description: A tested cutover from Confluent's Oracle CDC Source connector, what
 
 The default migration keeps Confluent's table topics, flat records, key templates and Schema
 Registry subjects. Stop the source connector, translate its settings and start OSO from its
-stored position. Existing consumers continue reading the same topics. This path is implemented
-for the next release, subject to the release qualification gates.
+stored position. Existing consumers continue reading the same topics. This path is available
+from release 0.1.6.
 
 For configuration and record examples before planning a cutover, see
 [Confluent-compatible records](../guides/confluent-compatible-records.md).

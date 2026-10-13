@@ -10,8 +10,7 @@ The connector writes Debezium-compatible change records: the envelope with `befo
 Oracle connector, so consumers and sink connectors written for that format read these records.
 This remains the default (`cdc.output.format=debezium`). The
 [Confluent-compatible format](#confluent-compatible-format) keeps the flat rows, keys and topics
-of Confluent's Oracle CDC Source connector. That format is implemented for the next release,
-subject to the release qualification gates. The sections below describe the default format unless
+of Confluent's Oracle CDC Source connector. That format is available from 0.1.6. The sections below describe the default format unless
 stated otherwise.
 
 How records are serialised (JSON, Avro, Protobuf) is up to the worker's `key.converter` and

@@ -58,8 +58,11 @@ capture configuration, JSON records, operation/key sequences, metadata layouts, 
 mappings, separate LOB topics, truncate, Avro, migration and every documented difference together.
 It is linked from the sidebar, README, format reference and migration guide.
 
-Release PR #29 (0.1.6) is being published under Sion's explicit instruction to proceed without
-waiting for outstanding tests. The 0.1.6-only exception is recorded in
+Release [0.1.6](https://github.com/osodevops/kafka-connect-oracle-cdc/releases/tag/v0.1.6) is
+published on Maven Central with the plugin ZIP, CLI, SBOM and checksums. PR #29 merged at
+`a7489b9`; signed Central publication passed in run `38447716371`. Asset recovery in run
+`38455317985` reuses those release files without redeploying Central. Sion explicitly authorised
+proceeding without waiting for outstanding tests. The 0.1.6-only exception is recorded in
 `docs/qualification/2026-10-13-release-0.1.6/README.md`: prior green CI is reused for unchanged
 software inputs; incomplete T2 is waived, never called a pass. The local qualification and its
 old release watcher have been stopped. Preserve all regression tests and future release gates.
@@ -434,7 +437,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 - [x] [PR #31](https://github.com/osodevops/kafka-connect-oracle-cdc/pull/31) opened, all checks passed and squash-merged.
 - [x] Perplexity licensing research, primary-source review, artefact audit and Sion's release
   approval recorded; public development provenance added to `NOTICE` and docs.
-- [ ] Enabling release: approved, pending technical release qualification and publication.
+- [x] Enabling release: 0.1.6 published through release-please PR #29 under the recorded qualification exception.
 
 1. ADR-0028 status Accepted, recording the key namespace, the per-format truncate and tombstone
    defaults, LOB topics only in this format, and the documented differences.
@@ -454,7 +457,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 - [x] Qualification containers removed after the final suite.
 - [x] Task-only temporary worktrees and stashes removed after merge; older preparations privately preserved.
 
-- Release PR #29 (0.1.6, includes the format feature) is open; release is approved, pending gates.
+- Release PR #29 is merged; 0.1.6 includes the format feature and provenance notice.
 - The Dependabot backlog (Kafka 4.3, JUnit 6, Testcontainers 2 majors) is not in this goal.
 - RAC 3d, standby and Autonomous Database stay blocked on Sion's Oracle and OCI accounts.
 
@@ -504,6 +507,6 @@ Steps 1 through 8 are complete within the authorised scope. PR #31 is merged, AD
 accepted, all local and PR gates passed, evidence is committed and task housekeeping is complete.
 The cloud lab and qualification containers are removed. Sion approved release after requesting
 licensing research, which is documented as a maintainer decision rather than solicitor clearance.
-The provenance notice is public and included in the plugin's `NOTICE`. Technical release
-qualification is in progress; release PR #29 has not been merged. XMLTYPE LOB bytes and live
+The provenance notice is public and included in the plugin's `NOTICE`. Release PR #29 is merged and 0.1.6 is published. Full T2 is explicitly waived, not completed,
+for this preview; prior green CI is reused for unchanged software inputs. XMLTYPE LOB bytes and live
 non-CDB format parity remain documented limits.

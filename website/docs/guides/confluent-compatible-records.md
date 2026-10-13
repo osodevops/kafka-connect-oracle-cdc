@@ -8,8 +8,7 @@ description: Configure flat records, understand snapshot and change events, cust
 The Confluent-compatible format lets OSO publish flat records shaped like Confluent's Oracle CDC
 Source connector. It is intended for pipelines that already consume that format, including a
 cutover that keeps table topics, LOB topics and Schema Registry subjects. Debezium-compatible
-output remains the default. The new format is implemented for the next release; publication
-depends on the release qualification gates.
+output remains the default. The format is available from release 0.1.6.
 
 This guide shows the format on a small orders table. The examples use synthetic data, JSON
 without the converter's schema wrapper and the default operation names. SCNs, timestamps and
@@ -494,6 +493,11 @@ topics and subjects. Choosing `--format=debezium` is an explicit change to new p
 and the Debezium envelope, with its own consumer migration.
 
 ## Compatibility differences and qualification
+
+Release 0.1.6 is a preview. The maintainer waived the outstanding long T2 qualification and reused
+existing green CI for unchanged software inputs. Format comparison and same-topic Avro cutover
+were completed. The [release decision](https://github.com/osodevops/kafka-connect-oracle-cdc/blob/main/docs/qualification/2026-10-13-release-0.1.6/README.md)
+records the scope of the exception; full T2 is not claimed as complete.
 
 Compatibility is qualified for the recorded configurations, rather than every possible source
 setting. The documented differences and input requirements are:
