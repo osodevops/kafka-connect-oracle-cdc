@@ -71,7 +71,12 @@ class RecordQueueSinkTest {
   }
 
   static RecordQueueSink sink(Position base, boolean confluent) {
+    return sink(base, confluent, false);
+  }
+
+  static RecordQueueSink sink(Position base, boolean confluent, boolean truncate) {
     Map<String, String> props = OracleCdcSourceConnectorConfigTest.minimal();
+    props.put(OracleCdcSourceConnectorConfig.TRUNCATE_EMIT, Boolean.toString(truncate));
     if (confluent) props.put(OracleCdcSourceConnectorConfig.OUTPUT_FORMAT, "confluent");
     OracleCdcSourceConnectorConfig config = new OracleCdcSourceConnectorConfig(props);
     InMemorySchemaStore store = new InMemorySchemaStore();
@@ -151,6 +156,38 @@ class RecordQueueSinkTest {
       out.add(PositionCodec.read(r.sourceOffset()));
     }
     return out;
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void anAcknowledgedTruncateAdvancesOnlyItsOwnCommitInBothFormats() throws Exception {
+    for (boolean confluent : List.of(false, true)) {
+      RecordQueueSink sink = sink(Position.initial(100, IDENT), confluent, true);
+      sink.exactlyOnce(100, Long.MAX_VALUE);
+      RowChange truncate =
+          new RowChange(
+              T, Operation.TRUNCATE, null, null, false, null, rba(120, 20), K1, Instant.EPOCH, 1);
+      CommittedTransaction tx =
+          new CommittedTransaction(
+              K1,
+              truncate.id(),
+              rba(110, 10),
+              rba(130, 30),
+              Instant.EPOCH,
+              1,
+              "APP",
+              null,
+              List.of(truncate));
+      sink.committed(tx, 0, ResumePoint.single(1, tx.commitId()));
+      List<RecordQueueSink.Queued> records = sink.drainQueued(100, 0);
+      assertThat(records).hasSize(1);
+      assertThat(records.get(0).record().key()).isNull();
+      assertThat(records.get(0).boundary()).isTrue();
+      Position offset = PositionCodec.read(records.get(0).record().sourceOffset());
+      assertThat(offset.eventIndex()).isEqualTo(1);
+      assertThat(offset.lastCommitKey()).isEqualTo(K1);
+      assertThat(offset.resumeScn()).isEqualTo(130);
+    }
   }
 
   @Test

@@ -102,8 +102,11 @@ Current implementation:
   schemas; exact scale-two rows match, while rounding cases assert the intentional typed failure.
   Field/config/codec/SQL-retention/parser and delivery regressions also pass.
 
-Remaining: steps 3 to 7, starting with the prepared (not yet run or committed)
-`TruncateShapesRefEngineIT`. LOB topic output and same-topics migration are not implemented yet.
+Step 3 is implemented at the `feat(envelope): emit committed truncate records on request` checkpoint.
+`TruncateShapesRefEngineIT` passed and records DDL in its own committed transaction. The optional
+flag, both record shapes, codec ordinal preservation, commit/offset regressions and full unit gate
+pass; engine and connector tiers, including `TruncateConnectorIT`, are pending against the frozen
+checkpoint. LOB topic output and same-topics migration remain steps 4 and 5.
 Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
 Maven runs, or install changed modules while its Docker tier is active. The optional RDS run is not
 planned because no RDS instance is up; the remaining cloud lab was destroyed through its workflow.
@@ -340,6 +343,9 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
    `-De2e.groups=connector`. Debezium output must be unchanged.
 
 ### Step 3 (C3): truncate
+
+- [x] Reference spike, implementation, regressions, generated config docs and full gate.
+- [ ] Engine and connector tiers, then mark the step complete and push.
 
 1. Engine spike `TruncateShapesRefEngineIT` (T1, `-Dreference.update=true`): how LogMiner shows
    TRUNCATE (OPERATION_CODE, DDL text) and in which transaction.

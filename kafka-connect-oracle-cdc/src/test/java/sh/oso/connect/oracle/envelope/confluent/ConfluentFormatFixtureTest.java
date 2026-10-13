@@ -109,6 +109,10 @@ class ConfluentFormatFixtureTest {
           ConfluentFormatConfig.NUMERIC_MAPPING,
           profile.substring("numeric-".length()).replace('-', '_'));
     switch (profile) {
+      case "truncate" -> {
+        p.put(OracleCdcSourceConnectorConfig.TRUNCATE_EMIT, "true");
+        p.put(ConfluentFormatConfig.COMMIT_SCN_FIELD, "cscn");
+      }
       case "numeric-none-scale2" -> p.put(ConfluentFormatConfig.NUMERIC_DEFAULT_SCALE, "2");
       case "date-timestamp" -> p.put(ConfluentFormatConfig.DATE_MAPPING, "timestamp");
       case "key-struct" -> p.put(ConfluentFormatConfig.KEY_TEMPLATE, ConfluentSettings.KEY_STRUCT);

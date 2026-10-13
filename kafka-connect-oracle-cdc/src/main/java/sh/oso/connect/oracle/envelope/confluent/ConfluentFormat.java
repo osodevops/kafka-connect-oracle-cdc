@@ -68,6 +68,7 @@ public final class ConfluentFormat implements RecordFormat {
   private final FieldLayout layout;
   private final ColumnFilter excluded;
   private final Clock clock;
+  private final boolean emitTruncate;
   private final Map<TableSchema, Schemas> cache = new HashMap<>();
 
   /**
@@ -97,6 +98,7 @@ public final class ConfluentFormat implements RecordFormat {
     this.layout = FieldLayout.of(settings);
     this.excluded = config.columnFilter();
     this.clock = clock;
+    this.emitTruncate = config.truncateEmit();
   }
 
   @Override
@@ -112,6 +114,9 @@ public final class ConfluentFormat implements RecordFormat {
       TableSchema schema,
       Position offset) {
     RowChange change = tx.events().get(index);
+    if (change.op() == sh.oso.connect.oracle.core.model.Operation.TRUNCATE && !emitTruncate) {
+      return List.of();
+    }
     Schemas s = schemas(excluded.project(schema));
     if (lobOnly(change, s)) {
       return List.of();
@@ -135,6 +140,30 @@ public final class ConfluentFormat implements RecordFormat {
     Object beforeKey = key(s, change.before());
     List<SourceRecord> out = new ArrayList<>(3);
     switch (change.op()) {
+      case TRUNCATE -> {
+        meta.put(Meta.ROW_ID, null);
+        SchemaBuilder builder = SchemaBuilder.struct();
+        layout.addTo(builder);
+        Schema truncateSchema = builder.build();
+        Struct value = new Struct(truncateSchema);
+        Headers headers = new ConnectHeaders();
+        Map<Meta, String> values = withOp(meta, settings.opTruncate());
+        layout.fillBody(value, values);
+        layout.fillHeaders(headers, values);
+        addHeaders(headers, tx, change, index);
+        out.add(
+            new SourceRecord(
+                partition,
+                offsetMap,
+                topic,
+                null,
+                null,
+                null,
+                truncateSchema,
+                value,
+                null,
+                headers));
+      }
       case INSERT ->
           out.add(
               change(

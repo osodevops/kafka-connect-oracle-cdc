@@ -39,7 +39,7 @@ Fixtures: `kafka-connect-oracle-cdc/src/test/resources/confluent-reference/`. Fi
 | Key change | Default: old-key `D`, old-key tombstone, new-key `I`. With tombstones enabled: two old-key tombstones, then new-key `I` | Preserve both sequences |
 | Rollback | No records | Publish committed changes only |
 | LOB-only change | No table record, with or without separate LOB topics | Suppress its table record; a filtered transaction still needs an acknowledged position |
-| Truncate | No `T` observed. The public property list names its operation value but documents no enabling property | Keep emission off by default in both formats. Any explicit OSO truncate emission is an extension whose shape must be documented |
+| Truncate | No `T` observed. The public property list names its operation value but documents no enabling property | Keep emission off by default in both formats. Explicit OSO emission is an extension: null key, metadata-only required struct, configured truncate operation value and no row columns or before-state |
 | Kafka headers and timestamps | No default headers; Kafka CreateTime corresponds to publication | Preserve a null OSO SourceRecord timestamp so the producer supplies it. Retain OSO's additional `cdc.*` diagnostic headers and document them |
 
 ## Column mappings
@@ -108,6 +108,6 @@ The reference enables large LOB support and uses `${connectorName}.lob.${fullyQu
 - OSO retains additional `cdc.*` diagnostic headers; Confluent has none by default.
 - OSO suppresses redo and undo text for tables a column exclusion may touch, to avoid exposing excluded data.
 - OSO will maintain LOB state across key changes with old-key tombstones and new-key values; Confluent 2.15.2 did not emit those records.
-- Explicit truncate emission is an OSO extension until a Confluent `T` shape can be observed; default emission remains off.
+- Explicit truncate emission is an OSO extension: null key and a metadata-only `T` struct, without row columns or before-state. Default emission remains off. `truncate-shapes.md` records its own committed DDL transaction and delivery order.
 
 The subsequent parity and in-place cutover suites must record any further differences here and in ADR-0028 before acceptance. The fixtures specify the recorded profiles; unobserved combinations must not be presented as verified parity. No RDS target is currently running. The optional non-CDB rerun is therefore not planned, and the remaining cloud lab has been destroyed.

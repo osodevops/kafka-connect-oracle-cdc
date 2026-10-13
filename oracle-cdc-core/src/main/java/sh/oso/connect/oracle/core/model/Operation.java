@@ -36,7 +36,9 @@ public enum Operation {
   MISSING_SCN(34),
   ROLLBACK(36),
   UNSUPPORTED(255),
-  UNKNOWN(-1);
+  UNKNOWN(-1),
+  /** Logical change derived from a committed TRUNCATE DDL, never a LogMiner operation code. */
+  TRUNCATE(-2);
 
   private final int code;
 

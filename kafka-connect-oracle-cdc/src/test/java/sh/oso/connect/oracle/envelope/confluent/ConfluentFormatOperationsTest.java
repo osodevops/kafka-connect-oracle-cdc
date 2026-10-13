@@ -63,6 +63,22 @@ class ConfluentFormatOperationsTest {
   }
 
   @Test
+  void explicitTruncateHasNoRowKeyOrColumnsAndDefaultEmissionStaysOff() {
+    TableSchema schema = ConfluentFixtureData.data("COMPOSITE").schema();
+    List<SourceRecord> enabled = records("truncate", schema, Operation.TRUNCATE, null, null);
+    assertThat(enabled).hasSize(1);
+    assertThat(enabled.get(0).key()).isNull();
+    assertThat(enabled.get(0).keySchema()).isNull();
+    Struct value = (Struct) enabled.get(0).value();
+    assertThat(value.getString("op_type")).isEqualTo("T");
+    assertThat(value.getString("scn")).isEqualTo("101");
+    assertThat(value.getString("cscn")).isEqualTo("200");
+    assertThat(value.schema().field("A")).isNull();
+    assertThat(value.schema().field("before")).isNull();
+    assertThat(records("default", schema, Operation.TRUNCATE, null, null)).isEmpty();
+  }
+
+  @Test
   void aLobOnlyChangeEmitsNoTableRecordButAChangeToBothKindsKeepsItsRow() {
     TableSchema schema = ConfluentFixtureData.data("LOBS").schema();
     Map<String, Object> before =

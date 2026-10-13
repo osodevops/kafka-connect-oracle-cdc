@@ -62,6 +62,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
   // record format (SRC-FMT)
   public static final String OUTPUT_FORMAT = "cdc.output.format";
+  public static final String TRUNCATE_EMIT = "cdc.truncate.emit";
   public static final String DECIMAL_MODE = "cdc.decimal.mode";
   public static final String TEMPORAL_MODE = "cdc.temporal.mode";
   public static final String SCHEMA_NAME_ADJUSTMENT_MODE = "cdc.schema.name.adjustment.mode";
@@ -156,6 +157,10 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   /** ADR-0028: the Confluent-compatible format's settings; null with another format. */
   public ConfluentSettings confluentSettings() {
     return confluent;
+  }
+
+  public boolean truncateEmit() {
+    return getBoolean(TRUNCATE_EMIT);
   }
 
   /** Whether the record format publishes each change's SQL_REDO or SQL_UNDO text. */
@@ -553,6 +558,19 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++f,
         Width.SHORT,
         "Output format");
+    def.define(
+        TRUNCATE_EMIT,
+        Type.BOOLEAN,
+        false,
+        Importance.MEDIUM,
+        "Emit committed TRUNCATE TABLE records with a null key: op=t in the Debezium format,"
+            + " or a metadata-only op_type=T value in the Confluent format. Off by default in"
+            + " both formats. The Confluent record is an OSO extension; no Confluent T record"
+            + " was observed in the reference lab.",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Emit truncate records");
     def.define(
         DECIMAL_MODE,
         Type.STRING,

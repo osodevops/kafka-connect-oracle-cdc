@@ -81,3 +81,10 @@ LOB state consistent. The implementation and qualification evidence follow befor
 Confluent's default output has no headers. OSO retains its `cdc.*` diagnostic headers and suppresses
 SQL text wherever column exclusions may apply. Default truncate emission remains off: no Confluent
 `T` shape was observed, so any explicit OSO emission must be documented as an extension.
+
+The truncate spike records operation code 5 in its own committed transaction, between the earlier
+implicit commit and a later INSERT commit. `cdc.truncate.emit` defaults to false in both formats.
+When enabled, Debezium gets a null-key `op=t` envelope with null images; Confluent gets a null-key,
+metadata-only `op_type=T` struct, without columns or before-state. That latter shape is an OSO
+extension because no Confluent `T` output was observed. The logical operation is appended after
+UNKNOWN, preserving existing codec ordinals, and only its acknowledged record advances its offset.

@@ -54,6 +54,44 @@ class RowChangeCodecTest {
   static final TxKey TX = new TxKey(3, new Xid(7, 21, 9001));
 
   @Test
+  void truncateIsAppendedWithoutChangingTheLegacyOperationOrdinals() throws Exception {
+    String[] legacy = {
+      "INTERNAL",
+      "INSERT",
+      "DELETE",
+      "UPDATE",
+      "DDL",
+      "START",
+      "COMMIT",
+      "SELECT_LOB_LOCATOR",
+      "LOB_WRITE",
+      "LOB_TRIM",
+      "SELECT_FOR_UPDATE",
+      "LOB_ERASE",
+      "MISSING_SCN",
+      "ROLLBACK",
+      "UNSUPPORTED",
+      "UNKNOWN"
+    };
+    for (int i = 0; i < legacy.length; i++)
+      assertThat(Operation.valueOf(legacy[i]).ordinal()).isEqualTo(i);
+    assertThat(Operation.TRUNCATE.ordinal()).isEqualTo(legacy.length);
+    RowChange change =
+        new RowChange(
+            T,
+            Operation.TRUNCATE,
+            null,
+            null,
+            false,
+            null,
+            new RedoRecordId(100, "r", 0),
+            TX,
+            Instant.EPOCH,
+            1);
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(change))).isEqualTo(change);
+  }
+
+  @Test
   void sqlTextSurvivesSpillAndLegacyPayloadWithoutItStillDecodes() throws Exception {
     RowChange legacy =
         new RowChange(

@@ -38,6 +38,7 @@ import sh.oso.connect.oracle.core.mining.step.StepCursor;
 import sh.oso.connect.oracle.core.mining.step.StepOutcome;
 import sh.oso.connect.oracle.core.mining.step.StepPlan;
 import sh.oso.connect.oracle.core.mining.step.StepRunner;
+import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.position.ResumeCalculator;
@@ -101,6 +102,7 @@ public final class CaptureEngine {
   private LobReselector reselector;
   private ColumnFilter excluded = ColumnFilter.none();
   private volatile boolean keepSql;
+  private volatile boolean emitTruncate;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -255,6 +257,12 @@ public final class CaptureEngine {
    */
   public CaptureEngine withSqlText(boolean keep) {
     this.keepSql = keep;
+    return this;
+  }
+
+  /** ADR-0028: publish a captured table's TRUNCATE only through its committed transaction. */
+  public CaptureEngine withTruncate(boolean enabled) {
+    this.emitTruncate = enabled;
     return this;
   }
 
@@ -1004,6 +1012,32 @@ public final class CaptureEngine {
         schemas.forget(table);
         sink.schemaChanged(null, d);
         break;
+      case TRUNCATE:
+        if (emitTruncate) {
+          if (d.tx() == null) {
+            throw new DecodeException(
+                "TRUNCATE on " + table.fqn() + " has no transaction identity at " + d.id(),
+                "Report the LogMiner DDL shape; the connector cannot order an unkeyed truncate.");
+          }
+          TableSchema current = schemas.current(table);
+          RowChange change =
+              new RowChange(
+                  table,
+                  Operation.TRUNCATE,
+                  null,
+                  null,
+                  false,
+                  null,
+                  d.id(),
+                  d.tx(),
+                  d.timestamp(),
+                  current.version());
+          if (keepSql && !excluded.mayExclude(table)) {
+            change = change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sql(), null));
+          }
+          add(d.tx(), d.thread(), change);
+        }
+        break;
       case UNKNOWN:
         throw new sh.oso.connect.oracle.core.errors.UnsupportedDdlException(
             "DDL on captured table "
@@ -1015,7 +1049,7 @@ public final class CaptureEngine {
             "Report the statement. To continue, exclude the table, or resnapshot it after"
                 + " resetting the offsets past this SCN; the connector never guesses a layout.");
       default:
-        break; // truncate, partition maintenance, indexes, comments: the layout is unchanged
+        break; // partition maintenance, indexes and comments: the layout is unchanged
     }
   }
 
