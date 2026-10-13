@@ -277,6 +277,24 @@ class ConfluentLobFixtureTest {
   }
 
   @Test
+  void aNullLobAssignmentUsesRequiredEmptyBytesWhileDeleteRemainsATombstone() {
+    TableSchema schema = ConfluentFixtureData.data("LOBS2").schema();
+    Map<String, Object> before =
+        ConfluentFixtureData.row("A", ConfluentFixtureData.decimal("1"), "B", "a", "C", "old");
+    Map<String, Object> after = ConfluentFixtureData.replace(before, "C", null);
+    List<SourceRecord> update =
+        change(format(Map.of()), schema, Operation.UPDATE, before, after, Set.of("C"), "R1");
+    assertThat(update).hasSize(1);
+    assertThat(update.get(0).valueSchema())
+        .isEqualTo(org.apache.kafka.connect.data.Schema.BYTES_SCHEMA);
+    assertThat((byte[]) update.get(0).value()).isEmpty();
+    List<SourceRecord> delete =
+        change(format(Map.of()), schema, Operation.DELETE, after, null, Set.of(), "R1");
+    assertThat(delete.get(1).value()).isNull();
+    assertThat(delete.get(1).valueSchema()).isNull();
+  }
+
+  @Test
   void incompleteAndKeylessLobStateStopsTyped() {
     TableSchema schema = ConfluentFixtureData.data("LOBS2").schema();
     ConfluentFormat format = format(Map.of());

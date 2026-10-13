@@ -93,7 +93,7 @@ Separate LOB topics require stable column keys and complete values. Topic mode r
 and ROWID-only LOB tables, missing values, placeholder oversize handling and unsupported XMLTYPE
 bytes; the operator must exclude XMLTYPE or use supported LOB types. Malformed text also stops
 rather than substituting characters. These scope limits are documented, including XMLTYPE where
-black-box output has not settled its representation. Null LOB values tombstone their column key.
+black-box output has not settled its representation. Null LOB assignments publish required zero-length bytes; deletes and old-key cleanup use tombstones.
 
 The live comparison observed Confluent's all-A LogMiner ROWID placeholder on an out-of-row LOB
 insert. OSO publishes the resolved real locator when available, or null otherwise; this metadata

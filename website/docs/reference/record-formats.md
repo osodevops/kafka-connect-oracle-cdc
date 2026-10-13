@@ -384,8 +384,7 @@ Values are required bytes: UTF-8 for CLOB, UTF-16BE for NCLOB, raw bytes for BLO
 
 Snapshots and inserts publish every LOB. Updates publish only touched LOB columns; missing
 content is reselected AS OF the commit SCN. Deletes tombstone every LOB key. A row key change
-removes old LOB keys and republishes complete values under the new keys. Null values remove
-the column key. Missing content, invalid text, unsupported XMLTYPE bytes and values above
+removes old LOB keys and republishes complete values under the new keys. Null assignments publish required zero-length bytes, as observed for NCLOB. Missing content, invalid text, unsupported XMLTYPE bytes and values above
 `cdc.lob.max.bytes` stop the task; topic mode accepts no placeholder oversize handling.
 Only the final record of a row advances its completed offset, including during snapshots.
 

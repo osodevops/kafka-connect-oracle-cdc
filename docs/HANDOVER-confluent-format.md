@@ -494,3 +494,14 @@ cannot be read from fixtures.
 - `ConfigDocsGeneratorTest` fails until the reference is regenerated after any config change.
 - Confluent's JSON decimals are base64 by default, so a verification tool must decode them with
   the column scale (`tools/migration/src/oso_cdc_migration/confluent_topics.py` already does).
+
+
+## Latest live qualification checkpoint
+
+The full 14-profile run at `bf1f0ea` completed: 11 profiles passed (default, both Avro variants,
+struct and concatenated keys, every best-fit/precision mapping, DATE timestamp and tombstones).
+All-fields and renamed stopped on the now-fixed Oracle LOB SQL prelude split (`1ea1d18`). The
+LOB profile established required zero-length bytes for NCLOB NULL assignment; the implementation
+now matches it. Its row deletes and old-key cleanup remain tombstones. Same-topic Avro cutover
+passed again, including final values, both subjects and stop/resume readback. The three affected
+profiles and full final tiers must run on these fixes before completion. No assertion is removed.

@@ -323,7 +323,7 @@ public final class ConfluentFormat implements RecordFormat {
               "Restore sufficient undo and flashback access for AS OF commit reselect; topic mode"
                   + " never publishes a placeholder.");
         Object value = image.get(column.name());
-        if (value != null) bytes = encodeLob(column, value);
+        bytes = value == null ? new byte[0] : encodeLob(column, value);
         if (bytes != null && bytes.length > lobMaxBytes)
           throw new sh.oso.connect.oracle.core.errors.LobTooLargeException(
               "LOB topic value exceeds cdc.lob.max.bytes for "

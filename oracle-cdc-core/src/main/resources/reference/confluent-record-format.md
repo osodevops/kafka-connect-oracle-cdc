@@ -126,7 +126,7 @@ The subsequent parity and in-place cutover suites must record any further differ
 - Complete values are required. Missing values stop with CDC-3001; a value exceeding
   `cdc.lob.max.bytes`, including its final byte encoding, stops with CDC-3003. Placeholder
   oversize handling is refused in topic mode. Malformed text stops rather than substituting
-  replacement characters. Null LOB values remove their topic key with a tombstone.
+  replacement characters. A null LOB assignment publishes required zero-length bytes, matching the live NCLOB comparison.
 - XMLTYPE bytes are unsupported in topic mode and fail at schema load unless the column is
   excluded. This limitation remains an explicit difference where the recorded comparison does
   not establish Confluent behaviour.
@@ -156,3 +156,6 @@ The subsequent parity and in-place cutover suites must record any further differ
   each LOB fragment. Requested SQL output therefore retains ROWID predicates, keeps that mining
   option and restores the DML/DDL terminator only after the final CSF piece. LOB blocks are left
   intact. External SQL text is checked against Confluent's all-fields and renamed profiles.
+
+- The live NCLOB-null assignment publishes required zero-length bytes in Confluent 2.15.2.
+  OSO matches that shape; row deletion and old-key removal retain null-valued tombstones.
