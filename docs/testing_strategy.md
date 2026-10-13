@@ -12,7 +12,7 @@
 |---|---|---|---|
 | T0 Unit | Every PR | Seconds | Parser fuzzing, type conversion, buffer and rollback logic against `FakeLogMiner`, position maths, config validation, migration golden files |
 | T1 Integration | Every PR | Under 20 minutes | Oracle Database Free 23ai (`gvenzl/oci-oracle-free:23.26.3-faststart` or the current tag) plus Kafka via Testcontainers; DML, DDL, LOBs, snapshots, signals, multi-PDB, `oracle-cdc-doctor` fixtures, `FaultyJdbc` injections |
-| T2 Fault and correctness | Nightly | About 3 hours | Correctness oracle under random fault schedules, worker kills, Kafka broker restarts, log switch storms, archive deletion, long transactions; 26ai image as second version |
+| T2 Fault and correctness | Local Docker before release; optional self-hosted lab workflow | Hours | Correctness oracle under random fault schedules, worker kills, Kafka broker restarts, log switch storms, archive deletion, long transactions; both supported container images |
 | T3 Soak and performance | Weekly and before release | 72 hours | Sustained workload, memory and latency tracking, comparison with Debezium on the same workload |
 | T4 Extended lab | Before release | Days | 19c and 21c EE, two-node RAC on Podman and Active Data Guard on the workstation or the AWS dev RAC host; RDS SE2 non-CDB (Phase 2) and CDB (Phase 3) in the AWS dev account; Autonomous Database on OCI Always Free (Phase 3). See `07_test_lab_and_budget.md`. Platform runs use the `*QualIT` suites (`-De2e.groups=qual` with `-De2e.external.url`), which also run nightly against the container |
 
@@ -127,4 +127,15 @@ Until Oracle publishes a 26ai Free container image, the second version in the CI
 
 ## 9. Release gate
 
-A release is blocked unless: T0 and T1 green; last nightly T2 green with evidence; T3 soak within five per cent of previous release on latency and memory; T4 checklist complete for every platform listed as supported in that release.
+A release is blocked unless: T0 and T1 green; full T2 qualification green with evidence; T3 soak within five per cent of previous release on latency and memory; T4 checklist complete for every platform listed as supported in that release.
+
+Long T2 Docker suites run locally, with one suite at a time, rather than on GitHub-hosted runners.
+The optional nightly workflow has no schedule and accepts only a dedicated self-hosted Linux lab
+runner. The release gate accepts either its recent successful run with evidence or a committed
+local receipt verified by `release/check_t2_evidence.py`. Local evidence requires the full nightly
+tier on both database images, no failed or skipped tests, 1,000 completed worker kills with
+catch-up and no missing or duplicate committed transactions, and the five million row transaction
+within the original heap budget. Evidence expires after seven days, and its tested source and
+build inputs must match the release; project release versions alone are normalised. This changes
+where qualification runs, without reducing its scope or any test assertion. Instructions are in
+[Local release qualification](../release/LOCAL-T2.md).

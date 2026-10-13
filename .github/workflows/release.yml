@@ -9,7 +9,7 @@ name: Release
 # Release gate (docs/testing_strategy.md section 9) enforced here, on the released commit:
 #   T0     mvn clean verify -DskipE2E on Java 17 and 21 (includes the Hub manifest and ZIP layout tests)
 #   T1     engine and connector tiers against Oracle Database Free
-#   T2     the latest nightly run on the default branch passed, recently, with T2 evidence attached
+#   T2     checked local full-matrix evidence for unchanged inputs, or a recent green lab nightly
 #   Bundle Central dry run: release profile, throwaway signature, bundle contents checked
 # T3 soak and T4 qualification stay a maintainer sign-off before the release pull request is merged;
 # add required reviewers to the `release` environment to record that sign-off on every release.
@@ -151,7 +151,7 @@ jobs:
           retention-days: 90
 
   gate-t2:
-    name: gate T2 (latest nightly green with evidence)
+    name: gate T2 (local evidence or lab nightly)
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -162,7 +162,24 @@ jobs:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
+          fetch-depth: 0
+      - name: Verify local qualification when its receipt is committed
+        id: local
+        run: |
+          set -euo pipefail
+          receipt=docs/qualification/local-t2/latest.json
+          if [ -f "$receipt" ]; then
+            python3 release/check_t2_evidence.py verify "$receipt"
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'T2 passed locally on both database images: unchanged capture/test/build inputs, all tests passed, 1000 worker kills, five million rows, no loss or duplicates.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Latest completed nightly passed with T2 evidence
+        if: steps.local.outputs.available != 'true'
         run: |
           set -euo pipefail
           runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow nightly.yml \

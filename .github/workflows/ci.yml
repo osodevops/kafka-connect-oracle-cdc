@@ -222,6 +222,8 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
+      - name: Local T2 release evidence guard tests
+        run: python3 -m unittest discover -s release/tests -v
       - name: Only release-please creates releases and tags
         run: |
           set -euo pipefail

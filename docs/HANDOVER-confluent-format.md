@@ -58,16 +58,24 @@ capture configuration, JSON records, operation/key sequences, metadata layouts, 
 mappings, separate LOB topics, truncate, Avro, migration and every documented difference together.
 It is linked from the sidebar, README, format reference and migration guide.
 
-Release PR #29 (0.1.6) remains open pending technical gates. A fresh
-[nightly run](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38418299236)
-is running on `6b0dde3`, the complete implementation before this documentation-only update.
-It uses only OSO software. Preserve the existing 0.1.x preview scope: no completed 72-hour soak
+Release PR #29 (0.1.6) remains open pending technical gates. Sion objected to running hours-long
+qualification on hosted GitHub runners. The
+[hosted nightly](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38418299236)
+was cancelled, the workflow disabled, its schedule removed and its optional manual jobs restricted
+to a dedicated self-hosted Linux lab runner. The full T2 matrix now runs on local Docker, one
+database image at a time, in an isolated checkout of `5b6f8cd`. It uses only OSO software, with
+the same 1,000 worker kills and five million row transaction, and no reduced test assertions.
+The release gate can verify a committed local receipt for the full matrix and unchanged source,
+test and build inputs. Instructions and the evidence checker are in `release/LOCAL-T2.md`.
+Preserve the existing 0.1.x preview scope: no completed 72-hour soak
 or full platform qualification is claimed; those remain prerequisites for 1.0 as documented in
 the README and original handover. Do not bypass a failed nightly or release workflow gate.
 
 Both engine tiers, both connector tiers and both container qualification tiers passed in that
-fresh nightly on the two database images. The long T2 fault suites are still running. Subsequent
-changes are documentation and a unit regression only; production code is identical to `6b0dde3`.
+hosted nightly on the two database images. Its long T2 suites were cancelled for runner cost,
+so that run does not qualify the release. Local qualification is in progress. Subsequent changes
+are documentation, a unit regression and release automation; production code is identical to
+`6b0dde3`. Do not restart long tests on hosted runners.
 
 The prior scheduled nightly
 [38334075196](https://github.com/osodevops/kafka-connect-oracle-cdc/actions/runs/38334075196)
@@ -77,13 +85,13 @@ catch up. PR #31 already corrected the shared headers in `DebeziumEnvelope`: eac
 owns its header list. A focused `RecordQueueSinkTest` regression now verifies stable iteration,
 one split flag per record and unchanged acknowledgement positions in both formats. Restoring the
 old shared-header behaviour makes that regression fail; the current implementation passes.
-No further production change was needed. Preserve all correctness assertions; a green fresh
-nightly is still required before release.
+No further production change was needed. Preserve all correctness assertions; complete green T2
+evidence is still required before release, now collected locally.
 
 Release PR #29's first DCO run failed because release-please generated its commit without a
 `Signed-off-by` line. The root release-please configuration now supplies the bot's sign-off for
-generated release and snapshot commits. Regenerate the PR and verify the actual commit trailer
-and the unchanged DCO workflow on its new head before merging; never exempt the bot from DCO.
+generated release and snapshot commits at `5b6f8cd`. The regenerated PR head `df35c64` carries the
+actual sign-off, and DCO plus every other PR check passed. Never exempt the bot from DCO.
 
 The fifteen-profile reference and step 1 follow-up are committed at `38e5f71`. Fixtures contain
 only the suite's own test data and normalised volatile values. The reference-only scale-two

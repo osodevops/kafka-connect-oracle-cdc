@@ -1,12 +1,14 @@
 name: Nightly
 
+# Optional manual T2 fault and correctness tier on a dedicated self-hosted Linux lab runner.
+# Long Docker suites run locally by default; never send them to GitHub-hosted runners. No cron.
 # T2 fault and correctness tier (docs/testing_strategy.md sections 1, 3 and 4) on both Oracle
 # Database Free versions in the matrix, plus the T1 engine and connector tiers on each version,
 # because ci.yml runs T1 on the default image only (section 6).
 #
 # Every job uploads the evidence JSON the suites write (e2e-tests/target/*-evidence.json) and the
 # failsafe reports. T2 evidence artefacts are named evidence-t2-<image tag>; release.yml requires
-# them from the latest nightly run on the default branch before it publishes. While e2e-tests has no
+# them from a recent green lab nightly unless checked local evidence is committed. While e2e-tests has no
 # *NightlyIT suite the T2 jobs record that in the run summary and produce no T2 evidence, so the
 # release gate stays closed until T2 suites exist and pass.
 #
@@ -15,36 +17,33 @@ name: Nightly
 # limits when set.
 
 on:
-  schedule:
-    - cron: '17 1 * * *'
   workflow_dispatch:
     inputs:
       kills:
         description: Worker kills in RepeatedWorkerKillsNightlyIT (the release gate asks for 1000)
-        default: '25'
+        default: '1000'
       large_rows:
         description: Rows in LargeTransactionNightlyIT's single transaction (PRD-00 asks for 5000000)
-        default: '1000000'
-      runner:
-        description: Runner label; a self-hosted or larger runner for long kill runs
-        default: ubuntu-latest
+        default: '5000000'
       t2_timeout:
-        description: Minutes for the T2 job (hosted runners stop jobs at 360)
-        default: '330'
+        description: Minutes for the T2 job on the self-hosted lab runner
+        default: '1440'
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly-${{ github.ref }}
+  group: nightly-local-lab
   cancel-in-progress: false
 
 jobs:
   suites:
     name: ${{ matrix.label }} on ${{ matrix.oracle }}
-    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
-    timeout-minutes: ${{ matrix.tier == 'nightly' && fromJSON(inputs.t2_timeout || '330') || matrix.timeout }}
+    runs-on: [self-hosted, linux, oso-cdc-lab]
+    timeout-minutes: ${{ matrix.tier == 'nightly' && fromJSON(inputs.t2_timeout || '1440') || matrix.timeout }}
     strategy:
+      # The test network has a fixed subnet. Only one Docker suite may use a lab runner at once.
+      max-parallel: 1
       fail-fast: false
       matrix:
         oracle: ['23.26.3-slim-faststart', '23.9-faststart']
@@ -52,7 +51,7 @@ jobs:
         include:
           - tier: nightly
             label: t2
-            timeout: 330
+            timeout: 1440
           - tier: engine
             label: t1-engine
             timeout: 60
@@ -65,9 +64,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Free disk space for the Oracle images
+      - name: Check disk space for the Oracle images
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
       - uses: actions/setup-java@v4
@@ -113,7 +111,7 @@ jobs:
 
       - name: Build modules without tests
         if: steps.tier.outputs.count != '0'
-        run: ./mvnw -q install -DskipTests -DskipE2E --batch-mode --no-transfer-progress
+        run: ./mvnw -q install -DskipTests -DskipE2E -Djacoco.skip=true --batch-mode --no-transfer-progress
 
       - name: Run the ${{ matrix.label }} tier
         if: steps.tier.outputs.count != '0'
@@ -121,8 +119,8 @@ jobs:
           ./mvnw -pl e2e-tests verify
           -De2e.groups=${{ matrix.tier }}
           -Doracle.image.tag=${{ matrix.oracle }}
-          -Dnightly.kills=${{ inputs.kills || '25' }}
-          -Dnightly.large.rows=${{ inputs.large_rows || '1000000' }}
+          -Dnightly.kills=${{ inputs.kills || '1000' }}
+          -Dnightly.large.rows=${{ inputs.large_rows || '5000000' }}
           --batch-mode --no-transfer-progress
 
       - name: Upload evidence JSON
@@ -175,7 +173,7 @@ jobs:
             "Evidence JSON and failsafe reports are attached to the run as artefacts. Treat a missed or" \
             "duplicated change as a product bug until proven otherwise. Close this issue once a nightly run passes.")
           gh label create "$LABEL" --repo "$GITHUB_REPOSITORY" --color B60205 \
-            --description "The scheduled nightly workflow failed" --force >/dev/null
+            --description "The lab nightly workflow failed" --force >/dev/null
           number=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "$LABEL" --state open --limit 1 \
             --json number --jq '.[0].number // empty')
           if [ -n "$number" ]; then

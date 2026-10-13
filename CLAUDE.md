@@ -92,6 +92,10 @@ release workflow validates the POM version, builds, signs, deploys to Maven Cent
 the plugin ZIP and oracle-cdc-doctor image. Never tag by hand. A release requires the release
 gate in docs/testing_strategy.md section 9. Commits carry a DCO sign-off (`git commit -s`).
 
+Long T2 Docker suites run locally, never on GitHub-hosted runners. The nightly workflow is manual
+and self-hosted only. Use `release/run-local-t2.sh` in an isolated checkout and commit the checked
+receipt as described in `release/LOCAL-T2.md`; failed or partial qualification still blocks release.
+
 ## Support and security policy (public)
 
 SUPPORT.md and SECURITY.md are the source of truth for commitments. Client-facing text must stay
