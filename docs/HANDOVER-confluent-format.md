@@ -107,17 +107,30 @@ full clean gate, full engine tier and connector matrix passed. The connector mat
 startup timeout and a transient heartbeat-consumption failure in two existing regressions; both
 passed unchanged in the focused rerun. `TruncateConnectorIT` passes in both formats after keeping
 its generated schema names within LogMiner's identifier limit. Truncate delivery remains commit
-ordered and advances only acknowledged positions. Step 4 now implements complete LOB topics and has a green clean gate and real-worker test.
-The earlier frozen revision passed the full engine tier; its connector tier is running in the lab
-worktree. The final review also adds snapshot final-LOB acknowledgement and invisible savepoint
-rollback regressions. Re-run both tiers against those last corrections with the step 5 integration
-before marking either step complete. Step 5 is implemented in the feature checkout: same-topic defaults, all requested migration
-mappings, flat JSON value comparison with per-column normalisation, and a STOPPED/unchanged-offset
-fence for historical Confluent rows without commit metadata. The Python suite passes 338 tests.
-The connector fixture test and opt-in step 6 suites compile, and the integrated clean gate passes.
-Re-run both Docker tiers on this combined frozen revision, then run the live parity and same-topic
-Avro qualifications. Step 7 prose is prepared in `../kafka-connect-oracle-cdc-fmt-tools` and must
-be preserved until it is reconciled with the observed qualification results.
+ordered and advances only acknowledged positions. Step 4 and step 5 implementation checkpoints are `a3c7dc3` and `8c1cd3a`. The combined revision
+`c0f744b` passed the clean gate, all 59 engine tests and all 31 connector tests, including live LOB
+topics and the fixture-backed default-topic test. The latest safety review is in `51a4535`:
+missing declared keys, incomplete supported flat images, required columns and unsupported key
+types stop with CDC-3001. Confluent-only touched-LOB tracking suppresses small LOB-only updates;
+Debezium journal bytes keep their legacy form. Its clean gate passes. The migration suite passes
+339 tests; `328ad10` also preserves keyless tables and explicit matching Avro journal codecs.
+
+Step 6's first live run passed same-topic Avro handover but found a metadata difference on LOB
+inserts: Confluent publishes the all-A ROWID placeholder, OSO resolves the real locator. The
+reference and ADR record it. The parity comparator now constrains that exact difference; it still
+compares row SCN and all other metadata. The strengthened `7510fe9` cutover checks final database
+values, both subjects, cached reader schemas and stop/resume readback. The strengthened same-topic cutover passed, including final values and stop/resume readback.
+Parity's default profile passed; its Avro pass exposed the public wire protocol's special handling
+of top-level bytes, now covered by an Apache-Avro-only framing regression. The comparator retains
+all assertions and collects profile failures so every selected profile is exercised.
+
+The final LOB review corrects an overbroad inert-group suppression: ADR-0015 groups can include a
+committed earlier DBMS_LOB call and an undone later call. Topic mode reselects final touched LOB
+values AS OF commit and emits no table row. A new failing regression proves recovery of the earlier
+call, and the live LOB test now includes the merged savepoint case. Its clean gate is green;
+focused live verification, the remaining parity profiles and final tiers are next.
+No PR or release exists. Prepared step 7 website/PRD prose is now in the feature checkout, with
+legal release approval still pending. The tools worktree retains an earlier prose copy.
 Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
 Maven runs, or install changed modules while its Docker tier is active. The optional RDS run is not
 planned because no RDS instance is up; the remaining cloud lab was destroyed through its workflow.

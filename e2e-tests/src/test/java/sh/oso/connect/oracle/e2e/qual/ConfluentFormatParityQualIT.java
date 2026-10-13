@@ -50,6 +50,7 @@ class ConfluentFormatParityQualIT {
             .withConfluentSchemaRegistry()
             .start()) {
       int index = 0;
+      List<Throwable> failures = new ArrayList<>();
       for (ConfluentFormatRefQualIT.Profile profile : ConfluentFormatRefQualIT.profiles()) {
         // Rounding refusal is already proven against the reference and in fixture regressions.
         if (profile.name().equals("numeric-none-scale2")) continue;
@@ -130,12 +131,24 @@ class ConfluentFormatParityQualIT {
               .containsExactlyInAnyOrderElementsOf(
                   records.keySet().stream().filter(t -> t.startsWith(old + ".")).toList());
           evidence.param("profile." + profile.name(), "records and schemas compared");
+        } catch (Throwable failure) {
+          failures.add(new AssertionError("Profile " + profile.name(), failure));
+          evidence.param("profile." + profile.name(), "FAIL");
+        } finally {
           cluster.delete(old);
           cluster.delete(next);
-        } finally {
           db.dropSchema(schema);
         }
       }
+      org.junit.jupiter.api.Assertions.assertAll(
+          "Confluent profiles",
+          failures.stream()
+              .map(
+                  failure ->
+                      (org.junit.jupiter.api.function.Executable)
+                          () -> {
+                            throw failure;
+                          }));
     } catch (Throwable failure) {
       evidence.failed(failure);
       throw failure;

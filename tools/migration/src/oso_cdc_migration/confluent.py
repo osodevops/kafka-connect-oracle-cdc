@@ -49,6 +49,28 @@ def record_property(ctx: Context, key: str, value: str) -> Outcome:
     if not compatible(ctx):
         raise Manual(FORMAT_PROPERTY)
     if key.startswith("output."):
+        suffix = key[len("output.") :]
+        fields = {
+            "table.name",
+            "scn",
+            "commit.scn",
+            "op.type",
+            "op.ts",
+            "current.ts",
+            "row.id",
+            "username",
+            "redo",
+            "undo",
+            "before.state",
+        }
+        operations = {"read", "insert", "update", "delete", "truncate"}
+        supported = {name + ".field" for name in fields} | {
+            "op.type." + name + ".value" for name in operations
+        }
+        if suffix not in supported:
+            raise Manual(
+                "Unsupported output metadata property; review the source behaviour before cutover."
+            )
         target = "cdc.output.confluent." + key[len("output.") :]
     elif key == "oracle.date.mapping":
         target = "cdc.output.confluent.date.mapping"

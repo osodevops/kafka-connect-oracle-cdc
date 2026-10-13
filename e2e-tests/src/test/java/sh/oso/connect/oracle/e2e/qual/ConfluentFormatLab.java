@@ -123,9 +123,7 @@ final class ConfluentFormatLab {
     String text =
         ConfluentFormatRefQualIT.get(registry + "/schemas/ids/" + id).path("schema").asText();
     Schema schema = new Schema.Parser().parse(text);
-    Object datum =
-        new GenericDatumReader<>(schema)
-            .read(null, DecoderFactory.get().binaryDecoder(wire, 5, wire.length - 5, null));
+    Object datum = avroDatum(schema, wire);
     // GenericData's JSON form represents primitives, records and bytes deterministically.
     if (datum instanceof ByteBuffer buffer) {
       byte[] bytes = new byte[buffer.remaining()];
@@ -143,6 +141,15 @@ final class ConfluentFormatLab {
           ConfluentFormatRefQualIT.JSON.valueToTree(
               datum instanceof CharSequence ? datum.toString() : datum);
     return new Decoded(ConfluentFormatRefQualIT.JSON.readTree(text), value);
+  }
+
+  static Object avroDatum(Schema schema, byte[] wire) throws java.io.IOException {
+    if (schema.getType() == Schema.Type.BYTES) {
+      // The public wire protocol puts a top-level bytes value directly after its framing.
+      return ByteBuffer.wrap(java.util.Arrays.copyOfRange(wire, 5, wire.length));
+    }
+    return new GenericDatumReader<>(schema)
+        .read(null, DecoderFactory.get().binaryDecoder(wire, 5, wire.length - 5, null));
   }
 
   static void compatibility(ConnectCluster cluster, String oldSubject, String newSubject)

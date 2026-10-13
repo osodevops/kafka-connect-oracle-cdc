@@ -279,3 +279,20 @@ def test_same_topic_migration_pins_keyless_behaviour_and_matching_avro_journal_c
     assert target["cdc.key.missing"] == "none"
     assert target["cdc.journal.converter"] == "io.confluent.connect.avro.AvroConverter"
     assert target["cdc.journal.converter.schema.registry.url"] == "http://registry:8081"
+
+
+def test_unknown_confluent_output_property_is_manual_and_never_silently_ignored(tmp_path, capsys):
+    _, out, report = run(
+        CONFLUENT,
+        tmp_path,
+        {
+            "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+            "oracle.server": "db",
+            "oracle.sid": "FREE",
+            "oracle.username": "CDC",
+            "output.unknown.field": "custom",
+        },
+        capsys=capsys,
+    )
+    assert by_key(report)["output.unknown.field"]["classification"] == "manual"
+    assert "cdc.output.confluent.unknown.field" not in out["config"]
