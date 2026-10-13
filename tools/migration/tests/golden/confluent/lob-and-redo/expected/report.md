@@ -12,11 +12,11 @@
 
 ## Follow-ups
 
-1. This release publishes the Debezium-compatible envelope only (`before`, `after`, `source`, `op`); the Confluent-compatible flat format (`cdc.output.format=confluent`) is not built yet. Records change shape and keys become structs of the key columns, so consumers and schemas of the existing table topics break. Point `cdc.topic.template` at new topic names and move consumers to the new format, or wait for the Confluent-compatible format before cutting over.
+1. This release publishes the Debezium-compatible envelope for the selected --format=debezium (`before`, `after`, `source`, `op`). Records change shape and keys become structs, so use new prefixed topics and move consumers. Choose --format=confluent to keep the existing table topics, flat records and key templates.
 2. The source logged and skipped rows it could not parse. The connector never skips silently: such rows go to the DLQ topic (`cdc.dlq.topic`) with an ops event. Make sure someone watches the DLQ. (`behavior.on.dictionary.mismatch`)
 3. DATE and TIMESTAMP values are read as UTC in this release; there is no time zone setting. Consumers that expect another zone must convert. (`db.timezone`)
 4. The LDAP naming URL became `cdc.database.url`. Test the connection with `oracle-cdc-doctor check`; LDAP authentication settings are not translated. (`ldap.url`)
-5. LOB topics are not built yet (MIG-5). Until they are, `cdc.lob.mode=inline` publishes LOB values inside the row records; consumers of the LOB topics must change. (`lob.topic.name.template`)
+5. Separate LOB topics require --format=confluent (MIG-5). With Debezium output, choose inline or reselect row values and change the LOB topic consumers. (`lob.topic.name.template`)
 6. `numeric.mapping=best_fit_or_double` has no exact equivalent. `cdc.decimal.mode` offers `precise`, `string` (every NUMBER as text) and `double` (every NUMBER as a double); choose one. (`numeric.mapping`)
 7. RAC is not supported in this release, so there are no FAN events to follow. Do not migrate a RAC database yet. (`oracle.fan.events.enable`)
 8. Kerberos authentication is not built yet; use a password or a wallet. (`oracle.kerberos.cache.file`)
@@ -28,8 +28,8 @@
 | Property | Value | Reason |
 |---|---|---|
 | `name` | `orders-cdc-oso` | The new connector's name. |
-| `cdc.output.format` | `debezium` | The only format in this release; Confluent's flat format is not built yet. |
-| `cdc.topic.prefix` | `orders` | Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's. |
+| `cdc.output.format` | `debezium` | Explicitly selected Debezium-compatible envelope and new topics. |
+| `cdc.topic.prefix` | `orders` | Names internal topics and the offset partition; table topics stay unchanged with Confluent output and are prefixed with Debezium output. |
 | `cdc.tables.case.sensitive` | `true` | Confluent matches table expressions case-sensitively (MIG-3). |
 | `cdc.tombstones.on.delete` | `false` | Confluent's default (`emit.tombstone.on.delete=false`), pinned (MIG-3). |
 | `cdc.decimal.mode` | `precise` | Confluent's default `numeric.mapping=none` kept numbers exact; `precise` does too (MIG-3). NUMBER(p,0) up to 18 digits become integers rather than Decimal bytes. |
@@ -49,7 +49,7 @@
 | `db.timezone` | `Europe/London` | manual |   | DATE and TIMESTAMP values are read as UTC in this release; there is no time zone setting. Consumers that expect another zone must convert. |
 | `heartbeat.interval.ms` | `30000` | mapped | `cdc.heartbeat.interval.ms` = `30000` |  |
 | `ldap.url` | `ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com` | mapped-with-change | `cdc.database.url` = `jdbc:oracle:thin:@ldap://ldap.example.com:389/orclpdb1,cn=OracleContext,dc=example,dc=com` | Connect through LDAP naming in the JDBC URL. |
-| `lob.topic.name.template` | `${tableName}.${columnName}` | manual |   | LOB topics are not built yet (MIG-5). Until they are, `cdc.lob.mode=inline` publishes LOB values inside the row records; consumers of the LOB topics must change. |
+| `lob.topic.name.template` | `${tableName}.${columnName}` | manual |   | Separate LOB topics require --format=confluent (MIG-5). With Debezium output, choose inline or reselect row values and change the LOB topic consumers. |
 | `log.mining.transaction.age.threshold.ms` | `7200000` | mapped | `cdc.transaction.max.age.ms` = `7200000` | A discarded transaction's details go to the ops topic and the DLQ. |
 | `log.mining.transaction.threshold.breached.action` | `discard` | mapped | `cdc.transaction.max.age.action` = `discard` | A discarded transaction's details go to the ops topic and the DLQ. |
 | `numeric.mapping` | `best_fit_or_double` | manual |   | `numeric.mapping=best_fit_or_double` has no exact equivalent. `cdc.decimal.mode` offers `precise`, `string` (every NUMBER as text) and `double` (every NUMBER as a double); choose one. |
@@ -73,4 +73,4 @@
 3. Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.
 4. Create `orders-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.
 5. Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).
-6. Remove the redo log topic and the old connector's other topics after the agreed retention.
+6. Retire the old redo log and internal topics after the agreed retention; keep table and LOB topics for the Confluent same-topics path.

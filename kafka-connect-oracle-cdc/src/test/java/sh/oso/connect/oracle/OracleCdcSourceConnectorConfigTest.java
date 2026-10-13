@@ -79,6 +79,19 @@ public class OracleCdcSourceConnectorConfigTest {
   }
 
   @Test
+  void confluentDefaultsKeepExistingTopicsAndExplicitTemplatesStayExact() {
+    Map<String, String> props = minimal();
+    props.put(OracleCdcSourceConnectorConfig.OUTPUT_FORMAT, "confluent");
+    OracleCdcSourceConnectorConfig config = new OracleCdcSourceConnectorConfig(props);
+    assertThat(config.topicTemplate(true)).isEqualTo("${pdb}.${schema}.${table}");
+    assertThat(config.topicTemplate(false)).isEqualTo("${database}.${schema}.${table}");
+    props.put(OracleCdcSourceConnectorConfig.TOPIC_TEMPLATE, "${prefix}-${table}");
+    config = new OracleCdcSourceConnectorConfig(props);
+    assertThat(config.topicTemplate(true)).isEqualTo("${prefix}-${table}");
+    assertThat(config.topicTemplate(false)).isEqualTo("${prefix}-${table}");
+  }
+
+  @Test
   void keyOverridesAndValidation() {
     Map<String, String> p = minimal();
     p.put(

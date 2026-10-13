@@ -1,0 +1,29 @@
+{
+  "name": "orders-cdc",
+  "config": {
+    "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "oracle.server": "db",
+    "oracle.port": "1521",
+    "oracle.sid": "ORCLCDB",
+    "oracle.pdb.name": "ORCLPDB1",
+    "oracle.username": "C##MYUSER",
+    "oracle.password": "${file:/secrets/oracle.properties:password}",
+    "table.inclusion.regex": "ORCLPDB1\\.APP\\..*",
+    "lob.topic.name.template": "${connectorName}.lob.${fullyQualifiedTableName}.${columnName}",
+    "behavior.on.dictionary.mismatch": "fail",
+    "behavior.on.unparsable.statement": "fail",
+    "log.mining.transaction.age.threshold.ms": "7200000",
+    "log.mining.transaction.threshold.breached.action": "fail",
+    "numeric.mapping": "precision_only",
+    "table.topic.name.template": "${fullyQualifiedTableName}",
+    "heartbeat.interval.ms": "30000",
+    "output.op.type.field": "header:operation",
+    "output.commit.scn.field": "meta.commit",
+    "output.before.state.field": "before",
+    "numeric.default.scale": "4",
+    "oracle.date.mapping": "timestamp",
+    "key.template": "${primaryKeyStruct}",
+    "emit.tombstone.on.delete": "true"
+  }
+}

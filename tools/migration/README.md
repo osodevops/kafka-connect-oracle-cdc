@@ -31,7 +31,7 @@ Each script is also installed as a console command: `migrate-from-debezium`,
 | Script | What it does |
 |---|---|
 | `migrate_from_debezium.py` | Translates a Debezium Oracle connector configuration into `cdc.*` properties and writes a report that classifies every source property as mapped, mapped with a change, dropped (with the reason) or manual (with an instruction). |
-| `migrate_from_confluent.py` | The same for a Confluent Oracle CDC Source connector configuration. The Confluent-compatible record format is not built yet, so the report's first follow-up explains what that means for existing consumers. |
+| `migrate_from_confluent.py` | The same for a Confluent Oracle CDC Source connector configuration. Defaults to the Confluent-compatible flat format and existing table/LOB topics. `--format=debezium` selects new prefixed topics. |
 | `takeover_scn.py` | Reads the stopped old connector's offset through the Connect REST API, checks that the redo from its SCN is still available, and writes `cdc.start.scn` and `cdc.snapshot.mode=none` into the new connector's configuration. The connector honours `cdc.start.scn` while it has no stored offset. |
 | `verify_cutover.py` | Compares each table, read with flashback queries AS OF a check SCN, with the state materialised from its topic up to the same SCN, and writes evidence JSON with a SHA-256 over its canonical form. |
 
@@ -86,3 +86,24 @@ and the topics (`tests/fakes.py`); no database, Kafka or Docker is needed.
 | `src/oso_cdc_migration/records.py`, `materialise.py`, `rowstore.py`, `verify.py` | Topic records, materialisation, the SQLite row store and the verifier |
 | `src/oso_cdc_migration/oracle.py`, `kafka.py`, `connect.py` | python-oracledb, confluent-kafka and Connect REST access |
 | `src/oso_cdc_migration/redact.py` | Secret masking |
+
+
+For Confluent migrations, `--format {confluent,debezium}` selects the record shape. The default
+keeps the source topic template, key template, `output.*` metadata, numeric and DATE mappings,
+LOB topic templates and tombstone setting. `--output-format {json,properties}` selects the
+configuration file syntax. The older `--format=json` and `--format=properties` aliases still work.
+
+The flat-topic verifier compares values as well as keys. It preserves Decimal schema scales,
+normalises numeric mappings per column and accounts for DATE days and millisecond timestamps.
+LOB columns and the types omitted by the compatible format are listed as ignored. It requires a
+stable key. Streaming rows need `cdc.commit_scn` or the configured commit-SCN metadata field;
+for historical source records, pass `--confluent-baseline-connector OLD_NAME`. The verifier
+checks that the old connector stays STOPPED with unchanged offsets throughout the scan and uses
+its final table commit SCN as a fence. Without per-record commit evidence or that fence, the
+result is INCONCLUSIVE. The `--confluent-topic` option remains the
+key-only baseline for a migration to separate Debezium topics.
+
+NUMBER values needing rounding to `numeric.default.scale` stop with CDC-3001, including snapshots.
+Confluent's snapshots rounded HALF_EVEN. Check the configured scale before cutover. Separate LOB
+topics require complete values and a stable column key; OSO removes old LOB keys and republishes
+values under a changed row key, whereas Confluent 2.15.2 left the old LOB state behind.

@@ -17,24 +17,19 @@
   },
   "follow_ups": [
     {
-      "text": "This release publishes the Debezium-compatible envelope only (`before`, `after`, `source`, `op`); the Confluent-compatible flat format (`cdc.output.format=confluent`) is not built yet. Records change shape and keys become structs of the key columns, so consumers and schemas of the existing table topics break. Point `cdc.topic.template` at new topic names and move consumers to the new format, or wait for the Confluent-compatible format before cutting over.",
+      "text": "This release publishes the Debezium-compatible envelope for the selected --format=debezium (`before`, `after`, `source`, `op`). Records change shape and keys become structs, so use new prefixed topics and move consumers. Choose --format=confluent to keep the existing table topics, flat records and key templates.",
       "properties": []
     },
     {
-      "text": "Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change.",
+      "text": "Record keys are structs of the key columns in the Debezium format; consumers of Confluent keys must change.",
       "properties": [
         "key.template"
       ]
     },
     {
-      "text": "DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change.",
+      "text": "Part of Confluent's record format; use --format=confluent to preserve it.",
       "properties": [
-        "oracle.date.mapping"
-      ]
-    },
-    {
-      "text": "Part of Confluent's record format, which this release does not produce. See the record format follow-up.",
-      "properties": [
+        "oracle.date.mapping",
         "output.current.ts.field",
         "output.op.ts.field",
         "output.op.type.delete.value",
@@ -75,12 +70,12 @@
     {
       "key": "cdc.output.format",
       "value": "debezium",
-      "reason": "The only format in this release; Confluent's flat format is not built yet."
+      "reason": "Explicitly selected Debezium-compatible envelope and new topics."
     },
     {
       "key": "cdc.topic.prefix",
       "value": "confluent-oracle-cdc",
-      "reason": "Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's."
+      "reason": "Names internal topics and the offset partition; table topics stay unchanged with Confluent output and are prefixed with Debezium output."
     },
     {
       "key": "cdc.tables.case.sensitive",
@@ -228,7 +223,7 @@
       "value": "${primaryKeyStructOrValue}",
       "classification": "manual",
       "targets": {},
-      "note": "Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change."
+      "note": "Record keys are structs of the key columns in the Debezium format; consumers of Confluent keys must change."
     },
     {
       "key": "ldap.security.credentials",
@@ -348,7 +343,7 @@
       "value": "date",
       "classification": "manual",
       "targets": {},
-      "note": "DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "oracle.dictionary.mode",
@@ -481,56 +476,56 @@
       "value": "current_ts",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.ts.field",
       "value": "op_ts",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.type.delete.value",
       "value": "D",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.type.field",
       "value": "op_type",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.type.insert.value",
       "value": "I",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.type.read.value",
       "value": "R",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.type.truncate.value",
       "value": "T",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.op.type.update.value",
       "value": "U",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.redo.field",
@@ -544,21 +539,21 @@
       "value": "row_id",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.scn.field",
       "value": "scn",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.table.name.field",
       "value": "table",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "output.undo.field",
@@ -572,7 +567,7 @@
       "value": "username",
       "classification": "manual",
       "targets": {},
-      "note": "Part of Confluent's record format, which this release does not produce. See the record format follow-up."
+      "note": "Part of Confluent's record format; use --format=confluent to preserve it."
     },
     {
       "key": "poll.linger.ms",
@@ -877,6 +872,6 @@
     "Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.",
     "Create `confluent-oracle-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
     "Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).",
-    "Remove the redo log topic and the old connector's other topics after the agreed retention."
+    "Retire the old redo log and internal topics after the agreed retention; keep table and LOB topics for the Confluent same-topics path."
   ]
 }

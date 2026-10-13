@@ -111,8 +111,13 @@ ordered and advances only acknowledged positions. Step 4 now implements complete
 The earlier frozen revision passed the full engine tier; its connector tier is running in the lab
 worktree. The final review also adds snapshot final-LOB acknowledgement and invisible savepoint
 rollback regressions. Re-run both tiers against those last corrections with the step 5 integration
-before marking either step complete. Step 5 migration work and step 6 suites are prepared in the
-`../kafka-connect-oracle-cdc-fmt-tools` worktree and must be preserved.
+before marking either step complete. Step 5 is implemented in the feature checkout: same-topic defaults, all requested migration
+mappings, flat JSON value comparison with per-column normalisation, and a STOPPED/unchanged-offset
+fence for historical Confluent rows without commit metadata. The Python suite passes 338 tests.
+The connector fixture test and opt-in step 6 suites compile, and the integrated clean gate passes.
+Re-run both Docker tiers on this combined frozen revision, then run the live parity and same-topic
+Avro qualifications. Step 7 prose is prepared in `../kafka-connect-oracle-cdc-fmt-tools` and must
+be preserved until it is reconciled with the observed qualification results.
 Long suites use the temporary `../kafka-connect-oracle-cdc-fmt-lab` worktree. Do not edit it while
 Maven runs, or install changed modules while its Docker tier is active. The optional RDS run is not
 planned because no RDS instance is up; the remaining cloud lab was destroyed through its workflow.
@@ -378,6 +383,10 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 3. A LOB table without a key stops typed at schema load. Add a doctor rule for the same.
 
 ### Step 5 (C5): topics, migration tool, enabling
+
+- [x] Default same-topic routing, migration mappings, same-topic golden cases and flat value verifier.
+- [x] Connector fixture test and generated configuration reference; full clean gate.
+- [ ] Engine and connector tiers with step 4's final review, then mark both steps complete.
 
 1. Confluent-format topic default `${pdb}.${schema}.${table}` (CDB) or
    `${database}.${schema}.${table}` (non-CDB), with no prefix.

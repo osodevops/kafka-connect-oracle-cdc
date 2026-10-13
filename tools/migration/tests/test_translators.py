@@ -211,7 +211,7 @@ def test_confluent_regex_that_cannot_lose_its_database_is_manual(tmp_path, capsy
 
 def test_confluent_record_format_follow_up_comes_first(tmp_path, capsys):
     cfg = {"connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector"}
-    code, _, report = run(CONFLUENT, tmp_path, cfg, capsys=capsys)
+    code, _, report = run(CONFLUENT, tmp_path, cfg, "--format", "debezium", capsys=capsys)
     assert report["follow_ups"][0]["text"].startswith("This release publishes the Debezium")
     assert code == EXIT_FOLLOW_UPS
 
@@ -221,7 +221,9 @@ def test_confluent_connector_name_in_template_becomes_literal(tmp_path, capsys):
         "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
         "table.topic.name.template": "${connectorName}.${tableName}",
     }
-    _, out, _ = run(CONFLUENT, tmp_path, {"name": "cx", "config": cfg}, capsys=capsys)
+    _, out, _ = run(
+        CONFLUENT, tmp_path, {"name": "cx", "config": cfg}, "--format", "debezium", capsys=capsys
+    )
     assert out["config"]["cdc.topic.template"] == "${prefix}.cx.${table}"
 
 

@@ -160,6 +160,8 @@ class ConfluentCutoverQualIT {
               NEW,
               "--topic-prefix",
               PREFIX,
+              "--format",
+              "debezium",
               "--connect-url",
               cluster.restUrl());
       assertThat(migrate.exit()).as(migrate.toString()).isIn(0, 2);

@@ -1,0 +1,243 @@
+{
+  "tool": "migrate_from_confluent.py",
+  "tool_version": "<version>",
+  "source_kind": "Confluent Oracle CDC Source connector",
+  "source_connector": "SimpleOracleCDC",
+  "new_connector": "SimpleOracleCDC-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 7,
+    "mapped-with-change": 4,
+    "dropped": 4,
+    "manual": 1
+  },
+  "exactly_once": {
+    "status": "not checked",
+    "detail": "no --connect-url given"
+  },
+  "follow_ups": [
+    {
+      "text": "Keep the existing topics and consumers. Check the documented differences: exact Decimal scales (rounding stops CDC-3001), additional cdc.* headers, SQL suppression with column exclusions, LOB key moves, and optional OSO truncate records.",
+      "properties": []
+    },
+    {
+      "text": "The translator does not know this property. Check what it did in the source connector and set the corresponding `cdc.*` property by hand, or leave it out.",
+      "properties": [
+        "_table.topic.name.template_"
+      ]
+    },
+    {
+      "text": "The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.",
+      "properties": []
+    },
+    {
+      "text": "Without `oracle.pdb.name` the translator assumed a non-CDB database and removed the database name from the table expressions. If the tables live in the root container of a CDB, rewrite `cdc.tables.include` by hand.",
+      "properties": []
+    },
+    {
+      "text": "Exactly-once delivery was not configured because the target Connect cluster was not checked (no --connect-url given). Run the translator again with `--connect-url`, or add `exactly.once.support=required` and `transaction.boundary=connector` yourself once the workers run with `exactly.once.source.support=enabled`.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "SimpleOracleCDC-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "confluent",
+      "reason": "Preserves table topics, flat rows, key templates and Schema Registry subjects."
+    },
+    {
+      "key": "cdc.topic.prefix",
+      "value": "SimpleOracleCDC",
+      "reason": "Names internal topics and the offset partition; table topics stay unchanged with Confluent output and are prefixed with Debezium output."
+    },
+    {
+      "key": "cdc.tables.case.sensitive",
+      "value": "true",
+      "reason": "Confluent matches table expressions case-sensitively (MIG-3)."
+    },
+    {
+      "key": "cdc.tombstones.on.delete",
+      "value": "false",
+      "reason": "Confluent's default, pinned when unset."
+    },
+    {
+      "key": "cdc.lob.mode",
+      "value": "skip",
+      "reason": "LOBs are omitted unless a LOB topic template enables topic mode."
+    },
+    {
+      "key": "cdc.start.scn",
+      "value": "1000",
+      "reason": "The old connector's position (--start-scn); honoured while the new connector has no stored offset."
+    }
+  ],
+  "properties": [
+    {
+      "key": "_table.topic.name.template_",
+      "value": "a commented-out key, kept to check unknown keys are reported",
+      "classification": "manual",
+      "targets": {},
+      "note": "The translator does not know this property. Check what it did in the source connector and set the corresponding `cdc.*` property by hand, or leave it out."
+    },
+    {
+      "key": "confluent.topic.replication.factor",
+      "value": "1",
+      "classification": "dropped",
+      "targets": {},
+      "note": "Confluent licence topic settings; not used."
+    },
+    {
+      "key": "connection.pool.max.size",
+      "value": "20",
+      "classification": "dropped",
+      "targets": {},
+      "note": "The connector manages its own connections (MIG-5); driver options go in `cdc.database.connection.properties`."
+    },
+    {
+      "key": "connector.class",
+      "value": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "oracle.password",
+      "value": "${file:/secrets/oracle.properties:password}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "${file:/secrets/oracle.properties:password}"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.server",
+      "value": "oracle",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "oracle"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.sid",
+      "value": "ORCLDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.sid": "ORCLDB"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.username",
+      "value": "MYUSER",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "MYUSER"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "redo.log.consumer.bootstrap.servers",
+      "value": "kafka:9092",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic, so its consumer settings do not apply."
+    },
+    {
+      "key": "redo.log.row.fetch.size",
+      "value": "1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.mining.fetch.size": "1"
+      },
+      "note": ""
+    },
+    {
+      "key": "redo.log.topic.name",
+      "value": "oracle-redo-log-topic",
+      "classification": "dropped",
+      "targets": {},
+      "note": "There is no redo log topic; see the follow-up."
+    },
+    {
+      "key": "start.from",
+      "value": "snapshot",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.snapshot.mode": "none"
+      },
+      "note": "The takeover starts the new connector at the Confluent position (`cdc.start.scn` from takeover_scn.py), so no snapshot runs: `cdc.snapshot.mode=none`."
+    },
+    {
+      "key": "table.inclusion.regex",
+      "value": "ORCLDB[.]MYUSER[.](ORDERS|CUSTOMERS)|ORCLDB[.]MYUSER[.]INVOICES",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "MYUSER[.](ORDERS|CUSTOMERS),MYUSER[.]INVOICES"
+      },
+      "note": "Rewritten as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB); matching stays case-sensitive (`cdc.tables.case.sensitive=true`)."
+    },
+    {
+      "key": "table.topic.name.template",
+      "value": "${databaseName}.${schemaName}.${tableName}",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.template": "${database}.${schema}.${table}"
+      },
+      "note": "Template variables translated; check the result against the existing topic names."
+    },
+    {
+      "key": "tasks.max",
+      "value": "1",
+      "classification": "mapped",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": ""
+    }
+  ],
+  "config": {
+    "name": "SimpleOracleCDC-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "oracle",
+    "cdc.database.password": "${file:/secrets/oracle.properties:password}",
+    "cdc.database.port": "1521",
+    "cdc.database.sid": "ORCLDB",
+    "cdc.database.user": "MYUSER",
+    "cdc.lob.mode": "skip",
+    "cdc.mining.fetch.size": "1",
+    "cdc.output.format": "confluent",
+    "cdc.snapshot.mode": "none",
+    "cdc.start.scn": "1000",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.include": "MYUSER[.](ORDERS|CUSTOMERS),MYUSER[.]INVOICES",
+    "cdc.tombstones.on.delete": "false",
+    "cdc.topic.prefix": "SimpleOracleCDC",
+    "cdc.topic.template": "${database}.${schema}.${table}"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, above all the record format, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Confluent connector with `PUT /connectors/SimpleOracleCDC/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `SimpleOracleCDC-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).",
+    "Retire the old redo log and internal topics after the agreed retention; keep table and LOB topics for the Confluent same-topics path."
+  ]
+}

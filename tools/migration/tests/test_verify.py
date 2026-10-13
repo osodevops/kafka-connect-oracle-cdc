@@ -525,3 +525,246 @@ def test_a_confluent_row_the_database_no_longer_has_fails(tmp_path, capsys):
     code, ev = run(tmp_path, db, topics, "--confluent-topic", "PDB1.APP.ORDERS")
     assert code == EXIT_FAILURE
     assert ev["tables"][0]["only_in_topics"] == 1
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_same_topics_flat_values_are_compared_and_mismatches_fail(tmp_path, capsys, changed):
+    from oso_cdc_migration.records import KafkaRecord
+
+    config = oso_config(
+        tmp_path,
+        **{
+            "cdc.output.format": "confluent",
+            "cdc.output.confluent.numeric.mapping": "best_fit_or_decimal",
+        },
+    )
+    topics = FakeTopics()
+    value = {
+        "ID": 1,
+        "STATUS": "WRONG" if changed else "NEW",
+        "AMOUNT": 10.0,
+        "CREATED": 19783,
+        "table": "ORCL.APP.ORDERS",
+        "scn": "100",
+        "op_type": "I",
+    }
+    topics.add(
+        KafkaRecord(
+            "srv.APP.ORDERS", 0, 0, b"1", json.dumps(value).encode(), [("cdc.commit_scn", b"110")]
+        )
+    )
+    code, ev = run(tmp_path, db_with([db_row(1, "NEW")]), topics, config=config)
+    assert code == (EXIT_FAILURE if changed else EXIT_OK)
+    assert ev["tables"][0]["status"] == ("FAIL" if changed else "PASS")
+    if changed:
+        assert ev["tables"][0]["samples"][0]["columns"] == ["STATUS"]
+
+
+def test_flat_decimal_schema_scale127_and_int64_keys_are_preserved(tmp_path, capsys):
+    from oso_cdc_migration.records import KafkaRecord
+
+    columns = [Column("ID", "NUMBER", 18, 0), Column("N", "NUMBER")]
+    key = 9007199254740993
+    config = oso_config(
+        tmp_path,
+        **{
+            "cdc.output.format": "confluent",
+            "cdc.output.confluent.numeric.mapping": "precision_only",
+        },
+    )
+    db = FakeVerifyDb()
+    db.add("APP", "ORDERS", columns, ["ID"], [{"ID": Decimal(key), "N": Decimal("0.125")}])
+    unscaled = 125 * 10**124
+    encoded = base64.b64encode(unscaled.to_bytes(53, "big", signed=True)).decode()
+    schema = {
+        "type": "struct",
+        "fields": [
+            {"field": "ID", "type": "int64"},
+            {
+                "field": "N",
+                "type": "bytes",
+                "name": "org.apache.kafka.connect.data.Decimal",
+                "parameters": {"scale": "127"},
+            },
+        ],
+    }
+    value = {
+        "schema": schema,
+        "payload": {
+            "ID": key,
+            "N": encoded,
+            "scn": "100",
+            "op_type": "R",
+            "table": "ORCL.APP.ORDERS",
+        },
+    }
+    topics = FakeTopics()
+    topics.add(KafkaRecord("srv.APP.ORDERS", 0, 0, str(key).encode(), json.dumps(value).encode()))
+    code, ev = run(tmp_path, db, topics, config=config)
+    assert code == EXIT_OK
+    assert ev["tables"][0]["status"] == "PASS"
+
+
+def test_flat_custom_header_operations_nested_commit_scn_and_tombstones(tmp_path, capsys):
+    from oso_cdc_migration.records import KafkaRecord
+
+    config = oso_config(
+        tmp_path,
+        **{
+            "cdc.output.format": "confluent",
+            "cdc.output.confluent.numeric.mapping": "best_fit_or_decimal",
+            "cdc.output.confluent.op.type.field": "header:kind",
+            "cdc.output.confluent.op.type.insert.value": "added",
+            "cdc.output.confluent.commit.scn.field": "meta.commit",
+        },
+    )
+    topics = FakeTopics()
+    value = {
+        "ID": 1,
+        "STATUS": "NEW",
+        "AMOUNT": 10.0,
+        "CREATED": 19783,
+        "table": "ORCL.APP.ORDERS",
+        "meta": {"commit": "100"},
+    }
+    topics.add(
+        KafkaRecord(
+            "srv.APP.ORDERS", 0, 0, b'"1"', json.dumps(value).encode(), [("kind", b"added")]
+        )
+    )
+    topics.add(KafkaRecord("srv.APP.ORDERS", 0, 1, b'"1"', None, [("cdc.commit_scn", b"200")]))
+    code, ev = run(tmp_path, db_with([]), topics, config=config)
+    assert code == EXIT_OK
+    assert ev["tables"][0]["records"]["tombstones"] == 1
+
+
+def test_flat_stream_without_commit_evidence_is_inconclusive(tmp_path, capsys):
+    from oso_cdc_migration.records import KafkaRecord
+
+    config = oso_config(tmp_path, **{"cdc.output.format": "confluent"})
+    topics = FakeTopics()
+    topics.add(KafkaRecord("srv.APP.ORDERS", 0, 0, b"1", b'{"ID":1,"op_type":"I","scn":"100"}'))
+    _, ev = run(tmp_path, db_with([db_row(1, "NEW")]), topics, config=config)
+    assert ev["tables"][0]["status"] == "INCONCLUSIVE"
+    assert "no commit SCN" in ev["tables"][0]["reason"]
+
+
+@pytest.mark.parametrize("wrong", [False, True])
+def test_stopped_same_topic_baseline_compares_historical_values(tmp_path, capsys, wrong):
+    from oso_cdc_migration.records import KafkaRecord
+
+    config = oso_config(
+        tmp_path,
+        **{
+            "cdc.output.format": "confluent",
+            "cdc.output.confluent.numeric.mapping": "best_fit_or_decimal",
+        },
+    )
+    topics = FakeTopics()
+    value = {
+        "ID": 1,
+        "STATUS": "BAD" if wrong else "NEW",
+        "AMOUNT": 10.0,
+        "CREATED": 19783,
+        "table": "ORCL.APP.ORDERS",
+        "scn": "90",
+        "op_type": "I",
+    }
+    topics.add(KafkaRecord("srv.APP.ORDERS", 0, 0, b"1", json.dumps(value).encode()))
+    api = FakeConnect()
+    api.states["old"] = "STOPPED"
+    api.offset_entries["old"] = [
+        {
+            "partition": {"catalog": "ORCL", "schema": "APP", "table": "ORDERS"},
+            "offset": {"scn": "90", "cscn": "100"},
+        }
+    ]
+    code, ev = run(
+        tmp_path,
+        db_with([db_row(1, "NEW")]),
+        topics,
+        "--confluent-baseline-connector",
+        "old",
+        "--no-position-check",
+        api=api,
+        config=config,
+    )
+    assert code == (EXIT_FAILURE if wrong else EXIT_OK)
+    assert ev["inputs"]["confluent_baseline_commit_scn"] == 100
+    assert api.offset_reads == 2
+
+
+def test_same_topic_baseline_refuses_a_paused_source(tmp_path, capsys):
+    config = oso_config(tmp_path, **{"cdc.output.format": "confluent"})
+    api = FakeConnect()
+    api.states["old"] = "PAUSED"
+    code, ev = run(
+        tmp_path,
+        db_with([]),
+        FakeTopics(),
+        "--confluent-baseline-connector",
+        "old",
+        "--no-position-check",
+        api=api,
+        config=config,
+    )
+    assert code == EXIT_FAILURE
+    assert ev is None
+    assert "must be STOPPED" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("template", ["${primaryKeyStructOrValue}", "${primaryKey}"])
+def test_flat_verifier_catches_wrong_wire_keys(tmp_path, capsys, template):
+    from oso_cdc_migration.records import KafkaRecord
+
+    config = oso_config(
+        tmp_path,
+        **{
+            "cdc.output.format": "confluent",
+            "cdc.output.confluent.numeric.mapping": "best_fit_or_decimal",
+            "cdc.output.confluent.key.template": template,
+        },
+    )
+    topics = FakeTopics()
+    value = {
+        "ID": 1,
+        "STATUS": "NEW",
+        "AMOUNT": 10.0,
+        "CREATED": 19783,
+        "table": "ORCL.APP.ORDERS",
+        "scn": "100",
+        "op_type": "R",
+    }
+    topics.add(KafkaRecord("srv.APP.ORDERS", 0, 0, b'"2"', json.dumps(value).encode()))
+    code, ev = run(tmp_path, db_with([db_row(1, "NEW")]), topics, config=config)
+    assert code == EXIT_FAILURE
+    assert ev["tables"][0]["status"] in ("FAIL", "INCONCLUSIVE")
+
+
+def test_stopped_confluent_baseline_must_remain_stopped(tmp_path, capsys):
+    class MovingConnect(FakeConnect):
+        calls = 0
+
+        def status(self, connector):
+            self.calls += 1
+            self.states[connector] = "STOPPED" if self.calls == 1 else "RUNNING"
+            return super().status(connector)
+
+    config = oso_config(tmp_path, **{"cdc.output.format": "confluent"})
+    api = MovingConnect()
+    api.offset_entries["old"] = [
+        {"partition": {"sidPdb": "ORCL"}, "offset": {"scn": "90", "cscn": "100"}}
+    ]
+    code, ev = run(
+        tmp_path,
+        db_with([]),
+        FakeTopics(),
+        "--confluent-baseline-connector",
+        "old",
+        "--no-position-check",
+        api=api,
+        config=config,
+    )
+    assert code == EXIT_FAILURE
+    assert ev is None
+    assert "baseline moved" in capsys.readouterr().err

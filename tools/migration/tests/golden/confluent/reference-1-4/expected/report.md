@@ -8,26 +8,25 @@
 | Exactly-once check | disabled: This worker does not have exactly-once source support enabled. |
 | Exit code | 2, success with manual follow-ups |
 
-98 source properties: 20 mapped, 9 mapped with a change, 55 dropped and 14 needing manual action. 8 follow-ups.
+98 source properties: 20 mapped, 9 mapped with a change, 55 dropped and 14 needing manual action. 7 follow-ups.
 
 ## Follow-ups
 
-1. This release publishes the Debezium-compatible envelope only (`before`, `after`, `source`, `op`); the Confluent-compatible flat format (`cdc.output.format=confluent`) is not built yet. Records change shape and keys become structs of the key columns, so consumers and schemas of the existing table topics break. Point `cdc.topic.template` at new topic names and move consumers to the new format, or wait for the Confluent-compatible format before cutting over.
-2. Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change. (`key.template`)
-3. DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change. (`oracle.date.mapping`)
-4. Part of Confluent's record format, which this release does not produce. See the record format follow-up. (`output.current.ts.field`, `output.op.ts.field`, `output.op.type.delete.value`, `output.op.type.field`, `output.op.type.insert.value`, `output.op.type.read.value`, `output.op.type.truncate.value`, `output.op.type.update.value`, `output.row.id.field`, `output.scn.field`, `output.table.name.field`, `output.username.field`)
-5. This connector writes Debezium-shaped change events (`before`, `after`, `source`, `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a dot, then the name Confluent used (for example `<prefix>.PDB1.APP.ORDERS` for `PDB1.APP.ORDERS`). Writing into Confluent's topics would mix two record shapes in one topic and one Schema Registry subject. Move consumers to the new topics; Confluent's topics stop receiving changes at the cutover.
-6. The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.
-7. Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.
-8. The target Connect cluster does not have exactly-once source support enabled (This worker does not have exactly-once source support enabled.), so the connector delivers at least once. To deliver exactly once, set `exactly.once.source.support=enabled` on every worker, then add `exactly.once.support=required` and `transaction.boundary=connector`.
+1. This release publishes the Debezium-compatible envelope for the selected --format=debezium (`before`, `after`, `source`, `op`). Records change shape and keys become structs, so use new prefixed topics and move consumers. Choose --format=confluent to keep the existing table topics, flat records and key templates.
+2. Record keys are structs of the key columns in the Debezium format; consumers of Confluent keys must change. (`key.template`)
+3. Part of Confluent's record format; use --format=confluent to preserve it. (`oracle.date.mapping`, `output.current.ts.field`, `output.op.ts.field`, `output.op.type.delete.value`, `output.op.type.field`, `output.op.type.insert.value`, `output.op.type.read.value`, `output.op.type.truncate.value`, `output.op.type.update.value`, `output.row.id.field`, `output.scn.field`, `output.table.name.field`, `output.username.field`)
+4. This connector writes Debezium-shaped change events (`before`, `after`, `source`, `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a dot, then the name Confluent used (for example `<prefix>.PDB1.APP.ORDERS` for `PDB1.APP.ORDERS`). Writing into Confluent's topics would mix two record shapes in one topic and one Schema Registry subject. Move consumers to the new topics; Confluent's topics stop receiving changes at the cutover.
+5. The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.
+6. Set `cdc.start.scn` before the new connector first runs: stop the old connector, then run `takeover_scn.py`, which reads its offset, checks the archived logs and writes `cdc.start.scn` into this configuration. Without it the new connector starts at the current SCN and changes made since the old connector stopped are lost.
+7. The target Connect cluster does not have exactly-once source support enabled (This worker does not have exactly-once source support enabled.), so the connector delivers at least once. To deliver exactly once, set `exactly.once.source.support=enabled` on every worker, then add `exactly.once.support=required` and `transaction.boundary=connector`.
 
 ## Settings added by the translator
 
 | Property | Value | Reason |
 |---|---|---|
 | `name` | `confluent-oracle-cdc-oso` | The new connector's name. |
-| `cdc.output.format` | `debezium` | The only format in this release; Confluent's flat format is not built yet. |
-| `cdc.topic.prefix` | `confluent-oracle-cdc` | Names the connector's internal topics and its offset partition, and starts every table topic name, so the new topics never collide with Confluent's. |
+| `cdc.output.format` | `debezium` | Explicitly selected Debezium-compatible envelope and new topics. |
+| `cdc.topic.prefix` | `confluent-oracle-cdc` | Names internal topics and the offset partition; table topics stay unchanged with Confluent output and are prefixed with Debezium output. |
 | `cdc.tables.case.sensitive` | `true` | Confluent matches table expressions case-sensitively (MIG-3). |
 | `cdc.lob.mode` | `skip` | LOB columns stay out of the records, as before. |
 
@@ -52,7 +51,7 @@
 | `heartbeat.interval.ms` | `0` | mapped-with-change |   | Not copied: the connector's heartbeats (default every 10 seconds) keep offsets moving on a quiet database and never write to the source database. |
 | `heartbeat.topic.name` | `${connectorName}-${databaseName}-heartbeat-topic` | dropped |   | Heartbeat records go to `cdc.heartbeat.topic` (default `${prefix}.cdc.heartbeat`) in the connector's own format. |
 | `key.converter` | `io.confluent.connect.avro.AvroConverter` | mapped | `key.converter` = `io.confluent.connect.avro.AvroConverter` | Kafka Connect framework property, copied unchanged. |
-| `key.template` | `${primaryKeyStructOrValue}` | manual |   | Record keys are structs of the key columns (Debezium style). Confluent's key template (default `${primaryKeyStructOrValue}`, a plain value for a single-column key) has no equivalent; consumers and compacted topics keyed by the old form must change. |
+| `key.template` | `${primaryKeyStructOrValue}` | manual |   | Record keys are structs of the key columns in the Debezium format; consumers of Confluent keys must change. |
 | `ldap.security.credentials` | `********` | dropped |   | Empty in the source, so there is nothing to carry over. |
 | `ldap.security.principal` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
 | `ldap.url` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
@@ -68,7 +67,7 @@
 | `max.retry.time.ms` | `86400000` | mapped | `cdc.retry.max.time.ms` = `86400000` |  |
 | `numeric.default.scale` | `127` | dropped |   | Unconstrained NUMBER values are published as a variable scale decimal, with their own scale. |
 | `numeric.mapping` | `none` | mapped-with-change | `cdc.decimal.mode` = `precise` | Kept exact (MIG-3). Confluent published every NUMBER as a Connect Decimal (bytes); `precise` publishes NUMBER(p,0) up to 18 digits as integers, other constrained NUMBER as Decimal and unconstrained NUMBER as a variable scale decimal struct. |
-| `oracle.date.mapping` | `date` | manual |   | DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers that read Confluent's DATE mapping must change. |
+| `oracle.date.mapping` | `date` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
 | `oracle.dictionary.mode` | `auto` | dropped |   | The connector mines with the online catalog and replays a step with a dictionary from the redo when a row predates a later DDL (`cdc.dictionary.build.*`). |
 | `oracle.fan.events.enable` | `false` | dropped |   | Off in the source as well. |
 | `oracle.kerberos.cache.file` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
@@ -85,20 +84,20 @@
 | `oracle.validation.result.fetch.size` | `5000` | dropped |   | Validation is the doctor's fast mode. |
 | `output.before.state.field` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
 | `output.commit.scn.field` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
-| `output.current.ts.field` | `current_ts` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.ts.field` | `op_ts` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.type.delete.value` | `D` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.type.field` | `op_type` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.type.insert.value` | `I` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.type.read.value` | `R` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.type.truncate.value` | `T` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.op.type.update.value` | `U` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
+| `output.current.ts.field` | `current_ts` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.ts.field` | `op_ts` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.type.delete.value` | `D` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.type.field` | `op_type` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.type.insert.value` | `I` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.type.read.value` | `R` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.type.truncate.value` | `T` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.op.type.update.value` | `U` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
 | `output.redo.field` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
-| `output.row.id.field` | `row_id` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.scn.field` | `scn` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
-| `output.table.name.field` | `table` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
+| `output.row.id.field` | `row_id` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.scn.field` | `scn` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
+| `output.table.name.field` | `table` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
 | `output.undo.field` | (empty) | dropped |   | Empty in the source, so there is nothing to carry over. |
-| `output.username.field` | `username` | manual |   | Part of Confluent's record format, which this release does not produce. See the record format follow-up. |
+| `output.username.field` | `username` | manual |   | Part of Confluent's record format; use --format=confluent to preserve it. |
 | `poll.linger.ms` | `5000` | mapped | `cdc.poll.linger.ms` = `5000` |  |
 | `query.timeout.ms` | `300000` | mapped-with-change | `cdc.mining.query.timeout.ms` = `300000` | Applies to each mining step; on expiry the step is retried with a smaller window. |
 | `record.buffer.mode` | `connector` | dropped |   | The connector buffers in its own transaction buffer. |
@@ -141,4 +140,4 @@
 3. Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.
 4. Create `confluent-oracle-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.
 5. Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).
-6. Remove the redo log topic and the old connector's other topics after the agreed retention.
+6. Retire the old redo log and internal topics after the agreed retention; keep table and LOB topics for the Confluent same-topics path.

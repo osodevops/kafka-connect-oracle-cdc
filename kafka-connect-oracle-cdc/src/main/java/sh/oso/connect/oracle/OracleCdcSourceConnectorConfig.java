@@ -210,6 +210,9 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public String topicTemplate(boolean cdb) {
     String t = getString(TOPIC_TEMPLATE);
     if (t == null || t.isBlank()) {
+      if (outputFormat() == OutputFormat.CONFLUENT) {
+        return cdb ? "${pdb}.${schema}.${table}" : "${database}.${schema}.${table}";
+      }
       return cdb ? DEFAULT_TEMPLATE_CDB : DEFAULT_TEMPLATE_NON_CDB;
     }
     return t;
@@ -459,7 +462,10 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
             + DEFAULT_TEMPLATE_CDB
             + " in a CDB and "
             + DEFAULT_TEMPLATE_NON_CDB
-            + " otherwise. Characters Kafka does not allow become underscores. Tables the template"
+            + " otherwise for Debezium output. Confluent output defaults to"
+            + " ${pdb}.${schema}.${table} in a CDB or ${database}.${schema}.${table} otherwise,"
+            + " preserving existing topics without a prefix. Characters Kafka does not allow"
+            + " become underscores. Tables the template"
             + " names differently that end up on one topic only through that replacement"
             + " (APP.ORDER# and APP.ORDER$ both become ORDER_) stop the task with CDC-6004 before"
             + " either is published; a template that leaves out ${table} or ${schema} on purpose is"

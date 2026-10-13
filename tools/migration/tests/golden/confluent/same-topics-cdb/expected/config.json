@@ -1,0 +1,33 @@
+{
+  "name": "orders-cdc-oso",
+  "config": {
+    "name": "orders-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "db",
+    "cdc.database.password": "${file:/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.sid": "ORCLCDB",
+    "cdc.database.user": "C##MYUSER",
+    "cdc.heartbeat.interval.ms": "30000",
+    "cdc.lob.mode": "topic",
+    "cdc.lob.topic.template": "orders-cdc.lob.${pdb}.${schema}.${table}.${column}",
+    "cdc.on.decode.error": "fail",
+    "cdc.output.confluent.before.state.field": "before",
+    "cdc.output.confluent.commit.scn.field": "meta.commit",
+    "cdc.output.confluent.date.mapping": "timestamp",
+    "cdc.output.confluent.key.template": "${primaryKeyStruct}",
+    "cdc.output.confluent.numeric.default.scale": "4",
+    "cdc.output.confluent.numeric.mapping": "precision_only",
+    "cdc.output.confluent.op.type.field": "header:operation",
+    "cdc.output.format": "confluent",
+    "cdc.snapshot.mode": "none",
+    "cdc.start.scn": "1000",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\..*",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "orders-cdc",
+    "cdc.topic.template": "${pdb}.${schema}.${table}"
+  }
+}

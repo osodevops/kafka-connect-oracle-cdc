@@ -81,6 +81,7 @@ class RecordQueueSinkTest {
   static RecordQueueSink sink(
       Position base, boolean confluent, boolean truncate, boolean lobTopics) {
     Map<String, String> props = OracleCdcSourceConnectorConfigTest.minimal();
+    props.put(OracleCdcSourceConnectorConfig.TOPIC_TEMPLATE, "${prefix}.${pdb}.${schema}.${table}");
     props.put(OracleCdcSourceConnectorConfig.TRUNCATE_EMIT, Boolean.toString(truncate));
     if (confluent) props.put(OracleCdcSourceConnectorConfig.OUTPUT_FORMAT, "confluent");
     if (lobTopics) props.put(sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE, "topic");
