@@ -193,6 +193,26 @@ class DebeziumEnvelopeTest {
     assertThat(none.get(0).keySchema()).isNull();
   }
 
+  /**
+   * A key change is three records (delete, tombstone, create). Each must own its headers: the sink
+   * adds {@code cdc.split} to every record of a split transaction, and a shared instance gave each
+   * record the header once per record of the change.
+   */
+  @Test
+  void eachRecordOfAChangeOwnsItsHeaders() {
+    DebeziumEnvelope e = envelope(true);
+    CommittedTransaction tx = tx(change(Operation.UPDATE, row(1, "a", "1"), row(2, "a", "1"), 801));
+    List<SourceRecord> out = e.records(tx, 0, 1, schema(KeySource.PRIMARY_KEY), offset());
+    assertThat(out).hasSize(3);
+    for (SourceRecord r : out) {
+      r.headers().addBoolean("cdc.split", true);
+    }
+    for (SourceRecord r : out) {
+      assertThat(r.headers().allWithName("cdc.split")).toIterable().hasSize(1);
+      assertThat(r.headers().lastWithName("cdc.xid")).isNotNull();
+    }
+  }
+
   @Test
   void partialBeforeImagesOmitAbsentColumnsAndNullKeyWhenMissing() {
     DebeziumEnvelope e = envelope(true);

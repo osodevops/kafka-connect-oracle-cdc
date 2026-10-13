@@ -244,7 +244,7 @@ public final class DebeziumEnvelope {
         s.envelope(),
         value,
         null,
-        headers);
+        headers.duplicate()); // each record owns its headers: the sink adds to them per record
   }
 
   /**
@@ -302,7 +302,7 @@ public final class DebeziumEnvelope {
   private SourceRecord tombstone(
       String topic, Schemas s, Map<String, Object> offset, Headers headers, Object key) {
     return new SourceRecord(
-        partition, offset, topic, null, s.key(), key, null, null, null, headers);
+        partition, offset, topic, null, s.key(), key, null, null, null, headers.duplicate());
   }
 
   private Struct envelope(
