@@ -31,6 +31,8 @@ import org.apache.kafka.common.config.types.Password;
 import sh.oso.connect.oracle.core.config.CoreConfig;
 import sh.oso.connect.oracle.core.schema.ColumnFilter;
 import sh.oso.connect.oracle.core.schema.KeySelector;
+import sh.oso.connect.oracle.envelope.confluent.ConfluentFormatConfig;
+import sh.oso.connect.oracle.envelope.confluent.ConfluentSettings;
 
 /**
  * Connector configuration: every engine key from {@link CoreConfig} plus the Kafka-facing keys of
@@ -60,6 +62,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
 
   // record format (SRC-FMT)
   public static final String OUTPUT_FORMAT = "cdc.output.format";
+  public static final String TRUNCATE_EMIT = "cdc.truncate.emit";
+  public static final String LOB_TOPIC_TEMPLATE = "cdc.lob.topic.template";
   public static final String DECIMAL_MODE = "cdc.decimal.mode";
   public static final String TEMPORAL_MODE = "cdc.temporal.mode";
   public static final String SCHEMA_NAME_ADJUSTMENT_MODE = "cdc.schema.name.adjustment.mode";
@@ -108,12 +112,36 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
     ISO_STRING
   }
 
+  public enum OutputFormat {
+    DEBEZIUM,
+    CONFLUENT
+  }
+
   private final CoreConfig core;
   private final ColumnFilter columnFilter;
+  private final ConfluentSettings confluent;
 
   public OracleCdcSourceConnectorConfig(Map<String, String> props) {
     super(configDef(), props, false);
     this.core = new CoreConfig(props);
+    if (core.lobMode() == CoreConfig.LobMode.TOPIC) {
+      if (outputFormat() != OutputFormat.CONFLUENT)
+        throw new ConfigException(
+            CoreConfig.LOB_MODE, "topic", "requires cdc.output.format=confluent");
+      if (core.lobOversizeAction() != CoreConfig.LobOversizeAction.FAIL)
+        throw new ConfigException(
+            CoreConfig.LOB_OVERSIZE_ACTION,
+            "placeholder",
+            "topic mode requires fail; every LOB value must be complete");
+      String template = getString(LOB_TOPIC_TEMPLATE);
+      if (!template.contains("${column}"))
+        throw new ConfigException(LOB_TOPIC_TEMPLATE, template, "must contain ${column}");
+      if (java.util.regex.Pattern.compile(
+              "\\$\\{(?!(prefix|pdb|schema|table|database|column)\\})[^}]*\\}")
+          .matcher(template)
+          .find())
+        throw new ConfigException(LOB_TOPIC_TEMPLATE, template, "contains an unsupported variable");
+    }
     if (!List.of("fail", "rowid", "none")
         .contains(getString(KEY_MISSING).toLowerCase(Locale.ROOT))) {
       throw new ConfigException(KEY_MISSING, getString(KEY_MISSING), "must be fail, rowid or none");
@@ -135,6 +163,34 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         }
       }
     }
+    this.confluent =
+        outputFormat() == OutputFormat.CONFLUENT
+            ? ConfluentFormatConfig.settings(this, tombstonesOnDelete())
+            : null;
+  }
+
+  public OutputFormat outputFormat() {
+    return OutputFormat.valueOf(getString(OUTPUT_FORMAT).toUpperCase(Locale.ROOT));
+  }
+
+  /** ADR-0028: the Confluent-compatible format's settings; null with another format. */
+  public ConfluentSettings confluentSettings() {
+    return confluent;
+  }
+
+  public String lobTopicTemplate(boolean cdb) {
+    if (originals().containsKey(LOB_TOPIC_TEMPLATE)) return getString(LOB_TOPIC_TEMPLATE);
+    return (cdb ? "${pdb}" : "${database}") + ".${schema}.${table}.${column}";
+  }
+
+  public boolean truncateEmit() {
+    return getBoolean(TRUNCATE_EMIT);
+  }
+
+  /** Whether the record format publishes each change's SQL_REDO or SQL_UNDO text. */
+  public boolean keepsSqlText() {
+    return confluent != null
+        && !(confluent.redoField().isEmpty() && confluent.undoField().isEmpty());
   }
 
   /** SRC-SEL-2: the columns kept out of records, shared by the engine, envelope and snapshots. */
@@ -154,6 +210,9 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   public String topicTemplate(boolean cdb) {
     String t = getString(TOPIC_TEMPLATE);
     if (t == null || t.isBlank()) {
+      if (outputFormat() == OutputFormat.CONFLUENT) {
+        return cdb ? "${pdb}.${schema}.${table}" : "${database}.${schema}.${table}";
+      }
       return cdb ? DEFAULT_TEMPLATE_CDB : DEFAULT_TEMPLATE_NON_CDB;
     }
     return t;
@@ -226,6 +285,11 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
   }
 
   public boolean tombstonesOnDelete() {
+    // ADR-0028: when unset, the Confluent-compatible format follows Confluent's default, none
+    if (outputFormat() == OutputFormat.CONFLUENT
+        && !originals().containsKey(TOMBSTONES_ON_DELETE)) {
+      return false;
+    }
     return getBoolean(TOMBSTONES_ON_DELETE);
   }
 
@@ -398,7 +462,10 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
             + DEFAULT_TEMPLATE_CDB
             + " in a CDB and "
             + DEFAULT_TEMPLATE_NON_CDB
-            + " otherwise. Characters Kafka does not allow become underscores. Tables the template"
+            + " otherwise for Debezium output. Confluent output defaults to"
+            + " ${pdb}.${schema}.${table} in a CDB or ${database}.${schema}.${table} otherwise,"
+            + " preserving existing topics without a prefix. Characters Kafka does not allow"
+            + " become underscores. Tables the template"
             + " names differently that end up on one topic only through that replacement"
             + " (APP.ORDER# and APP.ORDER$ both become ORDER_) stop the task with CDC-6004 before"
             + " either is published; a template that leaves out ${table} or ${schema} on purpose is"
@@ -500,7 +567,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         Type.BOOLEAN,
         true,
         Importance.MEDIUM,
-        "Emit a null-valued record after every delete so compacted topics drop the key.",
+        "Emit a null-valued record after every delete so compacted topics drop the key. When"
+            + " unset with cdc.output.format=confluent, false, as in Confluent's connector.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,
@@ -510,14 +578,41 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         OUTPUT_FORMAT,
         Type.STRING,
         "debezium",
-        ConfigDef.ValidString.in("debezium"),
+        ConfigDef.CaseInsensitiveValidString.in("debezium", "confluent"),
         Importance.MEDIUM,
-        "Record envelope. Only debezium (before, after, source, op, ts_ms) is available; a"
-            + " Confluent-compatible flat format is not built yet.",
+        "Record shape. debezium: an envelope with before, after, source, op and ts_ms, as"
+            + " Debezium's Oracle connector writes. confluent: the row's columns followed by"
+            + " metadata fields, as Confluent's Oracle CDC Source connector writes, configured by"
+            + " the cdc.output.confluent.* keys.",
         GROUP_FORMAT,
         ++f,
         Width.SHORT,
         "Output format");
+    def.define(
+        LOB_TOPIC_TEMPLATE,
+        Type.STRING,
+        "${pdb}.${schema}.${table}.${column}",
+        Importance.MEDIUM,
+        "Topic for each LOB column with cdc.lob.mode=topic (Confluent format only). Variables:"
+            + " prefix, pdb, database, schema, table and column. Must contain ${column}; choose"
+            + " the existing Confluent LOB topic names for a same-topics migration.",
+        GROUP_TOPICS,
+        100,
+        Width.LONG,
+        "LOB topic template");
+    def.define(
+        TRUNCATE_EMIT,
+        Type.BOOLEAN,
+        false,
+        Importance.MEDIUM,
+        "Emit committed TRUNCATE TABLE records with a null key: op=t in the Debezium format,"
+            + " or a metadata-only op_type=T value in the Confluent format. Off by default in"
+            + " both formats. The Confluent record is an OSO extension; no Confluent T record"
+            + " was observed in the reference lab.",
+        GROUP_FORMAT,
+        ++f,
+        Width.SHORT,
+        "Emit truncate records");
     def.define(
         DECIMAL_MODE,
         Type.STRING,
@@ -698,7 +793,8 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         "How often a heartbeat record carrying the current position is written when no change"
             + " records flow, so Connect commits offsets on a quiet database and the start position"
             + " of a new connector becomes durable at once. 0 disables periodic heartbeats; the"
-            + " start heartbeat is always written.",
+            + " start heartbeat is always written, as is a position heartbeat for a transaction"
+            + " whose final change emits no table or LOB record.",
         GROUP_TOPICS,
         ++o,
         Width.SHORT,
@@ -808,6 +904,7 @@ public class OracleCdcSourceConnectorConfig extends AbstractConfig {
         ++e,
         Width.SHORT,
         "Split bytes");
+    ConfluentFormatConfig.define(def);
     return def;
   }
 }

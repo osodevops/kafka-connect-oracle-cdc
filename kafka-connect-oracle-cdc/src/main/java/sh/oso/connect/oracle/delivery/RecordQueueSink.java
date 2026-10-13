@@ -35,7 +35,7 @@ import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.position.ResumePoint;
 import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
-import sh.oso.connect.oracle.envelope.DebeziumEnvelope;
+import sh.oso.connect.oracle.envelope.RecordFormat;
 import sh.oso.connect.oracle.heartbeat.HeartbeatEmitter;
 import sh.oso.connect.oracle.ops.OpsEvent;
 import sh.oso.connect.oracle.ops.OpsEventWriter;
@@ -53,7 +53,7 @@ public final class RecordQueueSink
         sh.oso.connect.oracle.core.buffer.JournalSink,
         sh.oso.connect.oracle.core.metrics.SinkMetrics {
 
-  private final DebeziumEnvelope envelope;
+  private final RecordFormat envelope;
   private final SchemaRegistry schemas;
   private Position base;
   private final BlockingQueue<Queued> queue;
@@ -94,7 +94,7 @@ public final class RecordQueueSink
   private volatile long millisBehindSource = -1;
 
   public RecordQueueSink(
-      DebeziumEnvelope envelope,
+      RecordFormat envelope,
       SchemaRegistry schemas,
       Position base,
       int capacity,
@@ -498,10 +498,21 @@ public final class RecordQueueSink
                           ? "last"
                           : "true";
           snapshotStarted = true;
-          Position at = safePosition().withSnapshot((lastRow ? after : snapshotProgress).toMap());
-          SourceRecord rec =
-              envelope.snapshotRecord(b.table(), rows.get(i), b.schema(), b.scn(), now, marker, at);
-          put(new Queued(rec, lastRow, false, 0));
+          Position doing = safePosition().withSnapshot(snapshotProgress.toMap());
+          Position at = lastRow ? safePosition().withSnapshot(after.toMap()) : doing;
+          List<SourceRecord> recs =
+              envelope.snapshotRecords(
+                  b.table(), rows.get(i), b.schema(), b.scn(), now, marker, at);
+          for (int j = 0; j < recs.size(); j++) {
+            boolean lastRecord = j + 1 == recs.size();
+            SourceRecord rec = recs.get(j);
+            if (lastRow && !lastRecord) {
+              // only the row's final record may count the chunk as done: a restart after an
+              // earlier one reads the chunk again rather than skip the row's later records
+              rec = withOffset(rec, sh.oso.connect.oracle.core.position.PositionCodec.write(doing));
+            }
+            put(new Queued(rec, lastRow && lastRecord, false, 0));
+          }
         }
         snapshotProgress = after;
         carrySnapshot();
@@ -570,6 +581,7 @@ public final class RecordQueueSink
     long sinceRecords = 0;
     long sinceBytes = 0;
     int splits = 0;
+    boolean emptyTail = false;
     for (int i = 0; i < tx.size(); i++) {
       RowChange c = tx.events().get(i);
       long order = perTable.merge(c.table(), 1L, Long::sum);
@@ -592,6 +604,10 @@ public final class RecordQueueSink
               : resumeCandidate;
       Position offset = after(tx, i + 1, resume);
       List<SourceRecord> records = envelope.records(tx, i, order, schema, offset);
+      emptyTail = records.isEmpty();
+      if (emptyTail) {
+        continue;
+      }
       long bytes = sh.oso.connect.oracle.core.buffer.SizeEstimate.of(c);
       sinceRecords++;
       sinceBytes += bytes;
@@ -638,6 +654,12 @@ public final class RecordQueueSink
       lastQueuedAt = clock.getAsLong();
     }
     lastEmittedCommit = after(tx, tx.size(), resumeCandidate);
+    if (emptyTail) {
+      // A filtered final change has no table record to acknowledge or close the Kafka
+      // transaction. This heartbeat follows every queued row and carries the completed
+      // position, including when periodic heartbeats are disabled.
+      heartbeat(lastEmittedCommit, tx.commitScn(), "filtered");
+    }
     if (splits > 0) {
       ops(
           OpsEvent.Type.TRANSACTION_SPLIT,
@@ -798,5 +820,20 @@ public final class RecordQueueSink
 
   public long dlqRecords() {
     return dlqRecords.get();
+  }
+
+  /** {@code rec} with another source offset, everything else unchanged. */
+  static SourceRecord withOffset(SourceRecord rec, Map<String, ?> offset) {
+    return new SourceRecord(
+        rec.sourcePartition(),
+        offset,
+        rec.topic(),
+        rec.kafkaPartition(),
+        rec.keySchema(),
+        rec.key(),
+        rec.valueSchema(),
+        rec.value(),
+        rec.timestamp(),
+        rec.headers());
   }
 }

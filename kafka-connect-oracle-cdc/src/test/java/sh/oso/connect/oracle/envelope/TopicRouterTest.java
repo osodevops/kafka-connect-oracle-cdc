@@ -26,6 +26,22 @@ import sh.oso.connect.oracle.core.model.TableId;
 class TopicRouterTest {
 
   @Test
+  void lobAndTableTopicsCannotOverwriteEachOtherInEitherRoutingOrder() {
+    TableId table = new TableId("FREEPDB1", "APP", "DOCS");
+    for (boolean rowFirst : java.util.List.of(true, false)) {
+      TopicRouter rows = new TopicRouter("${pdb}.${schema}.${table}.C", "cdc", "FREE");
+      TopicRouter lobs = rows.forLobs("${pdb}.${schema}.${table}.${column}");
+      if (rowFirst) {
+        rows.topic(table);
+        assertThatThrownBy(() -> lobs.topic(table, "C")).isInstanceOf(NameCollisionException.class);
+      } else {
+        lobs.topic(table, "C");
+        assertThatThrownBy(() -> rows.topic(table)).isInstanceOf(NameCollisionException.class);
+      }
+    }
+  }
+
+  @Test
   void expandsVariablesAndSanitises() {
     TopicRouter cdb = new TopicRouter("${prefix}.${pdb}.${schema}.${table}", "cdc", "FREE");
     assertThat(cdb.topic(new TableId("FREEPDB1", "APP", "ORDERS")))

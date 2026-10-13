@@ -22,6 +22,7 @@ published instead, so you can measure on your own database.
 | Licence | Apache-2.0 | Proprietary premium connector, Confluent enterprise licence | Apache-2.0 |
 | Capture API | LogMiner | LogMiner | LogMiner, XStream or OpenLogReplicator |
 | Delivery | Exactly-once, with one or more whole Oracle transactions per Kafka transaction; at-least-once otherwise | At-least-once | At-least-once; exactly-once through Kafka Connect, with Kafka transactions per poll batch (`transaction.boundary=poll`) |
+| Record formats | Debezium by default; Confluent-compatible flat format and same-topic cutover implemented for the next release, legal check pending | Flat rows with configurable metadata and key templates | Debezium envelope |
 | Tasks | One task; decoding runs on several threads | Task zero mines into a redo log topic; table work is spread across tasks | One task |
 | Long-running transactions | Buffered by the connector, spilled to disk past a heap budget, journaled to Kafka so the restart position can move past them | Buffered in connector memory; a threshold with warn or discard | The restart position stays at the start of the oldest open transaction |
 | Transactions the database lost | Orphan detection against `GV$TRANSACTION`, released or stopped by policy | Not documented | Reported to hold the offset back ([dbz#2683](https://github.com/debezium/dbz/issues/2683)) |
@@ -29,7 +30,7 @@ published instead, so you can measure on your own database.
 | Initial snapshot | Chunked, each chunk read as of its own SCN, resumable per chunk after a restart, interleaved with streaming | Parallel; an incomplete snapshot restarts from the beginning | Blocking or incremental |
 | Snapshots on demand | `snapshot` signal on a Kafka topic, no writes to the source | New tables are detected automatically | Signals; read-only incremental snapshots for Oracle are an open request ([dbz#2606](https://github.com/debezium/dbz/issues/2606)) |
 | Schema changes | Per-table versions on a compacted topic; rows written before a DDL decoded with a dictionary from the redo; renames supported | Several DDL forms unsupported, including rename table or column and add or drop constraints | Schema history topic with one partition and unlimited retention |
-| LOB columns | Leave out, assemble inline from redo, or read again as of the commit SCN | Separate LOB topics | Inline, with `lob.enabled` |
+| LOB columns | Leave out, assemble inline, reselect as of commit, or separate compatible topics (next release) | Separate LOB topics | Inline, with `lob.enabled` |
 | Several PDBs from one connector | Configured with `cdc.database.pdbs`, one mining session at the root (see [multi-PDB capture](../concepts/multi-pdb.md)) | One PDB per connector | One PDB per connector ([dbz#478](https://github.com/debezium/dbz/issues/478)) |
 | Quiet databases | Heartbeat records carry the position; no writes to the source | Heartbeat topic | Heartbeats, with an action query that writes to the source where needed |
 | Preflight and setup | `oracle-cdc-doctor`: checks the database and writes the DBA script | Configuration validation | Configuration validation |
@@ -53,7 +54,6 @@ LogMiner does not support, such as identity columns and some of the newest colum
 ## What this connector does not do yet
 
 - Oracle RAC, Amazon RDS for Oracle, Autonomous Database and standby capture.
-- A record format compatible with Confluent's Oracle CDC Source, and separate LOB topics.
 - Transaction metadata records and a schema change topic for consumers.
 
 See the [status table](../intro.md#status) for everything that is available.

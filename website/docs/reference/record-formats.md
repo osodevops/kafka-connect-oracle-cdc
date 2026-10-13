@@ -1,6 +1,6 @@
 ---
 title: Record formats
-description: The Debezium-compatible change records the connector writes, field by field, with headers, snapshot markers and type mapping.
+description: Debezium and Confluent-compatible records, keys, metadata, types, truncate events and separate LOB topics.
 ---
 
 # Record formats
@@ -8,8 +8,11 @@ description: The Debezium-compatible change records the connector writes, field 
 The connector writes Debezium-compatible change records: the envelope with `before`, `after`,
 `source` and `op`, the same source schema name and the same semantic type names as Debezium's
 Oracle connector, so consumers and sink connectors written for that format read these records.
-This is the only format available (`cdc.output.format=debezium`). A format compatible with
-Confluent's Oracle CDC Source connector is not built yet.
+This remains the default (`cdc.output.format=debezium`). The
+[Confluent-compatible format](#confluent-compatible-format) keeps the flat rows, keys and topics
+of Confluent's Oracle CDC Source connector. That format is implemented for the next release and
+awaits OSO's legal check before release. The sections below describe the default format unless
+stated otherwise.
 
 How records are serialised (JSON, Avro, Protobuf) is up to the worker's `key.converter` and
 `value.converter`, or the connector's own overrides of them, as for any source connector.
@@ -18,7 +21,8 @@ How records are serialised (JSON, Avro, Protobuf) is up to the worker's `key.con
 
 Each captured table has its own topic, named by `cdc.topic.template`. The default is
 `${prefix}.${pdb}.${schema}.${table}` in a container database and `${prefix}.${schema}.${table}`
-otherwise, where the prefix is `cdc.topic.prefix`. Characters Kafka does not allow in topic names
+otherwise for Debezium output, where the prefix is `cdc.topic.prefix`. Confluent output defaults
+to `${pdb}.${schema}.${table}` in a CDB or `${database}.${schema}.${table}` otherwise. Characters Kafka does not allow in topic names
 become underscores. For example, table `APP.ORDERS` in `FREEPDB1` with prefix `cdc` goes to
 `cdc.FREEPDB1.APP.ORDERS`.
 
@@ -66,10 +70,13 @@ Every field of the row struct is optional, because a before image can be partial
 | `u` | An UPDATE that kept the key |
 | `d` | A DELETE |
 | `r` | A row read by a [snapshot](../concepts/snapshots.md) |
+| `t` | A null-key truncate envelope with null images, only when `cdc.truncate.emit=true` |
 
 An UPDATE that changes the key is written as a `d` record for the old key, a tombstone for the old
 key (when tombstones are on), and a `c` record for the new key, so compacted topics and consumers
 that keep the latest record per key stay correct.
+
+Truncate records default to off in both formats.
 
 After every `d` record that has a key, a tombstone follows: a record with the same key and a null
 value, so that log compaction removes the key. Set `cdc.tombstones.on.delete=false` to leave them
@@ -309,9 +316,98 @@ of that row with the LOB value unavailable rather than risk dropping a change th
 user. A query that reaches past a DDL on the table (ORA-01466) or past the undo retention (ORA-01555)
 leaves the value unavailable.
 
+## Confluent-compatible format
+
+Set `cdc.output.format=confluent`. The converter remains the worker's or connector's configured
+converter. The same-topic Avro path uses the existing converter, registry and subject strategy.
+The format is specified from public documentation and the recorded output of Confluent 2.15.2;
+[the migration guide](../migration/from-confluent.md) lists the differences and cutover procedure.
+
+The value is an unnamed required struct. Supported table columns appear in table order, followed
+by optional string metadata. Key columns and NOT NULL columns are required. LOBs, BINARY_FLOAT,
+BINARY_DOUBLE and both INTERVAL types are absent from the table value, matching the reference.
+
+| Default field | Content |
+|---|---|
+| `table` | `PDB.OWNER.TABLE`, or `DATABASE.OWNER.TABLE` without a PDB |
+| `scn` | The individual row's SCN; the chunk SCN for a snapshot |
+| `op_type` | `R`, `I`, `U`, `D`; optional OSO truncate extension `T` |
+| `op_ts` | Redo timestamp in milliseconds; null for snapshots |
+| `current_ts` | Record write time in milliseconds |
+| `row_id`, `username` | ROWID and database user; null for snapshots |
+
+`cdc.output.confluent.*` mirrors the source's metadata settings: rename a field, use a dotted
+path for nested structs, use `header:name` for a string header, or use an empty name to omit it.
+Commit SCN, redo, undo and before-state are opt-in. Before-state appears only in ordinary `U`
+records and their schema. It is absent from snapshots, inserts, deletes and key-change records.
+Requested redo and undo preserve LogMiner text; column exclusion can suppress that text.
+
+| Key template | Shape |
+|---|---|
+| `${primaryKeyStructOrValue}` (default) | The column value for one key column; an unnamed struct for a composite key |
+| `${primaryKeyStruct}` | An unnamed struct in every case |
+| `${primaryKey}` | An optional string joining key values with `_` |
+
+Set `cdc.key.missing=none` to admit keyless tables, as the migration tool does. Such a table carries a null key; the concatenated template retains an optional string schema.
+Separate LOB topics require a stable column key and refuse keyless or ROWID-only LOB tables.
+
+Deletes default to a `D` record. With `cdc.tombstones.on.delete=true`, a delete emits only a
+tombstone. A key change emits `D`, a tombstone and `I`; with that setting on, it emits two
+old-key tombstones and `I`, matching Confluent 2.15.2. LOB-only updates emit no table record.
+
+The Confluent numeric mapping is configured separately with
+`cdc.output.confluent.numeric.mapping`:
+
+| Mapping | Behaviour |
+|---|---|
+| `none` | Connect Decimal using declared precision and scale; unconstrained NUMBER uses precision 38 and `numeric.default.scale` (127 by default) |
+| `best_fit_or_decimal` | Integers by declared precision for scale zero or negative, doubles for positive-scale or unconstrained NUMBER; large integers fall back to Decimal |
+| `best_fit_or_double` | The same integer widths; fallback double |
+| `best_fit_or_string` | The same integer widths; large integer fallback string |
+| `precision_only` | Integers only at scale zero and precision below 19; otherwise Decimal |
+
+Integer widths are int8 for precision 1 or 2, int16 for 3 or 4, int32 for 5 to 9 and int64 for
+10 to 18. Negative scale does not widen them. Overflow stops with CDC-3001. FLOAT is double.
+A Decimal value requiring rounding to fit its scale also stops with CDC-3001 in snapshot and
+streaming paths. This differs from Confluent snapshot rounding and prevents silent changes.
+
+`cdc.output.confluent.date.mapping=date` publishes Connect Date days and drops the time of day;
+`timestamp` keeps it in UTC milliseconds. Every TIMESTAMP type is a Connect Timestamp at
+millisecond precision. RAW remains bytes. CHAR and NCHAR retain padding.
+
+### Separate LOB topics
+
+With `cdc.lob.mode=topic`, one topic per CLOB, NCLOB or BLOB column uses
+`cdc.lob.topic.template`, which must contain `${column}`. The key is an unnamed required struct
+with `table`, `column` and `primary_key`; a composite primary key is a nested required struct.
+Values are required bytes: UTF-8 for CLOB, UTF-16BE for NCLOB, raw bytes for BLOB.
+
+Snapshots and inserts publish every LOB. Updates publish only touched LOB columns; missing
+content is reselected AS OF the commit SCN. Deletes tombstone every LOB key. A row key change
+removes old LOB keys and republishes complete values under the new keys. Null assignments publish required zero-length bytes, as observed for NCLOB. Missing content, invalid text, unsupported XMLTYPE bytes and values above
+`cdc.lob.max.bytes` stop the task; topic mode accepts no placeholder oversize handling.
+Only the final record of a row advances its completed offset, including during snapshots.
+
+### Documented differences
+
+- NUMBER values requiring rounding stop with CDC-3001, including snapshots. Confluent's
+  snapshots rounded HALF_EVEN; its streaming path failed on the tested inexact value.
+- Out-of-row LOB inserts can carry a resolved real ROWID in OSO where Confluent publishes
+  LogMiner's all-A placeholder.
+- Flat output requires complete supported row images and declared key values. Incomplete
+  images stop with CDC-3001, so ALL-column supplemental logging is required.
+- OSO adds `cdc.*` diagnostic headers.
+- SQL text is suppressed where column exclusions may apply.
+- Requested SQL retains nine fractional timestamp digits, where Confluent 2.15.2 emits three.
+  The Timestamp column values match at millisecond precision.
+- OSO moves LOB state on row key changes. Confluent 2.15.2 left the old LOB key behind.
+- `cdc.truncate.emit=true` is an OSO extension: a null-key metadata-only `T` struct with no
+  row columns or before-state. No Confluent truncate record was observed; the default is off.
+- Topic mode requires complete supported LOB values and stable column keys. XMLTYPE bytes
+  remain unsupported; the recorded comparison did not settle their representation.
+
 ## Not available yet
 
-- A format compatible with Confluent's Oracle CDC Source connector, and separate LOB topics.
 - Transaction metadata records (BEGIN and END per transaction): `cdc.transactions.topic.enabled`
   creates the topic but nothing is written to it yet.
 - Schema change events on a topic of their own. Schema versions are kept on the internal

@@ -123,3 +123,19 @@ uv run python verify_cutover.py --check-evidence cutover-evidence.json
   present when the table has its key, and its values are not compared.
 - Duplicates and ordering are not checked; a repeated change during a takeover overlap leaves the
   same state and passes.
+
+
+## Confluent same-topic values
+
+With `cdc.output.format=confluent` in the input configuration, the verifier compares flat-row
+values, preserving Decimal schema scales and applying numeric and DATE mappings per column.
+Omitted types and LOB columns are listed explicitly; flat value verification requires stable keys.
+Renamed metadata, header placement, custom operation values and concatenated keys are recognised.
+
+Streaming records need commit evidence. OSO supplies `cdc.commit_scn`; source records can use the
+configured commit-SCN field. If historical Confluent rows lack it, pass
+`--confluent-baseline-connector OLD_NAME` with the Connect URL. The verifier checks STOPPED and
+unchanged offsets before and after its scan, and fences historical source records at the final
+table commit SCN. The check SCN must be at or above that fence. A paused, resumed or moving source
+is refused. Without either proof the result is INCONCLUSIVE. Avro qualification separately proves
+same-subject compatibility and reading across cutover with an unchanged reader schema.

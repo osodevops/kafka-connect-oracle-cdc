@@ -49,7 +49,7 @@ import sh.oso.connect.oracle.core.schema.TableSchema;
  * {@code cdc.field.name.adjustment.mode} set, per-table schema names and column field names are
  * adjusted ({@link NameAdjustment}); values are still looked up by the column's own name.
  */
-public final class DebeziumEnvelope {
+public final class DebeziumEnvelope implements RecordFormat {
 
   public static final String CONNECTOR_NAME = "oracle-cdc";
 
@@ -127,6 +127,7 @@ public final class DebeziumEnvelope {
             .build();
   }
 
+  @Override
   public Map<String, Object> partition() {
     return partition;
   }
@@ -136,6 +137,7 @@ public final class DebeziumEnvelope {
    * of events of the same table so far in the transaction; {@code offset} is the position after
    * this event is acknowledged.
    */
+  @Override
   public List<SourceRecord> records(
       CommittedTransaction tx,
       int index,
@@ -143,6 +145,10 @@ public final class DebeziumEnvelope {
       TableSchema schema,
       Position offset) {
     RowChange change = tx.events().get(index);
+    if (change.op() == sh.oso.connect.oracle.core.model.Operation.TRUNCATE
+        && !config.truncateEmit()) {
+      return List.of();
+    }
     schema = excluded.project(schema);
     Schemas s = schemas(schema);
     String topic = router.topic(change.table());
@@ -159,8 +165,9 @@ public final class DebeziumEnvelope {
             .put("total_order", (long) index + 1)
             .put("data_collection_order", dataCollectionOrder);
     List<SourceRecord> out = new ArrayList<>(3);
-    Object afterKey = keyOf(s, schema, change, change.after());
-    Object beforeKey = keyOf(s, schema, change, change.before());
+    boolean truncate = change.op() == sh.oso.connect.oracle.core.model.Operation.TRUNCATE;
+    Object afterKey = truncate ? null : keyOf(s, schema, change, change.after());
+    Object beforeKey = truncate ? null : keyOf(s, schema, change, change.before());
     switch (change.op()) {
       case INSERT:
         out.add(
@@ -184,6 +191,16 @@ public final class DebeziumEnvelope {
         if (config.tombstonesOnDelete() && beforeKey != null) {
           out.add(tombstone(topic, s, offsetMap, headers, beforeKey));
         }
+        break;
+      case TRUNCATE:
+        out.add(
+            record(
+                topic,
+                s,
+                offsetMap,
+                headers,
+                null,
+                envelope(s, "t", null, null, source, tsMs, txBlock)));
         break;
       default:
         {
@@ -244,13 +261,26 @@ public final class DebeziumEnvelope {
         s.envelope(),
         value,
         null,
-        headers);
+        headers.duplicate()); // each record owns its headers: the sink adds to them per record
   }
 
   /**
    * PRD-02 SNAP-8: a row read by a snapshot chunk as of {@code scn}, as {@code op=r} with {@code
    * source.snapshot} set to {@code marker} ({@code first}, {@code true} or {@code last}).
    */
+  @Override
+  public List<SourceRecord> snapshotRecords(
+      TableId table,
+      sh.oso.connect.oracle.core.snapshot.SnapshotRow row,
+      TableSchema schema,
+      long scn,
+      long readAtMs,
+      String marker,
+      Position offset) {
+    return List.of(snapshotRecord(table, row, schema, scn, readAtMs, marker, offset));
+  }
+
+  /** The one record a snapshot row becomes in this format. */
   public SourceRecord snapshotRecord(
       TableId table,
       sh.oso.connect.oracle.core.snapshot.SnapshotRow row,
@@ -302,7 +332,7 @@ public final class DebeziumEnvelope {
   private SourceRecord tombstone(
       String topic, Schemas s, Map<String, Object> offset, Headers headers, Object key) {
     return new SourceRecord(
-        partition, offset, topic, null, s.key(), key, null, null, null, headers);
+        partition, offset, topic, null, s.key(), key, null, null, null, headers.duplicate());
   }
 
   private Struct envelope(
@@ -337,7 +367,11 @@ public final class DebeziumEnvelope {
         .put("ssn", c.id().ssn())
         .put("redo_thread", tx.thread())
         .put("user_name", tx.username())
-        .put("row_id", sh.oso.connect.oracle.core.model.RowIds.real(c.rowId()))
+        .put(
+            "row_id",
+            c.op() == sh.oso.connect.oracle.core.model.Operation.TRUNCATE
+                ? null
+                : sh.oso.connect.oracle.core.model.RowIds.real(c.rowId()))
         .put("pdb", t.pdb());
   }
 

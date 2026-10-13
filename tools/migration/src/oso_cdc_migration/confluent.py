@@ -14,9 +14,8 @@
 """``migrate_from_confluent``: Confluent Oracle CDC Source connector configuration to ``cdc.*``
 (PRD-04 MIG-1 to MIG-7, property list from Confluent's public configuration reference).
 
-The Confluent-compatible record format (``cdc.output.format=confluent``) and LOB topics are not
-built yet, so a translated configuration publishes the Debezium-compatible envelope and the report
-says so as its first follow-up.
+The default translation preserves Confluent-shaped table topics and consumer schemas.
+``--format=debezium`` chooses new prefixed topics and the Debezium envelope explicitly.
 """
 
 from __future__ import annotations
@@ -34,17 +33,55 @@ CONFLUENT_CLASS = "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector"
 DEFAULT_TEMPLATE = "${fullyQualifiedTableName}"
 
 RECORD_FORMAT = (
-    "This release publishes the Debezium-compatible envelope only (`before`, `after`, `source`,"
-    " `op`); the Confluent-compatible flat format (`cdc.output.format=confluent`) is not built"
-    " yet. Records change shape and keys become structs of the key columns, so consumers and"
-    " schemas of the existing table topics break. Point `cdc.topic.template` at new topic names"
-    " and move consumers to the new format, or wait for the Confluent-compatible format before"
-    " cutting over."
+    "This release publishes the Debezium-compatible envelope for the selected --format=debezium"
+    " (`before`, `after`, `source`, `op`). Records change shape and keys become structs, so use"
+    " new prefixed topics and move consumers. Choose --format=confluent to keep the existing"
+    " table topics, flat records and key templates."
 )
-FORMAT_PROPERTY = (
-    "Part of Confluent's record format, which this release does not produce. See the record"
-    " format follow-up."
-)
+FORMAT_PROPERTY = "Part of Confluent's record format; use --format=confluent to preserve it."
+
+
+def compatible(ctx: Context) -> bool:
+    return ctx.state.get("record_format", "confluent") == "confluent"
+
+
+def record_property(ctx: Context, key: str, value: str) -> Outcome:
+    if not compatible(ctx):
+        raise Manual(FORMAT_PROPERTY)
+    if key.startswith("output."):
+        suffix = key[len("output.") :]
+        fields = {
+            "table.name",
+            "scn",
+            "commit.scn",
+            "op.type",
+            "op.ts",
+            "current.ts",
+            "row.id",
+            "username",
+            "redo",
+            "undo",
+            "before.state",
+        }
+        operations = {"read", "insert", "update", "delete", "truncate"}
+        supported = {name + ".field" for name in fields} | {
+            "op.type." + name + ".value" for name in operations
+        }
+        if suffix not in supported:
+            raise Manual(
+                "Unsupported output metadata property; review the source behaviour before cutover."
+            )
+        target = "cdc.output.confluent." + key[len("output.") :]
+    elif key == "oracle.date.mapping":
+        target = "cdc.output.confluent.date.mapping"
+    else:
+        target = "cdc.output.confluent." + key
+    if key == "numeric.mapping" and value.strip().lower() == "best_fit":
+        value = "best_fit_or_decimal"
+    ctx.set(target, value, key)
+    return Classification.MAPPED, "Confluent-compatible record setting preserved."
+
+
 TAKEOVER_SNAPSHOT_NOTE = (
     "The takeover starts the new connector at the Confluent position (`cdc.start.scn` from"
     " takeover_scn.py), so no snapshot runs: `cdc.snapshot.mode=none`."
@@ -135,6 +172,15 @@ def rewrite_regex(ctx: Context, key: str, value: str) -> list[str]:
     return out
 
 
+def key_template(ctx: Context, key: str, value: str) -> Outcome:
+    if compatible(ctx):
+        return record_property(ctx, key, value)
+    raise Manual(
+        "Record keys are structs of the key columns in the Debezium format; consumers "
+        "of Confluent keys must change."
+    )
+
+
 def topic_template(ctx: Context, key: str, value: str) -> Outcome:
     converted = convert_template(ctx, value)
     ctx.set("cdc.topic.template", converted, key)
@@ -174,7 +220,7 @@ def convert_template(ctx: Context, template: str) -> str:
             + ". `cdc.topic.template` knows `${prefix}`, `${pdb}`, `${schema}`, `${table}` and"
             " `${database}`."
         )
-    if ctx.once("topic-names"):
+    if not compatible(ctx) and ctx.once("topic-names"):
         ctx.follow_up(
             "This connector writes Debezium-shaped change events (`before`, `after`, `source`,"
             " `op`), not Confluent's flat rows, so it writes to new topics: the topic prefix, a"
@@ -185,7 +231,9 @@ def convert_template(ctx: Context, template: str) -> str:
         )
     # new topics, never Confluent's (verified against Confluent's connector 2.15.2, 12 October
     # 2026: its default template gives PDB.SCHEMA.TABLE, which the unprefixed form reproduced)
-    return "${prefix}." + _VARIABLE.sub(lambda m: mapping[m.group(1)], template)
+    return ("" if compatible(ctx) else "${prefix}.") + _VARIABLE.sub(
+        lambda m: mapping[m.group(1)], template
+    )
 
 
 def start_from(ctx: Context, key: str, value: str) -> Outcome:
@@ -240,18 +288,42 @@ def decode_behaviour(ctx: Context, key: str, value: str) -> Outcome:
 
 
 def lob_topic(ctx: Context, key: str, value: str) -> Outcome:
+    if compatible(ctx) and value.strip():
+        mapping = {
+            "connectorName": ctx.source_name or "oracle-cdc",
+            "fullyQualifiedTableName": ("${pdb}" if ctx.has("oracle.pdb.name") else "${database}")
+            + ".${schema}.${table}",
+            "columnName": "${column}",
+            "schemaName": "${schema}",
+            "tableName": "${table}",
+            "databaseName": "${pdb}" if ctx.has("oracle.pdb.name") else "${database}",
+        }
+        unknown = set(_VARIABLE.findall(value)) - mapping.keys()
+        if unknown:
+            raise Manual("Unsupported LOB topic variables: " + ", ".join(sorted(unknown)))
+        ctx.set("cdc.lob.mode", "topic", key)
+        ctx.set("cdc.lob.topic.template", _VARIABLE.sub(lambda m: mapping[m.group(1)], value), key)
+        ctx.follow_up(
+            "Separate LOB topics require stable column keys, complete values and "
+            "sufficient undo for AS OF commit reselect. OSO moves LOB state on key "
+            "changes; Confluent 2.15.2 did not.",
+            key,
+        )
+        return Classification.MAPPED, "Existing LOB topics and byte encodings preserved."
     if not value.strip():
         return (
             Classification.DROPPED,
             "LOB columns were not captured; `cdc.lob.mode=skip` keeps them out of the records.",
         )
     raise Manual(
-        "LOB topics are not built yet (MIG-5). Until they are, `cdc.lob.mode=inline` publishes"
-        " LOB values inside the row records; consumers of the LOB topics must change."
+        "Separate LOB topics require --format=confluent (MIG-5). With Debezium output, choose"
+        " inline or reselect row values and change the LOB topic consumers."
     )
 
 
 def numeric_mapping(ctx: Context, key: str, value: str) -> Outcome:
+    if compatible(ctx):
+        return record_property(ctx, key, value)
     mode = value.strip().lower()
     if mode == "none":
         ctx.set("cdc.decimal.mode", "precise", key)
@@ -275,6 +347,15 @@ def numeric_mapping(ctx: Context, key: str, value: str) -> Outcome:
 
 
 def default_scale(ctx: Context, key: str, value: str) -> Outcome:
+    if compatible(ctx):
+        result = record_property(ctx, key, value)
+        ctx.follow_up(
+            "OSO refuses NUMBER values needing rounding to fit numeric.default.scale, "
+            "including snapshots (CDC-3001); Confluent snapshots rounded HALF_EVEN. "
+            "Increase the scale before cutover when needed.",
+            key,
+        )
+        return result
     if value.strip() == "127":
         return (
             Classification.DROPPED,
@@ -391,12 +472,7 @@ RULES = RuleSet(
         "table.topic.name.template": topic_template,
         "redo.log.topic.name": redo_topic,
         "start.from": start_from,
-        "key.template": t.manual(
-            "Record keys are structs of the key columns (Debezium style). Confluent's key"
-            " template (default `${primaryKeyStructOrValue}`, a plain value for a single-column"
-            " key) has no equivalent; consumers and compacted topics keyed by the old form must"
-            " change."
-        ),
+        "key.template": key_template,
         "max.batch.size": t.to("cdc.poll.max.records"),
         "query.timeout.ms": t.changed(
             "cdc.mining.query.timeout.ms",
@@ -443,11 +519,7 @@ RULES = RuleSet(
         "log.sensitive.data": t.to("cdc.log.sensitive.data"),
         "numeric.mapping": numeric_mapping,
         "numeric.default.scale": default_scale,
-        "oracle.date.mapping": t.manual(
-            "DATE columns are published as `io.debezium.time.Timestamp` (milliseconds) with the"
-            " time of day kept, or as ISO text with `cdc.temporal.mode=iso_string`. Consumers"
-            " that read Confluent's DATE mapping must change."
-        ),
+        "oracle.date.mapping": record_property,
         "emit.tombstone.on.delete": t.to("cdc.tombstones.on.delete"),
         "oracle.fan.events.enable": fan_events,
         "table.task.reconfig.checking.interval.ms": t.dropped(
@@ -494,7 +566,7 @@ RULES = RuleSet(
     },
     prefixes={
         "redo.log.consumer.": t.dropped(NO_REDO_TOPIC),
-        "output.": t.manual(FORMAT_PROPERTY),
+        "output.": record_property,
         "confluent.topic": t.dropped("Confluent licence topic settings; not used."),
         "connection.pool.": t.dropped(
             "The connector manages its own connections (MIG-5); driver options go in"
@@ -509,12 +581,26 @@ RULES = RuleSet(
 
 
 def finalise_format(ctx: Context) -> None:
-    ctx.follow_up(RECORD_FORMAT, first=True)
-    ctx.setting(
-        "cdc.output.format",
-        "debezium",
-        "The only format in this release; Confluent's flat format is not built yet.",
-    )
+    if compatible(ctx):
+        ctx.setting(
+            "cdc.output.format",
+            "confluent",
+            "Preserves table topics, flat rows, key templates and Schema Registry subjects.",
+        )
+        ctx.follow_up(
+            "Keep the existing topics and consumers. Check the documented differences: "
+            "exact Decimal scales (rounding stops CDC-3001), additional cdc.* headers, "
+            "SQL suppression with column exclusions, LOB key moves, and optional OSO "
+            "truncate records.",
+            first=True,
+        )
+    else:
+        ctx.follow_up(RECORD_FORMAT, first=True)
+        ctx.setting(
+            "cdc.output.format",
+            "debezium",
+            "Explicitly selected Debezium-compatible envelope and new topics.",
+        )
 
 
 def finalise_topics(ctx: Context) -> None:
@@ -524,8 +610,8 @@ def finalise_topics(ctx: Context) -> None:
     ctx.setting(
         "cdc.topic.prefix",
         prefix,
-        "Names the connector's internal topics and its offset partition, and starts every table"
-        " topic name, so the new topics never collide with Confluent's.",
+        "Names internal topics and the offset partition; table topics stay unchanged "
+        "with Confluent output and are prefixed with Debezium output.",
     )
     if not ctx.has("table.topic.name.template"):
         try:
@@ -562,6 +648,53 @@ def finalise_tables(ctx: Context) -> None:
 
 
 def finalise_pins(ctx: Context) -> None:
+    if compatible(ctx):
+        ctx.setting(
+            "cdc.key.missing", "none", "Confluent writes null keys for tables without a column key."
+        )
+        key_converter = ctx.get("key.converter")
+        value_converter = ctx.get("value.converter")
+        key_settings = {
+            k.removeprefix("key.converter."): v
+            for k, v in ctx.source.items()
+            if k.startswith("key.converter.")
+        }
+        value_settings = {
+            k.removeprefix("value.converter."): v
+            for k, v in ctx.source.items()
+            if k.startswith("value.converter.")
+        }
+        if key_converter and value_converter and not value_converter.endswith("JsonConverter"):
+            if key_converter == value_converter and key_settings == value_settings:
+                ctx.setting(
+                    "cdc.journal.converter",
+                    value_converter,
+                    "Reads internal schema and journal records with the pipeline's converter.",
+                )
+                for key, value in value_settings.items():
+                    ctx.setting(
+                        "cdc.journal.converter." + key,
+                        value,
+                        "Matches the existing key/value converter configuration.",
+                    )
+            else:
+                ctx.follow_up(
+                    "Internal schema and journal readers require matching key/value converters "
+                    "and settings when cdc.kafka.bootstrap.servers is enabled; "
+                    "the source has different codecs."
+                )
+        else:
+            ctx.follow_up(
+                "If the worker uses Avro or Protobuf, configure cdc.journal.converter and "
+                "cdc.journal.converter.* to match before enabling cdc.kafka.bootstrap.servers."
+            )
+        ctx.setting("cdc.tombstones.on.delete", "false", "Confluent's default, pinned when unset.")
+        ctx.setting(
+            "cdc.lob.mode",
+            "skip",
+            "LOBs are omitted unless a LOB topic template enables topic mode.",
+        )
+        return
     ctx.setting(
         "cdc.tombstones.on.delete",
         "false",
@@ -597,8 +730,8 @@ def next_steps(source_name: str | None, target_name: str, output: str | None) ->
         " streaming at `cdc.start.scn`.",
         "Point dashboards and alerts at the connector's JMX metrics; the names differ from"
         " Confluent's (see the metrics reference).",
-        "Remove the redo log topic and the old connector's other topics after the agreed"
-        " retention.",
+        "Retire the old redo log and internal topics after the agreed retention; keep "
+        "table and LOB topics for the Confluent same-topics path.",
     ]
 
 
@@ -620,14 +753,17 @@ SPEC = TranslatorSpec(
     ],
     next_steps=next_steps,
     extra_options=_prefix_option,
-    prepare=lambda args: {"topic_prefix": args.topic_prefix},
+    record_formats=("confluent", "debezium"),
+    prepare=lambda args: {
+        "topic_prefix": args.topic_prefix,
+        "record_format": args.format if args.format in ("confluent", "debezium") else "confluent",
+    },
     description=(
         "Translate a Confluent Oracle CDC Source connector configuration into a configuration"
         " for the OSO CDC Connector for Oracle Database, with a report that classifies every"
         " source property as mapped, mapped with a change, dropped (with the reason) or manual"
-        " (with an instruction). The Confluent-compatible record format is not built yet, so"
-        " the translated connector publishes the Debezium-compatible envelope; the report's"
-        " first follow-up explains what that means for existing consumers."
+        " (with an instruction). The default Confluent format keeps existing topics and consumers;"
+        " --format=debezium selects new prefixed topics and a different envelope."
     ),
 )
 

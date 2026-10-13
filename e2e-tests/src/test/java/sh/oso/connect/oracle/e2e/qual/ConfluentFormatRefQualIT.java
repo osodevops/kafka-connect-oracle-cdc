@@ -271,8 +271,7 @@ class ConfluentFormatRefQualIT {
     return counts;
   }
 
-  private Map<String, String> config(
-      ConnectCluster cluster, Profile p, String schema, String name) {
+  Map<String, String> config(ConnectCluster cluster, Profile p, String schema, String name) {
     Map<String, String> d = db.connectorDatabaseProps();
     String pdb = d.get("cdc.database.pdbs");
     String first = pdb == null || pdb.isBlank() ? d.get("cdc.database.service") : pdb;
@@ -518,7 +517,7 @@ class ConfluentFormatRefQualIT {
     Thread.sleep(45_000);
     List<String> topics =
         cluster.topics().stream()
-            .filter(t -> t.startsWith(prefix) && !t.contains("redo-log"))
+            .filter(t -> t.startsWith(prefix) && !t.contains("redo-log") && !t.contains(".cdc."))
             .sorted()
             .toList();
     try (KafkaConsumer<byte[], byte[]> c =

@@ -85,6 +85,64 @@ class FullRulesTest {
   }
 
   @Test
+  void topicModeBlocksAKeylessLobTableAndTheWrongRecordFormat() {
+    FakeDoctorCatalog catalog = new FakeDoctorCatalog();
+    catalog.tables.add(
+        new CapturedTable(
+            "FREEPDB1",
+            "APP",
+            "DOCS",
+            List.of(col("C", "CLOB")),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false));
+    List<Finding> findings =
+        run(
+            Rules.lobs(),
+            ctx(catalog, Map.of(CoreConfig.LOB_MODE, "topic", "cdc.output.format", "confluent")));
+    assertThat(findings)
+        .anyMatch(
+            f -> f.severity() == Severity.BLOCKING && f.message().contains("stable column key"));
+    catalog.tables.clear();
+    catalog.tables.add(table("DOCS", col("C", "CLOB")));
+    assertThat(run(Rules.lobs(), ctx(catalog, Map.of(CoreConfig.LOB_MODE, "topic"))))
+        .anyMatch(f -> f.severity() == Severity.BLOCKING && f.message().contains("confluent"));
+  }
+
+  @Test
+  void lobTopicDoctorAcceptsAnExistingColumnOverrideAndBlocksXmltype() {
+    FakeDoctorCatalog catalog = new FakeDoctorCatalog();
+    catalog.tables.add(
+        new CapturedTable(
+            "FREEPDB1",
+            "APP",
+            "DOCS",
+            List.of(col("ID", "NUMBER"), col("C", "CLOB")),
+            true,
+            false,
+            false,
+            false,
+            false,
+            false));
+    Map<String, String> props =
+        Map.of(
+            CoreConfig.LOB_MODE,
+            "topic",
+            "cdc.output.format",
+            "confluent",
+            "cdc.key.columns",
+            "FREEPDB1.APP.DOCS:ID");
+    assertThat(run(Rules.lobs(), ctx(catalog, props)))
+        .noneMatch(f -> f.severity() == Severity.BLOCKING);
+    catalog.tables.add(table("XMLDOCS", col("ID", "NUMBER"), col("X", "XMLTYPE")));
+    assertThat(run(Rules.lobs(), ctx(catalog, props)))
+        .anyMatch(f -> f.severity() == Severity.BLOCKING && f.message().contains("XMLTYPE"));
+  }
+
+  @Test
   void allRulesRunInRuleOrderAndACleanDatabaseOnlyGetsInformation() {
     FakeDoctorCatalog cat = new FakeDoctorCatalog();
     cat.tables.add(table("ORDERS", col("ID", "NUMBER")));

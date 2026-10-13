@@ -1,0 +1,26 @@
+{
+  "report" : "oracle-cdc-nightly",
+  "schemaVersion" : 1,
+  "suite" : "ConfluentFormatParityQualIT",
+  "scenario" : "Confluent format parity",
+  "startedAt" : "2026-10-13T14:06:21.059186Z",
+  "finishedAt" : "2026-10-13T14:11:20.798523Z",
+  "versions" : {
+    "project" : "0.1.6-SNAPSHOT",
+    "oracleImageTag" : "23.26.3-slim-faststart",
+    "kafkaImage" : "apache/kafka:3.9.1",
+    "java" : "21.0.12.1"
+  },
+  "parameters" : {
+    "profile.all-fields" : "records and schemas compared",
+    "difference.sqlTimestampPrecision" : "source FF3; OSO FF9 asserted from workload",
+    "profile.renamed" : "records and schemas compared"
+  },
+  "faults" : [ ],
+  "counts" : { },
+  "checks" : { },
+  "notes" : [ ],
+  "verdict" : "PASS",
+  "failures" : [ ],
+  "sha256" : "58d08dbbaf897678b48a77027238426da41d40c73e61dffd6f7710664c707567"
+}

@@ -39,7 +39,7 @@ Fixtures: `kafka-connect-oracle-cdc/src/test/resources/confluent-reference/`. Fi
 | Key change | Default: old-key `D`, old-key tombstone, new-key `I`. With tombstones enabled: two old-key tombstones, then new-key `I` | Preserve both sequences |
 | Rollback | No records | Publish committed changes only |
 | LOB-only change | No table record, with or without separate LOB topics | Suppress its table record; a filtered transaction still needs an acknowledged position |
-| Truncate | No `T` observed. The public property list names its operation value but documents no enabling property | Keep emission off by default in both formats. Any explicit OSO truncate emission is an extension whose shape must be documented |
+| Truncate | No `T` observed. The public property list names its operation value but documents no enabling property | Keep emission off by default in both formats. Explicit OSO emission is an extension: null key, metadata-only required struct, configured truncate operation value and no row columns or before-state |
 | Kafka headers and timestamps | No default headers; Kafka CreateTime corresponds to publication | Preserve a null OSO SourceRecord timestamp so the producer supplies it. Retain OSO's additional `cdc.*` diagnostic headers and document them |
 
 ## Column mappings
@@ -107,7 +107,66 @@ The reference enables large LOB support and uses `${connectorName}.lob.${fullyQu
 - OSO refuses Decimal rounding in snapshots, where Confluent rounds HALF_EVEN.
 - OSO retains additional `cdc.*` diagnostic headers; Confluent has none by default.
 - OSO suppresses redo and undo text for tables a column exclusion may touch, to avoid exposing excluded data.
-- OSO will maintain LOB state across key changes with old-key tombstones and new-key values; Confluent 2.15.2 did not emit those records.
-- Explicit truncate emission is an OSO extension until a Confluent `T` shape can be observed; default emission remains off.
+- Requested SQL preserves OSO's nine-digit timestamp literals. Confluent's SQL uses three
+  fractional digits; OSO retains the source precision in its mining session and emitted text.
+  For example, the workload's `1969-12-31 23:59:59.123456789` appears unchanged in OSO's
+  `TO_TIMESTAMP` literal and as `.123` in Confluent's. Row Timestamp values agree at milliseconds.
+- OSO maintains LOB state across key changes with old-key tombstones and new-key values; Confluent 2.15.2 did not emit those records.
+- Explicit truncate emission is an OSO extension: null key and a metadata-only `T` struct, without row columns or before-state. Default emission remains off. `truncate-shapes.md` records its own committed DDL transaction and delivery order.
 
-The subsequent parity and in-place cutover suites must record any further differences here and in ADR-0028 before acceptance. The fixtures specify the recorded profiles; unobserved combinations must not be presented as verified parity. No RDS target is currently running. The optional non-CDB rerun is therefore not planned, and the remaining cloud lab has been destroyed.
+The live parity and in-place cutover suites have completed. Fourteen profiles passed across the full run and affected-profile reruns; the strengthened same-topic Avro cutover passed with zero missing committed rows. [Qualification evidence](../../../../../docs/qualification/2026-10-13-confluent-format/README.md) records the revisions and limits. ADR-0028 is accepted; release still requires the legal check. The fixtures specify the recorded profiles; unobserved combinations must not be presented as verified parity. No RDS target is currently running. The optional non-CDB rerun is therefore not planned, and the remaining cloud lab has been destroyed.
+
+## Separate LOB topic implementation
+
+- `cdc.lob.mode=topic` is available only with the Confluent-compatible format. Its column
+  template must contain `${column}`. Row and LOB routes share collision detection, so a
+  column topic cannot overwrite a table topic after name adjustment.
+- Topic delivery assembles inline fragments and reselects missing touched columns AS OF the
+  commit SCN. Inserts and key changes require every LOB column; a scalar-only update fetches
+  and emits none. Touched-column tracking is opt-in, preserving legacy journal payloads.
+- Stable column keys are validated before snapshots and at schema changes. ROWID and keyless
+  LOB tables are refused with CDC-3001. Doctor DOC-8 reports the same requirement and recognises
+  existing-column key overrides.
+- Complete values are required. Missing values stop with CDC-3001; a value exceeding
+  `cdc.lob.max.bytes`, including its final byte encoding, stops with CDC-3003. Placeholder
+  oversize handling is refused in topic mode. Malformed text stops rather than substituting
+  replacement characters. A null LOB assignment publishes required zero-length bytes, matching the live NCLOB comparison.
+- XMLTYPE bytes are unsupported in topic mode and fail at schema load unless the column is
+  excluded. This limitation remains an explicit difference where the recorded comparison does
+  not establish Confluent behaviour.
+- CLOB uses UTF-8, NCLOB uses UTF-16BE, and BLOB retains its raw bytes. Every streaming LOB
+  record owns its diagnostic headers. Only the final record of a row carries its completed
+  delivery position and transaction boundary.
+
+- A LOB group downgraded by a savepoint rollback remains ambiguous (ADR-0015): it can contain
+  an earlier committed call. Topic mode reselects its touched columns AS OF the commit SCN and
+  emits their final values without a table row. It never discards the group or publishes undone
+  fragment bytes.
+  A snapshot restart repeats its chunk until the final LOB record is acknowledged; acknowledging
+  the row alone cannot skip that row's later LOB records.
+
+## Live comparison differences
+
+- On an out-of-row LOB insert, Confluent 2.15.2 publishes LogMiner's all-A ROWID placeholder.
+  OSO's LOB assembly resolves and publishes the real locator when available, or null when it is
+  unavailable. Row SCN and all other row metadata remain independently compared.
+- Flat rows require complete supported column images and every declared key value. An incomplete
+  UPDATE/DELETE image stops with CDC-3001 rather than replacing unknown fields with null or
+  emitting an ineffective null-key tombstone. Required column and unsupported key-type failures
+  are also typed. ALL-column supplemental logging is required for complete flat row state.
+
+- Oracle splits a LOB's locator declarations from its write/trim bodies when SQL delimiters are
+  retained by the mining session. `NO_SQL_DELIMITER` reconstructs the complete locator block for
+  each LOB fragment. Requested SQL output therefore retains ROWID predicates, keeps that mining
+  option and restores the DML/DDL terminator only after the final CSF piece. LOB blocks are left
+  intact. External SQL text is checked against Confluent's all-fields and renamed profiles.
+
+- The live NCLOB-null assignment publishes required zero-length bytes in Confluent 2.15.2.
+  OSO matches that shape; row deletion and old-key removal retain null-valued tombstones.
+
+- Confluent's requested SQL uses three fractional timestamp digits, including TIMESTAMP(6)
+  and TIMESTAMP(9). OSO's fixed NLS mining formats use nine digits so capture never discards
+  sub-millisecond source precision. The qualification asserts OSO's exact SQL against the
+  independently defined workload literals; it does not truncate OSO text or ignore SQL fields.
+  All other SQL text and all row values remain compared. This is a documented SQL-text
+  difference, not a change to either format's established Timestamp column mapping.

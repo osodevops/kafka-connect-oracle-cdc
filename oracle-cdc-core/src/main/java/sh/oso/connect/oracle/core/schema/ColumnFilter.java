@@ -228,16 +228,21 @@ public final class ColumnFilter {
       return change;
     }
     return new RowChange(
-        change.table(),
-        change.op(),
-        before,
-        after,
-        change.partial(),
-        change.rowId(),
-        change.id(),
-        change.tx(),
-        change.timestamp(),
-        change.schemaVersion());
+            change.table(),
+            change.op(),
+            before,
+            after,
+            change.partial(),
+            change.rowId(),
+            change.id(),
+            change.tx(),
+            change.timestamp(),
+            change.schemaVersion())
+        .withTouchedLobs(
+            change.touchedLobs().stream()
+                .filter(name -> !excludes(change.table(), name))
+                .collect(
+                    java.util.stream.Collectors.toSet())); // SQL quotes excluded values: dropped
   }
 
   @Override

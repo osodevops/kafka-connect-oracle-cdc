@@ -1,0 +1,339 @@
+{
+  "tool": "migrate_from_confluent.py",
+  "tool_version": "<version>",
+  "source_kind": "Confluent Oracle CDC Source connector",
+  "source_connector": "orders-cdc",
+  "new_connector": "orders-cdc-oso",
+  "exit_code": 2,
+  "summary": {
+    "mapped": 19,
+    "mapped-with-change": 5,
+    "dropped": 0,
+    "manual": 0
+  },
+  "exactly_once": {
+    "status": "not checked",
+    "detail": "no --connect-url given"
+  },
+  "follow_ups": [
+    {
+      "text": "Keep the existing topics and consumers. Check the documented differences: exact Decimal scales (rounding stops CDC-3001), additional cdc.* headers, SQL suppression with column exclusions, LOB key moves, and optional OSO truncate records.",
+      "properties": []
+    },
+    {
+      "text": "Separate LOB topics require stable column keys, complete values and sufficient undo for AS OF commit reselect. OSO moves LOB state on key changes; Confluent 2.15.2 did not.",
+      "properties": [
+        "lob.topic.name.template"
+      ]
+    },
+    {
+      "text": "OSO refuses NUMBER values needing rounding to fit numeric.default.scale, including snapshots (CDC-3001); Confluent snapshots rounded HALF_EVEN. Increase the scale before cutover when needed.",
+      "properties": [
+        "numeric.default.scale"
+      ]
+    },
+    {
+      "text": "The redo log topic (`redo.log.topic.name`, default `${connectorName}-${databaseName}-redo-log`) stops receiving data at the cutover (MIG-5). Move or retire its consumers, then delete it after the agreed retention.",
+      "properties": []
+    },
+    {
+      "text": "If the worker uses Avro or Protobuf, configure cdc.journal.converter and cdc.journal.converter.* to match before enabling cdc.kafka.bootstrap.servers.",
+      "properties": []
+    },
+    {
+      "text": "Exactly-once delivery was not configured because the target Connect cluster was not checked (no --connect-url given). Run the translator again with `--connect-url`, or add `exactly.once.support=required` and `transaction.boundary=connector` yourself once the workers run with `exactly.once.source.support=enabled`.",
+      "properties": []
+    }
+  ],
+  "settings": [
+    {
+      "key": "name",
+      "value": "orders-cdc-oso",
+      "reason": "The new connector's name."
+    },
+    {
+      "key": "cdc.output.format",
+      "value": "confluent",
+      "reason": "Preserves table topics, flat rows, key templates and Schema Registry subjects."
+    },
+    {
+      "key": "cdc.topic.prefix",
+      "value": "orders-cdc",
+      "reason": "Names internal topics and the offset partition; table topics stay unchanged with Confluent output and are prefixed with Debezium output."
+    },
+    {
+      "key": "cdc.tables.case.sensitive",
+      "value": "true",
+      "reason": "Confluent matches table expressions case-sensitively (MIG-3)."
+    },
+    {
+      "key": "cdc.key.missing",
+      "value": "none",
+      "reason": "Confluent writes null keys for tables without a column key."
+    },
+    {
+      "key": "cdc.snapshot.mode",
+      "value": "none",
+      "reason": "A takeover streams from the old connector's position, without a snapshot."
+    },
+    {
+      "key": "cdc.start.scn",
+      "value": "1000",
+      "reason": "The old connector's position (--start-scn); honoured while the new connector has no stored offset."
+    }
+  ],
+  "properties": [
+    {
+      "key": "behavior.on.dictionary.mismatch",
+      "value": "fail",
+      "classification": "mapped",
+      "targets": {
+        "cdc.on.decode.error": "fail"
+      },
+      "note": ""
+    },
+    {
+      "key": "behavior.on.unparsable.statement",
+      "value": "fail",
+      "classification": "mapped",
+      "targets": {
+        "cdc.on.decode.error": "fail"
+      },
+      "note": ""
+    },
+    {
+      "key": "connector.class",
+      "value": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+      "classification": "mapped-with-change",
+      "targets": {
+        "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector"
+      },
+      "note": "Replaced by the OSO CDC Connector class."
+    },
+    {
+      "key": "emit.tombstone.on.delete",
+      "value": "true",
+      "classification": "mapped",
+      "targets": {
+        "cdc.tombstones.on.delete": "true"
+      },
+      "note": ""
+    },
+    {
+      "key": "heartbeat.interval.ms",
+      "value": "30000",
+      "classification": "mapped",
+      "targets": {
+        "cdc.heartbeat.interval.ms": "30000"
+      },
+      "note": ""
+    },
+    {
+      "key": "key.template",
+      "value": "${primaryKeyStruct}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.key.template": "${primaryKeyStruct}"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "lob.topic.name.template",
+      "value": "${connectorName}.lob.${fullyQualifiedTableName}.${columnName}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.lob.mode": "topic",
+        "cdc.lob.topic.template": "orders-cdc.lob.${pdb}.${schema}.${table}.${column}"
+      },
+      "note": "Existing LOB topics and byte encodings preserved."
+    },
+    {
+      "key": "log.mining.transaction.age.threshold.ms",
+      "value": "7200000",
+      "classification": "mapped-with-change",
+      "targets": {},
+      "note": "Not copied: the connector has no warn-only age limit. Long transactions are kept, spilled to disk and journaled, and their age shows in the metrics; set `cdc.transaction.max.age.ms` to stop or discard instead."
+    },
+    {
+      "key": "log.mining.transaction.threshold.breached.action",
+      "value": "fail",
+      "classification": "mapped-with-change",
+      "targets": {},
+      "note": "Not copied: the connector has no warn-only age limit. Long transactions are kept, spilled to disk and journaled, and their age shows in the metrics; set `cdc.transaction.max.age.ms` to stop or discard instead."
+    },
+    {
+      "key": "numeric.default.scale",
+      "value": "4",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.numeric.default.scale": "4"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "numeric.mapping",
+      "value": "precision_only",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.numeric.mapping": "precision_only"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "oracle.date.mapping",
+      "value": "timestamp",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.date.mapping": "timestamp"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "oracle.password",
+      "value": "${file:/secrets/oracle.properties:password}",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.password": "${file:/secrets/oracle.properties:password}"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.pdb.name",
+      "value": "ORCLPDB1",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.pdbs": "ORCLPDB1"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.port",
+      "value": "1521",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.port": "1521"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.server",
+      "value": "db",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.host": "db"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.sid",
+      "value": "ORCLCDB",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.sid": "ORCLCDB"
+      },
+      "note": ""
+    },
+    {
+      "key": "oracle.username",
+      "value": "C##MYUSER",
+      "classification": "mapped",
+      "targets": {
+        "cdc.database.user": "C##MYUSER"
+      },
+      "note": "In a CDB this must be a common user with the grants from `oracle-cdc-doctor setup-sql`."
+    },
+    {
+      "key": "output.before.state.field",
+      "value": "before",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.before.state.field": "before"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "output.commit.scn.field",
+      "value": "meta.commit",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.commit.scn.field": "meta.commit"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "output.op.type.field",
+      "value": "header:operation",
+      "classification": "mapped",
+      "targets": {
+        "cdc.output.confluent.op.type.field": "header:operation"
+      },
+      "note": "Confluent-compatible record setting preserved."
+    },
+    {
+      "key": "table.inclusion.regex",
+      "value": "ORCLPDB1\\.APP\\..*",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.tables.include": "ORCLPDB1\\.APP\\..*"
+      },
+      "note": "Rewritten as patterns over `PDB.SCHEMA.TABLE` (or `SCHEMA.TABLE` without a PDB); matching stays case-sensitive (`cdc.tables.case.sensitive=true`)."
+    },
+    {
+      "key": "table.topic.name.template",
+      "value": "${fullyQualifiedTableName}",
+      "classification": "mapped-with-change",
+      "targets": {
+        "cdc.topic.template": "${pdb}.${schema}.${table}"
+      },
+      "note": "Template variables translated; check the result against the existing topic names."
+    },
+    {
+      "key": "tasks.max",
+      "value": "1",
+      "classification": "mapped",
+      "targets": {
+        "tasks.max": "1"
+      },
+      "note": ""
+    }
+  ],
+  "config": {
+    "name": "orders-cdc-oso",
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "tasks.max": "1",
+    "cdc.database.host": "db",
+    "cdc.database.password": "${file:/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.database.port": "1521",
+    "cdc.database.sid": "ORCLCDB",
+    "cdc.database.user": "C##MYUSER",
+    "cdc.heartbeat.interval.ms": "30000",
+    "cdc.key.missing": "none",
+    "cdc.lob.mode": "topic",
+    "cdc.lob.topic.template": "orders-cdc.lob.${pdb}.${schema}.${table}.${column}",
+    "cdc.on.decode.error": "fail",
+    "cdc.output.confluent.before.state.field": "before",
+    "cdc.output.confluent.commit.scn.field": "meta.commit",
+    "cdc.output.confluent.date.mapping": "timestamp",
+    "cdc.output.confluent.key.template": "${primaryKeyStruct}",
+    "cdc.output.confluent.numeric.default.scale": "4",
+    "cdc.output.confluent.numeric.mapping": "precision_only",
+    "cdc.output.confluent.op.type.field": "header:operation",
+    "cdc.output.format": "confluent",
+    "cdc.snapshot.mode": "none",
+    "cdc.start.scn": "1000",
+    "cdc.tables.case.sensitive": "true",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\..*",
+    "cdc.tombstones.on.delete": "true",
+    "cdc.topic.prefix": "orders-cdc",
+    "cdc.topic.template": "${pdb}.${schema}.${table}"
+  },
+  "next_steps": [
+    "Resolve the follow-ups, above all the record format, then run `oracle-cdc-doctor check --config config.json`.",
+    "Stop the Confluent connector with `PUT /connectors/orders-cdc/stop`; pausing is not enough, the offset must be final.",
+    "Run `takeover_scn.py --target-config config.json` to read the Confluent offset, check the archived logs and write `cdc.start.scn` into the configuration.",
+    "Create `orders-cdc-oso` from that configuration. With no stored offset it starts streaming at `cdc.start.scn`.",
+    "Point dashboards and alerts at the connector's JMX metrics; the names differ from Confluent's (see the metrics reference).",
+    "Retire the old redo log and internal topics after the agreed retention; keep table and LOB topics for the Confluent same-topics path."
+  ]
+}

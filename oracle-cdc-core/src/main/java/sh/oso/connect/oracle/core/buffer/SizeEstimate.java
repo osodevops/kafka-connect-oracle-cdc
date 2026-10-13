@@ -30,7 +30,15 @@ public final class SizeEstimate {
     long n = BASE + (c.rowId() == null ? 0 : c.rowId().length() * 2L);
     n += of(c.before());
     n += of(c.after());
+    if (c.sql() != null) {
+      n += 64 + length(c.sql().redo()) * 2L + length(c.sql().undo()) * 2L;
+    }
+    for (String column : c.touchedLobs()) n += 48 + column.length() * 2L;
     return n;
+  }
+
+  private static int length(String s) {
+    return s == null ? 0 : s.length();
   }
 
   private static long of(Map<String, Object> image) {

@@ -81,6 +81,30 @@ class DdlEngineTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void truncateIsDeliveredBetweenItsSurroundingCommitsAndDoesNotChangeTheLayout() throws Exception {
+    TxKey before = fake.tx(1, 1, 1);
+    TxKey truncate = fake.tx(1, 1, 2);
+    TxKey after = fake.tx(1, 1, 3);
+    fake.start(before, "APP")
+        .dmlWithRowId(before, Operation.INSERT, T, insert(1, "NAME", "before"), "R1")
+        .commit(before);
+    fake.start(truncate, "APP").ddl(truncate, T, 100, "truncate table app.ddlt").commit(truncate);
+    fake.start(after, "APP")
+        .dmlWithRowId(after, Operation.INSERT, T, insert(2, "NAME", "after"), "R2")
+        .commit(after);
+    run(engine().withTruncate(true));
+    assertThat(sink.committed).hasSize(3);
+    assertThat(sink.committed.stream().flatMap(t -> t.events().stream()).map(c -> c.op()).toList())
+        .containsExactly(Operation.INSERT, Operation.TRUNCATE, Operation.INSERT);
+    assertThat(sink.committed.get(1).key()).isEqualTo(truncate);
+    assertThat(sink.committed.get(1).events().get(0).before()).isNull();
+    assertThat(sink.committed.get(1).events().get(0).after()).isNull();
+    assertThat(sink.committed.get(1).events().get(0).schemaVersion()).isEqualTo(1);
+    assertThat(changes).isEmpty();
+  }
+
+  @Test
   void rowsAfterADdlDecodeWithTheNewVersion() throws Exception {
     TxKey a = fake.tx(1, 1, 1);
     TxKey d = fake.tx(1, 1, 2);

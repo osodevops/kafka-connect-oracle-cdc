@@ -49,7 +49,6 @@ import sh.oso.connect.oracle.core.schema.SchemaRegistry;
 import sh.oso.connect.oracle.core.schema.TableSchema;
 import sh.oso.connect.oracle.core.testkit.InMemorySchemaStore;
 import sh.oso.connect.oracle.dlq.DecodeDlqWriter;
-import sh.oso.connect.oracle.envelope.DebeziumEnvelope;
 import sh.oso.connect.oracle.envelope.TopicRouter;
 import sh.oso.connect.oracle.heartbeat.HeartbeatEmitter;
 import sh.oso.connect.oracle.journal.JournalRecords;
@@ -68,15 +67,33 @@ class RecordQueueSinkTest {
   }
 
   static RecordQueueSink sink(Position base) {
-    OracleCdcSourceConnectorConfig config =
-        new OracleCdcSourceConnectorConfig(OracleCdcSourceConnectorConfigTest.minimal());
+    return sink(base, false);
+  }
+
+  static RecordQueueSink sink(Position base, boolean confluent) {
+    return sink(base, confluent, false);
+  }
+
+  static RecordQueueSink sink(Position base, boolean confluent, boolean truncate) {
+    return sink(base, confluent, truncate, false);
+  }
+
+  static RecordQueueSink sink(
+      Position base, boolean confluent, boolean truncate, boolean lobTopics) {
+    Map<String, String> props = OracleCdcSourceConnectorConfigTest.minimal();
+    props.put(OracleCdcSourceConnectorConfig.TOPIC_TEMPLATE, "${prefix}.${pdb}.${schema}.${table}");
+    props.put(OracleCdcSourceConnectorConfig.TRUNCATE_EMIT, Boolean.toString(truncate));
+    if (confluent) props.put(OracleCdcSourceConnectorConfig.OUTPUT_FORMAT, "confluent");
+    if (lobTopics) props.put(sh.oso.connect.oracle.core.config.CoreConfig.LOB_MODE, "topic");
+    OracleCdcSourceConnectorConfig config = new OracleCdcSourceConnectorConfig(props);
     InMemorySchemaStore store = new InMemorySchemaStore();
     store.save(
         new TableSchema(
             T,
             List.of(
                 ColumnSpec.of("ID", 1, OracleType.NUMBER),
-                ColumnSpec.of("NAME", 2, OracleType.VARCHAR2)),
+                ColumnSpec.of("NAME", 2, OracleType.VARCHAR2),
+                ColumnSpec.of("C", 3, OracleType.CLOB)),
             List.of("ID"),
             KeySource.PRIMARY_KEY,
             true,
@@ -94,8 +111,8 @@ class RecordQueueSinkTest {
     SchemaRegistry registry =
         new SchemaRegistry(
             store, none, new KeySelector(Map.of(), KeySelector.MissingKeyPolicy.FAIL));
-    DebeziumEnvelope envelope =
-        new DebeziumEnvelope(
+    sh.oso.connect.oracle.envelope.RecordFormat envelope =
+        sh.oso.connect.oracle.envelope.RecordFormat.create(
             config,
             new TopicRouter(config.topicTemplate(true), config.topicPrefix(), "FREE"),
             "FREE");
@@ -147,6 +164,118 @@ class RecordQueueSinkTest {
       out.add(PositionCodec.read(r.sourceOffset()));
     }
     return out;
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void onlyTheFinalLobRecordAcknowledgesAKeyChangeAndClosesItsKafkaTransaction() throws Exception {
+    RecordQueueSink sink = sink(Position.initial(100, IDENT), true, false, true);
+    sink.exactlyOnce(100, Long.MAX_VALUE);
+    Map<String, Object> before =
+        Map.of("ID", java.math.BigDecimal.ONE, "NAME", "n", "C", "complete");
+    Map<String, Object> after =
+        Map.of("ID", new java.math.BigDecimal(2), "NAME", "n", "C", "complete");
+    RowChange change =
+        new RowChange(
+            T, Operation.UPDATE, before, after, false, "R1", rba(120, 20), K1, Instant.EPOCH, 1);
+    CommittedTransaction tx =
+        new CommittedTransaction(
+            K1,
+            change.id(),
+            rba(110, 10),
+            rba(130, 30),
+            Instant.EPOCH,
+            1,
+            "APP",
+            null,
+            List.of(change));
+    sink.committed(tx, 0, ResumePoint.single(1, tx.commitId()));
+    List<RecordQueueSink.Queued> records = sink.drainQueued(100, 0);
+    assertThat(records).hasSize(5);
+    for (int i = 0; i < 4; i++) {
+      assertThat(PositionCodec.read(records.get(i).record().sourceOffset()).eventIndex()).isZero();
+      assertThat(records.get(i).boundary()).isFalse();
+    }
+    assertThat(PositionCodec.read(records.get(4).record().sourceOffset()).eventIndex())
+        .isEqualTo(1);
+    assertThat(records.get(4).boundary()).isTrue();
+    assertThat(records.get(3).record().value()).isNull();
+    assertThat(records.get(4).record().value()).isNotNull();
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void anAcknowledgedTruncateAdvancesOnlyItsOwnCommitInBothFormats() throws Exception {
+    for (boolean confluent : List.of(false, true)) {
+      RecordQueueSink sink = sink(Position.initial(100, IDENT), confluent, true);
+      sink.exactlyOnce(100, Long.MAX_VALUE);
+      RowChange truncate =
+          new RowChange(
+              T, Operation.TRUNCATE, null, null, false, null, rba(120, 20), K1, Instant.EPOCH, 1);
+      CommittedTransaction tx =
+          new CommittedTransaction(
+              K1,
+              truncate.id(),
+              rba(110, 10),
+              rba(130, 30),
+              Instant.EPOCH,
+              1,
+              "APP",
+              null,
+              List.of(truncate));
+      sink.committed(tx, 0, ResumePoint.single(1, tx.commitId()));
+      List<RecordQueueSink.Queued> records = sink.drainQueued(100, 0);
+      assertThat(records).hasSize(1);
+      assertThat(records.get(0).record().key()).isNull();
+      assertThat(records.get(0).boundary()).isTrue();
+      Position offset = PositionCodec.read(records.get(0).record().sourceOffset());
+      assertThat(offset.eventIndex()).isEqualTo(1);
+      assertThat(offset.lastCommitKey()).isEqualTo(K1);
+      assertThat(offset.resumeScn()).isEqualTo(130);
+    }
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2544")
+  void anEmptyTailNeverAdvancesPastUnacknowledgedRowsAndStillClosesTheKafkaTransaction()
+      throws Exception {
+    RecordQueueSink sink = sink(Position.initial(100, IDENT), true);
+    sink.exactlyOnce(100, Long.MAX_VALUE);
+    CommittedTransaction original = tx(K1, 1, rba(130, 30), 20, 21);
+    RowChange tail = original.events().get(1);
+    RowChange lobOnly =
+        new RowChange(
+            tail.table(),
+            Operation.UPDATE,
+            tail.after(),
+            tail.after(),
+            false,
+            sh.oso.connect.oracle.core.model.RowIds.lobGroup("R1", "1"),
+            tail.id(),
+            tail.tx(),
+            tail.timestamp());
+    CommittedTransaction tx =
+        new CommittedTransaction(
+            original.key(),
+            original.firstCaptured(),
+            original.startId(),
+            original.commitId(),
+            original.commitTimestamp(),
+            1,
+            "APP",
+            null,
+            List.of(original.events().get(0), lobOnly));
+    sink.committed(tx, 0, ResumePoint.single(1, tx.commitId()));
+    List<RecordQueueSink.Queued> queued = sink.drainQueued(100, 0);
+    assertThat(queued).hasSize(2);
+    assertThat(queued.get(0).record().topic()).isEqualTo("cdc.FREEPDB1.APP.ORDERS");
+    assertThat(PositionCodec.read(queued.get(0).record().sourceOffset()).eventIndex()).isEqualTo(1);
+    assertThat(queued.get(0).boundary()).isFalse();
+    assertThat(queued.get(1).record().topic()).isEqualTo("cdc.cdc.heartbeat");
+    assertThat(PositionCodec.read(queued.get(1).record().sourceOffset()).eventIndex()).isEqualTo(2);
+    assertThat(PositionCodec.read(queued.get(1).record().sourceOffset()).resumeScn())
+        .isEqualTo(130);
+    assertThat(queued.get(1).boundary()).isTrue();
   }
 
   @Test

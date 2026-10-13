@@ -67,6 +67,140 @@ class LobEngineTest {
   long safeEnd;
 
   @Test
+  void topicModeReselectsTouchedLobsAndEveryKeyChangeLobButNeverUnchangedColumns()
+      throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NAME\" = 'n'", 5, "five"), R5);
+    fake.dmlWithRowId(tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "n"), 101, "tail"), R5);
+    fake.dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"ID\" = '9'", 5, "n"), R5).commit(tx);
+    List<List<String>> asked = new ArrayList<>();
+    CaptureEngine engine =
+        engine(LobAssembler.Mode.RESELECT, 1 << 20, true)
+            .withLobTopics(true)
+            .withReselector(
+                (schema, change, scn, columns) -> {
+                  asked.add(columns);
+                  Map<String, Object> values = new java.util.HashMap<>();
+                  for (String column : columns)
+                    values.put(column, column.equals("B") ? new byte[] {1} : "complete");
+                  return values;
+                });
+    run(engine);
+    List<RowChange> changes = sink.committed.get(0).events();
+    assertThat(changes).hasSize(3);
+    assertThat(changes.get(0).touchedLobs()).isEmpty();
+    assertThat(changes.get(1).touchedLobs()).containsExactly("C");
+    assertThat(changes.get(1).after()).containsEntry("C", "complete").doesNotContainKey("NC");
+    assertThat(changes.get(2).after()).containsKeys("C", "NC", "B");
+    assertThat(asked).hasSize(2);
+    assertThat(asked.get(0)).containsExactly("C");
+    assertThat(asked.get(1)).containsExactly("C", "NC", "B");
+  }
+
+  @Test
+  void legacyLobDeliveryKeepsItsJournalPayloadWithoutTopicTracking() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NC\" = NULL", 5, "five"), R5);
+    fake.dmlWithRowId(
+            tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 1, "complete"), R5)
+        .commit(tx);
+    run(engine(LobAssembler.Mode.INLINE, 1 << 20, true));
+    for (RowChange change : sink.committed.get(0).events()) {
+      assertThat(change.touchedLobs()).isEmpty();
+      RowChange legacy =
+          new RowChange(
+              change.table(),
+              change.op(),
+              change.before(),
+              change.after(),
+              change.partial(),
+              change.rowId(),
+              change.id(),
+              change.tx(),
+              change.timestamp(),
+              change.schemaVersion(),
+              change.sql());
+      assertThat(change).isEqualTo(legacy);
+    }
+  }
+
+  @Test
+  void confluentRowsTrackSmallLobAssignmentsEvenWithoutSeparateTopics() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"C\" = 'new'", 5, "five"), R5)
+        .commit(tx);
+    run(engine(LobAssembler.Mode.SKIP, 1 << 20, true).withLobTracking(true));
+    assertThat(sink.committed.get(0).events().get(0).touchedLobs()).containsExactly("C");
+  }
+
+  @Test
+  void lobNullAssignmentsAndAssemblyRetainTheirTouchedColumns() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NC\" = NULL", 5, "five"), R5);
+    fake.dmlWithRowId(
+            tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 1, "complete"), R5)
+        .commit(tx);
+    run(engine(LobAssembler.Mode.INLINE, 1 << 20, true).withLobTopics(true));
+    assertThat(sink.committed.get(0).events()).hasSize(2);
+    assertThat(sink.committed.get(0).events().get(0).touchedLobs()).containsExactly("NC");
+    assertThat(sink.committed.get(0).events().get(1).touchedLobs()).containsExactly("C");
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2504")
+  void aMergedLobGroupRetainsTheCommittedCallBeforeItsSavepointRollback() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 101, "kept"), R5);
+    fake.dmlWithRowId(
+        tx, Operation.LOB_WRITE, DOCS, write("C", where(5, "five"), 105, "undone"), R5);
+    fake.undo(tx, Operation.UPDATE, DOCS, undoUpdate("\"C\" = EMPTY_CLOB()"), R5).commit(tx);
+    List<List<String>> selected = new ArrayList<>();
+    run(
+        engine(LobAssembler.Mode.RESELECT, 1 << 20, true)
+            .withLobTopics(true)
+            .withReselector(
+                (schema, change, scn, columns) -> {
+                  selected.add(columns);
+                  return Map.of("C", "final committed content");
+                }));
+    assertThat(sink.committed.get(0).events()).hasSize(1);
+    RowChange recovered = sink.committed.get(0).events().get(0);
+    assertThat(selected).containsExactly(List.of("C"));
+    assertThat(recovered.after()).containsEntry("C", "final committed content");
+  }
+
+  @Test
+  @org.junit.jupiter.api.Tag("dbz-2504")
+  void topicModeResolvesAnAmbiguousRollbackToOnlyItsFinalTouchedLobValue() throws Exception {
+    TxKey tx = fake.tx(1, 1, 1);
+    fake.start(tx, "APP")
+        .dmlWithRowId(tx, Operation.UPDATE, DOCS, update("\"NAME\" = 'kept'", 5, "five"), R5);
+    fake.dmlWithRowId(
+        tx,
+        Operation.LOB_WRITE,
+        DOCS,
+        write("C", where(5, "kept"), 1, "undone"),
+        RowIds.PLACEHOLDER);
+    fake.undo(tx, Operation.UPDATE, DOCS, undoUpdate("\"C\" = 'small five'"), R5).commit(tx);
+    run(
+        engine(LobAssembler.Mode.RESELECT, 1 << 20, true)
+            .withLobTopics(true)
+            .withReselector(
+                (schema, change, scn, columns) -> {
+                  assertThat(columns).containsExactly("C");
+                  return Map.of("C", "small five");
+                }));
+    assertThat(sink.committed.get(0).events()).hasSize(2);
+    assertThat(RowIds.isInert(sink.committed.get(0).events().get(1).rowId())).isTrue();
+    assertThat(sink.committed.get(0).events().get(1).after()).containsEntry("C", "small five");
+  }
+
+  @Test
   void aSavepointRollbackOfLobWritesKeepsTheEarlierUpdateOfTheSameRow() throws Exception {
     TxKey a = fake.tx(1, 1, 1);
     fake.start(a, "APP");

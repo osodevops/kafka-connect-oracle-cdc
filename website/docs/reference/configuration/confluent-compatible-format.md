@@ -1,0 +1,32 @@
+---
+title: "Confluent-compatible format"
+description: "Confluent-compatible format properties of the OSO CDC Connector for Oracle Database."
+sidebar_position: 15
+---
+
+# Confluent-compatible format properties
+
+Generated from the connector's `ConfigDef` by `ConfigDocsGeneratorTest`; do not edit by hand.
+
+| Property | Type | Default | Importance | Description |
+|---|---|---|---|---|
+| `cdc.output.confluent.table.name.field` | string | `table` | low | Name of the field that holds the fully qualified table name, PDB (or database), owner and table separated by dots. Confluent's output.table.name.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.scn.field` | string | `scn` | low | Name of the field that holds the SCN of the change, or the snapshot SCN for a snapshot row. Confluent's output.scn.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.commit.scn.field` | string | empty | low | Name of the field that holds the commit SCN of the change's transaction, or the snapshot SCN for a snapshot row. Confluent's output.commit.scn.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.op.type.field` | string | `op_type` | low | Name of the field that holds the operation, one of the op.type values. Confluent's output.op.type.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.op.ts.field` | string | `op_ts` | low | Name of the field that holds the time of the change in the redo, as milliseconds since the epoch; null for a snapshot row. Confluent's output.op.ts.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.current.ts.field` | string | `current_ts` | low | Name of the field that holds the time the connector wrote the record, as milliseconds since the epoch. Confluent's output.current.ts.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.row.id.field` | string | `row_id` | low | Name of the field that holds the ROWID of the changed row; null for a snapshot row. Confluent's output.row.id.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.username.field` | string | `username` | low | Name of the field that holds the database user who made the change; null for a snapshot row. Confluent's output.username.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.redo.field` | string | empty | low | Name of the field that holds the SQL_REDO text LogMiner gave for the change. Never filled for a table cdc.columns.exclude could touch. Confluent's output.redo.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.undo.field` | string | empty | low | Name of the field that holds the SQL_UNDO text LogMiner gave for the change. Never filled for a table cdc.columns.exclude could touch. Confluent's output.undo.field. Empty leaves the field out. A name starting with header: puts the value in a record header of that name instead; a dotted name such as meta.op_ts puts it in a nested struct. |
+| `cdc.output.confluent.before.state.field` | string | empty | low | Name of a field that holds, in update records only, the row before the change as a struct of the table's columns. Empty leaves it out. A plain name: neither header: nor a dotted path. Confluent's output.before.state.field. |
+| `cdc.output.confluent.op.type.read.value` | string | `R` | low | The operation value of snapshot rows. |
+| `cdc.output.confluent.op.type.insert.value` | string | `I` | low | The operation value of inserts. |
+| `cdc.output.confluent.op.type.update.value` | string | `U` | low | The operation value of updates. |
+| `cdc.output.confluent.op.type.delete.value` | string | `D` | low | The operation value of deletes. |
+| `cdc.output.confluent.op.type.truncate.value` | string | `T` | low | The operation value of truncates. |
+| `cdc.output.confluent.key.template` | string | `${primaryKeyStructOrValue}` | medium | The record key. $\{primaryKeyStructOrValue\}: the key column's value for a one-column key, otherwise a struct of the key columns. $\{primaryKeyStruct\}: always a struct. $\{primaryKey\}: the key values joined with underscores, as an optional string. A table without a key has a null key. Confluent's key.template. |
+| `cdc.output.confluent.numeric.mapping` | string | `none` | medium | How NUMBER columns are represented, as Confluent's numeric.mapping. none: a Connect Decimal with the column's scale, numeric.default.scale when unconstrained. best_fit_*: integers by declared precision for zero or negative scale; double for positive scale or unconstrained NUMBER; wider integers use Decimal, double or string according to the suffix. precision_only: integers for scale zero only, Decimal otherwise. Floating-point mappings can lose precision; use none for exact decimals. |
+| `cdc.output.confluent.numeric.default.scale` | int | `127` | low | The Decimal scale of a NUMBER column declared without precision and scale. Confluent's numeric.default.scale. A value needing rounding stops the task with CDC-3001, in snapshots and streaming; the connector never rounds it silently. |
+| `cdc.output.confluent.date.mapping` | string | `date` | low | DATE columns as a Connect Date, dropping the time of day (date), or as a Connect Timestamp keeping it (timestamp). Confluent's oracle.date.mapping. |

@@ -42,6 +42,7 @@ import net.jqwik.api.Provide;
 import org.junit.jupiter.api.Test;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RedoRecordId;
+import sh.oso.connect.oracle.core.model.RedoText;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.model.TxKey;
@@ -51,6 +52,92 @@ class RowChangeCodecTest {
 
   static final TableId T = new TableId("FREEPDB1", "APP", "ORDERS");
   static final TxKey TX = new TxKey(3, new Xid(7, 21, 9001));
+
+  @Test
+  void touchedLobColumnsSurviveSpillWithAndWithoutSqlAndLegacyPayloadsRemainUnchanged()
+      throws Exception {
+    RowChange base =
+        new RowChange(
+            T,
+            Operation.UPDATE,
+            Map.of("ID", BigDecimal.ONE),
+            Map.of("ID", BigDecimal.ONE),
+            false,
+            "R1",
+            new RedoRecordId(100, "r", 0),
+            TX,
+            Instant.EPOCH,
+            1);
+    for (RedoText sql : java.util.Arrays.asList(null, new RedoText("update", "undo"))) {
+      RowChange change = base.withTouchedLobs(java.util.Set.of("C", "B")).withSql(sql);
+      assertThat(change.touchedLobs()).containsExactlyInAnyOrder("C", "B");
+      assertThat(RowChangeCodec.decode(RowChangeCodec.encode(change))).isEqualTo(change);
+      assertThat(SizeEstimate.of(change)).isGreaterThan(SizeEstimate.of(base));
+    }
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(base)).touchedLobs()).isEmpty();
+  }
+
+  @Test
+  void truncateIsAppendedWithoutChangingTheLegacyOperationOrdinals() throws Exception {
+    String[] legacy = {
+      "INTERNAL",
+      "INSERT",
+      "DELETE",
+      "UPDATE",
+      "DDL",
+      "START",
+      "COMMIT",
+      "SELECT_LOB_LOCATOR",
+      "LOB_WRITE",
+      "LOB_TRIM",
+      "SELECT_FOR_UPDATE",
+      "LOB_ERASE",
+      "MISSING_SCN",
+      "ROLLBACK",
+      "UNSUPPORTED",
+      "UNKNOWN"
+    };
+    for (int i = 0; i < legacy.length; i++)
+      assertThat(Operation.valueOf(legacy[i]).ordinal()).isEqualTo(i);
+    assertThat(Operation.TRUNCATE.ordinal()).isEqualTo(legacy.length);
+    RowChange change =
+        new RowChange(
+            T,
+            Operation.TRUNCATE,
+            null,
+            null,
+            false,
+            null,
+            new RedoRecordId(100, "r", 0),
+            TX,
+            Instant.EPOCH,
+            1);
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(change))).isEqualTo(change);
+  }
+
+  @Test
+  void sqlTextSurvivesSpillAndLegacyPayloadWithoutItStillDecodes() throws Exception {
+    RowChange legacy =
+        new RowChange(
+            T,
+            Operation.INSERT,
+            null,
+            Map.of("ID", BigDecimal.ONE),
+            false,
+            "R1",
+            new RedoRecordId(5, "x", 0),
+            TX,
+            null,
+            3);
+    RowChange withSql = legacy.withSql(new RedoText("insert into t values (1);", "delete from t;"));
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(withSql))).isEqualTo(withSql);
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(legacy))).isEqualTo(legacy);
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(legacy)).sql()).isNull();
+    assertThat(SizeEstimate.of(withSql)).isGreaterThan(SizeEstimate.of(legacy));
+    RowChange undoOnly = legacy.withSql(new RedoText(null, "delete from t;"));
+    assertThat(RowChangeCodec.decode(RowChangeCodec.encode(undoOnly))).isEqualTo(undoOnly);
+    assertThat(SizeEstimate.of(undoOnly)).isGreaterThan(SizeEstimate.of(legacy));
+  }
 
   @Test
   void roundTripsEveryTypeTheDecoderProduces() throws Exception {

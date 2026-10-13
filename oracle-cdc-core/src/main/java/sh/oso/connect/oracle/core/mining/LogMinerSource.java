@@ -50,6 +50,11 @@ public interface LogMinerSource extends AutoCloseable {
     return false;
   }
 
+  /** Whether the event adapter restores SQL terminators after joining continuation rows. */
+  default boolean restoresSqlDelimiters() {
+    return false;
+  }
+
   /** PGA bytes of the mining session's server process, or -1 when not readable. */
   long pgaUsedBytes() throws SQLException;
 

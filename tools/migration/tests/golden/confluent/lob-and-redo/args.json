@@ -1,1 +1,11 @@
-{"eos": "enabled", "argv": ["--topic-prefix", "orders", "--start-scn", "2169287"]}
+{
+  "eos": "enabled",
+  "argv": [
+    "--topic-prefix",
+    "orders",
+    "--start-scn",
+    "2169287",
+    "--format",
+    "debezium"
+  ]
+}

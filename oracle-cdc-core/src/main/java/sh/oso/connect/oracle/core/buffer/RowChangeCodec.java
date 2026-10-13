@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RedoRecordId;
+import sh.oso.connect.oracle.core.model.RedoText;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.model.TableId;
 import sh.oso.connect.oracle.core.model.TxKey;
@@ -89,6 +90,18 @@ final class RowChangeCodec {
         out.writeInt(c.timestamp().getNano());
       }
       out.writeInt(c.schemaVersion()); // trailing: payloads written before P1-17 end above
+      // trailing again: payloads written before ADR-0028 end above, and older readers stop there
+      if (c.sql() != null || !c.touchedLobs().isEmpty()) {
+        out.writeBoolean(c.sql() != null);
+        if (c.sql() != null) {
+          writeString(out, c.sql().redo());
+          writeString(out, c.sql().undo());
+        }
+        if (!c.touchedLobs().isEmpty()) {
+          out.writeInt(c.touchedLobs().size());
+          for (String column : new java.util.TreeSet<>(c.touchedLobs())) writeString(out, column);
+        }
+      }
     } catch (IOException e) {
       throw new IllegalStateException("in-memory encode failed", e);
     }
@@ -110,7 +123,19 @@ final class RowChangeCodec {
         ts = Instant.ofEpochSecond(in.readLong(), in.readInt());
       }
       int version = in.available() >= Integer.BYTES ? in.readInt() : 0;
-      return new RowChange(table, op, before, after, partial, rowId, id, tx, ts, version);
+      RedoText sql = null;
+      if (in.available() > 0 && in.readBoolean()) {
+        sql = new RedoText(readString(in), readString(in));
+      }
+      java.util.Set<String> touched = new java.util.LinkedHashSet<>();
+      if (in.available() > 0) {
+        int count = in.readInt();
+        if (count < 0 || count > in.available() / Integer.BYTES)
+          throw new IOException("Invalid LOB column count");
+        for (int i = 0; i < count; i++) touched.add(readString(in));
+      }
+      return new RowChange(
+          table, op, before, after, partial, rowId, id, tx, ts, version, sql, touched);
     }
   }
 

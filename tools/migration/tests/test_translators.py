@@ -211,7 +211,7 @@ def test_confluent_regex_that_cannot_lose_its_database_is_manual(tmp_path, capsy
 
 def test_confluent_record_format_follow_up_comes_first(tmp_path, capsys):
     cfg = {"connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector"}
-    code, _, report = run(CONFLUENT, tmp_path, cfg, capsys=capsys)
+    code, _, report = run(CONFLUENT, tmp_path, cfg, "--format", "debezium", capsys=capsys)
     assert report["follow_ups"][0]["text"].startswith("This release publishes the Debezium")
     assert code == EXIT_FOLLOW_UPS
 
@@ -221,7 +221,9 @@ def test_confluent_connector_name_in_template_becomes_literal(tmp_path, capsys):
         "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
         "table.topic.name.template": "${connectorName}.${tableName}",
     }
-    _, out, _ = run(CONFLUENT, tmp_path, {"name": "cx", "config": cfg}, capsys=capsys)
+    _, out, _ = run(
+        CONFLUENT, tmp_path, {"name": "cx", "config": cfg}, "--format", "debezium", capsys=capsys
+    )
     assert out["config"]["cdc.topic.template"] == "${prefix}.cx.${table}"
 
 
@@ -246,3 +248,51 @@ def test_without_a_start_scn_the_report_asks_for_the_takeover(tmp_path, capsys):
     assert "cdc.start.scn" not in out["config"]
     assert any("takeover_scn.py" in f["text"] for f in report["follow_ups"])
     assert code == EXIT_FOLLOW_UPS
+
+
+def test_same_topic_migration_pins_keyless_behaviour_and_matching_avro_journal_codec(
+    tmp_path, capsys
+):
+    from oso_cdc_migration.configio import load
+    from oso_cdc_migration.confluent import SPEC
+    from oso_cdc_migration.translator_cli import translator_main
+
+    source = tmp_path / "source.json"
+    config = {
+        "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+        "oracle.server": "db",
+        "oracle.sid": "FREE",
+        "oracle.pdb.name": "FREEPDB1",
+        "oracle.username": "CDC",
+        "table.inclusion.regex": "FREEPDB1[.]APP[.].*",
+    }
+    for side in ("key", "value"):
+        config[side + ".converter"] = "io.confluent.connect.avro.AvroConverter"
+        config[side + ".converter.schema.registry.url"] = "http://registry:8081"
+    source.write_text(json.dumps({"name": "old", "config": config}))
+    output = tmp_path / "target.json"
+    code = translator_main(
+        SPEC, ["--input", str(source), "--output", str(output), "--start-scn", "1000"]
+    )
+    assert code in (0, 2)
+    target = load(str(output)).config
+    assert target["cdc.key.missing"] == "none"
+    assert target["cdc.journal.converter"] == "io.confluent.connect.avro.AvroConverter"
+    assert target["cdc.journal.converter.schema.registry.url"] == "http://registry:8081"
+
+
+def test_unknown_confluent_output_property_is_manual_and_never_silently_ignored(tmp_path, capsys):
+    _, out, report = run(
+        CONFLUENT,
+        tmp_path,
+        {
+            "connector.class": "io.confluent.connect.oracle.cdc.OracleCdcSourceConnector",
+            "oracle.server": "db",
+            "oracle.sid": "FREE",
+            "oracle.username": "CDC",
+            "output.unknown.field": "custom",
+        },
+        capsys=capsys,
+    )
+    assert by_key(report)["output.unknown.field"]["classification"] == "manual"
+    assert "cdc.output.confluent.unknown.field" not in out["config"]

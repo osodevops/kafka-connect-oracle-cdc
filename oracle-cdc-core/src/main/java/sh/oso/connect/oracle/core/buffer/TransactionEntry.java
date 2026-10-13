@@ -172,16 +172,17 @@ final class TransactionEntry {
   /** A LOB group after an undo: the row as it was, its LOB values unavailable (ADR-0015). */
   static RowChange inert(RowChange c) {
     return new RowChange(
-        c.table(),
-        sh.oso.connect.oracle.core.model.Operation.UPDATE,
-        c.before(),
-        c.before(),
-        c.partial(),
-        RowIds.inert(c.rowId()),
-        c.id(),
-        c.tx(),
-        c.timestamp(),
-        c.schemaVersion());
+            c.table(),
+            sh.oso.connect.oracle.core.model.Operation.UPDATE,
+            c.before(),
+            c.before(),
+            c.partial(),
+            RowIds.inert(c.rowId()),
+            c.id(),
+            c.tx(),
+            c.timestamp(),
+            c.schemaVersion())
+        .withTouchedLobs(c.touchedLobs());
   }
 
   /**

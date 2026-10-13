@@ -37,6 +37,18 @@ class LogMinerRowAdapterTest {
 
   private static LogMinerRow row(
       long scn, int code, boolean rollback, long dataObj, String table, String sql, boolean csf) {
+    return row(scn, code, rollback, dataObj, table, sql, csf, null);
+  }
+
+  private static LogMinerRow row(
+      long scn,
+      int code,
+      boolean rollback,
+      long dataObj,
+      String table,
+      String sql,
+      boolean csf,
+      String sqlUndo) {
     return new LogMinerRow(
         scn,
         900,
@@ -69,7 +81,30 @@ class LogMinerRowAdapterTest {
         999,
         1,
         sql,
-        null);
+        sqlUndo);
+  }
+
+  @Test
+  void requestedSqlTerminatesBothJoinedStatementsEvenWhenUndoIsOnlyInTheFirstFragment() {
+    LogMinerRowAdapter adapter =
+        new LogMinerRowAdapter(Map.of(new ObjectKey(3, 1001L), ORDERS), true);
+    assertThat(
+            adapter.accept(
+                row(
+                    1,
+                    1,
+                    false,
+                    1001,
+                    "ORDERS",
+                    "insert into t values ('first",
+                    true,
+                    "delete from t where ROWID = 'R'")))
+        .isNull();
+    MiningEvent.Dml complete =
+        (MiningEvent.Dml) adapter.accept(row(1, 1, false, 1001, "ORDERS", "last')", false));
+    assertThat(complete.sqlRedo()).isEqualTo("insert into t values ('firstlast');");
+    assertThat(complete.sqlUndo()).isEqualTo("delete from t where ROWID = 'R';");
+    assertThat(complete.id().scn()).isEqualTo(1);
   }
 
   @Test

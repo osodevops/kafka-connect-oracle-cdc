@@ -74,6 +74,7 @@ public final class LobAssembler {
   private ColumnFilter excluded = ColumnFilter.none();
   private final Map<TxKey, Open> open = new HashMap<>();
   private final Map<TxKey, Oversize> oversize = new HashMap<>();
+  private boolean trackLobs;
   private long counter;
   private long merged;
   private long fragments;
@@ -81,6 +82,12 @@ public final class LobAssembler {
   public LobAssembler(Mode mode, long maxBytes) {
     this.mode = Objects.requireNonNull(mode, "mode");
     this.maxBytes = maxBytes;
+  }
+
+  /** Separate-topic tracking is opt-in; legacy journal records retain their original bytes. */
+  public LobAssembler tracking(boolean enabled) {
+    this.trackLobs = enabled;
+    return this;
   }
 
   /** SRC-SEL-2: LOB columns whose content is never kept, whatever the mode. */
@@ -234,32 +241,41 @@ public final class LobAssembler {
     if (o.piece == null) {
       int nonLob = sh.oso.connect.oracle.core.decode.RowDecoder.nonLobColumns(o.schema, excluded);
       return new RowChange(
-          o.schema.table(),
-          Operation.UPDATE,
-          o.image,
-          after,
-          o.image.size() < nonLob,
-          RowIds.lobGroup(o.realRowId, unique),
-          o.id,
-          o.tx,
-          o.timestamp,
-          o.schema.version());
+              o.schema.table(),
+              Operation.UPDATE,
+              o.image,
+              after,
+              o.image.size() < nonLob,
+              RowIds.lobGroup(o.realRowId, unique),
+              o.id,
+              o.tx,
+              o.timestamp,
+              o.schema.version())
+          .withTouchedLobs(trackLobs ? o.lobs.keySet() : java.util.Set.of());
     }
     String rowId =
         locator != null && !RowIds.isPlaceholder(locator.rowId())
             ? locator.rowId()
             : RowIds.rowPiece(o.piece.rowId(), unique);
     return new RowChange(
-        o.piece.table(),
-        o.piece.op(),
-        o.piece.before(),
-        after,
-        o.piece.partial(),
-        rowId,
-        o.piece.id(),
-        o.piece.tx(),
-        o.piece.timestamp(),
-        o.piece.schemaVersion());
+            o.piece.table(),
+            o.piece.op(),
+            o.piece.before(),
+            after,
+            o.piece.partial(),
+            rowId,
+            o.piece.id(),
+            o.piece.tx(),
+            o.piece.timestamp(),
+            o.piece.schemaVersion(),
+            o.piece.sql())
+        .withTouchedLobs(trackLobs ? touched(o) : java.util.Set.of());
+  }
+
+  private static java.util.Set<String> touched(Open open) {
+    java.util.Set<String> out = new java.util.HashSet<>(open.piece.touchedLobs());
+    out.addAll(open.lobs.keySet());
+    return out;
   }
 
   private String unique(RedoRecordId id) {

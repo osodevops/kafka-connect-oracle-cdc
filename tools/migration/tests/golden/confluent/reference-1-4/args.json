@@ -1,1 +1,7 @@
-{"eos": "disabled"}
+{
+  "eos": "disabled",
+  "argv": [
+    "--format",
+    "debezium"
+  ]
+}

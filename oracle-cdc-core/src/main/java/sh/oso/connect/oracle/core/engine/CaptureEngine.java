@@ -38,6 +38,7 @@ import sh.oso.connect.oracle.core.mining.step.StepCursor;
 import sh.oso.connect.oracle.core.mining.step.StepOutcome;
 import sh.oso.connect.oracle.core.mining.step.StepPlan;
 import sh.oso.connect.oracle.core.mining.step.StepRunner;
+import sh.oso.connect.oracle.core.model.Operation;
 import sh.oso.connect.oracle.core.model.RowChange;
 import sh.oso.connect.oracle.core.position.Position;
 import sh.oso.connect.oracle.core.position.ResumeCalculator;
@@ -100,6 +101,10 @@ public final class CaptureEngine {
   private final LobAssembler lobs;
   private LobReselector reselector;
   private ColumnFilter excluded = ColumnFilter.none();
+  private volatile boolean keepSql;
+  private volatile boolean emitTruncate;
+  private volatile boolean lobTopics;
+  private volatile boolean trackLobs;
   private java.util.function.Predicate<sh.oso.connect.oracle.core.model.TableId> captured =
       t -> true;
   private volatile int decodeThreads = 1; // set before start, read on the engine thread
@@ -244,6 +249,36 @@ public final class CaptureEngine {
   public CaptureEngine withColumnFilter(ColumnFilter excluded) {
     this.excluded = java.util.Objects.requireNonNull(excluded, "excluded");
     lobs.excluding(excluded);
+    return this;
+  }
+
+  /**
+   * ADR-0028: keeps each change's SQL_REDO and SQL_UNDO text, for a record format that publishes
+   * them. Never for a table {@code cdc.columns.exclude} could touch, whose text may quote an
+   * excluded value.
+   */
+  public CaptureEngine withSqlText(boolean keep) {
+    this.keepSql = keep;
+    return this;
+  }
+
+  /** ADR-0028: publish a captured table's TRUNCATE only through its committed transaction. */
+  public CaptureEngine withTruncate(boolean enabled) {
+    this.emitTruncate = enabled;
+    return this;
+  }
+
+  /** Separate LOB topics reselect only touched columns, or all columns for a key change. */
+  public CaptureEngine withLobTopics(boolean enabled) {
+    this.lobTopics = enabled;
+    if (enabled) withLobTracking(true);
+    return this;
+  }
+
+  /** Confluent row suppression needs touched columns even when separate topics are disabled. */
+  public CaptureEngine withLobTracking(boolean enabled) {
+    this.trackLobs = enabled;
+    this.lobs.tracking(enabled);
     return this;
   }
 
@@ -607,6 +642,9 @@ public final class CaptureEngine {
     TableSchema schema =
         replayed.contains(d.table()) ? schemas.at(d.table(), d.scn()) : schemas.current(d.table());
     excluded.project(schema); // SRC-SEL-2: the version's key must keep every column
+    if (lobTopics) {
+      sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(excluded.project(schema));
+    }
     return schema;
   }
 
@@ -879,7 +917,7 @@ public final class CaptureEngine {
     try {
       return d.op().isLobOp()
           ? sh.oso.connect.oracle.core.decode.RowDecoder.decodeLob(d, schema, excluded)
-          : decoder.decode(d, schema, excluded);
+          : decoder.decode(d, schema, excluded, keepSql, trackLobs);
     } catch (RuntimeException ex) {
       return ex; // raised in order when the row is applied
     }
@@ -899,7 +937,12 @@ public final class CaptureEngine {
     RowChange change;
     try {
       Object pre = predecoded(d);
-      change = pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded);
+      change =
+          pre != null ? (RowChange) pre : decoder.decode(d, schema, excluded, keepSql, trackLobs);
+      if (keepSql && !excluded.mayExclude(d.table())) {
+        change =
+            change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sqlRedo(), d.sqlUndo()));
+      }
     } catch (DecodeException ex) {
       if (settings.onDecodeError() == DecodeErrorAction.FAIL) {
         throw ex;
@@ -981,6 +1024,10 @@ public final class CaptureEngine {
         if (next.isPresent()) {
           excluded.project(
               next.get()); // SRC-SEL-2: a DDL that moves the key onto an excluded column
+          if (lobTopics) {
+            sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(
+                excluded.project(next.get()));
+          }
           sink.schemaChanged(next.get(), d);
         }
         break;
@@ -988,6 +1035,32 @@ public final class CaptureEngine {
       case DROP_TABLE:
         schemas.forget(table);
         sink.schemaChanged(null, d);
+        break;
+      case TRUNCATE:
+        if (emitTruncate) {
+          if (d.tx() == null) {
+            throw new DecodeException(
+                "TRUNCATE on " + table.fqn() + " has no transaction identity at " + d.id(),
+                "Report the LogMiner DDL shape; the connector cannot order an unkeyed truncate.");
+          }
+          TableSchema current = schemas.current(table);
+          RowChange change =
+              new RowChange(
+                  table,
+                  Operation.TRUNCATE,
+                  null,
+                  null,
+                  false,
+                  null,
+                  d.id(),
+                  d.tx(),
+                  d.timestamp(),
+                  current.version());
+          if (keepSql && !excluded.mayExclude(table)) {
+            change = change.withSql(new sh.oso.connect.oracle.core.model.RedoText(d.sql(), null));
+          }
+          add(d.tx(), d.thread(), change);
+        }
         break;
       case UNKNOWN:
         throw new sh.oso.connect.oracle.core.errors.UnsupportedDdlException(
@@ -1000,7 +1073,7 @@ public final class CaptureEngine {
             "Report the statement. To continue, exclude the table, or resnapshot it after"
                 + " resetting the offsets past this SCN; the connector never guesses a layout.");
       default:
-        break; // truncate, partition maintenance, indexes, comments: the layout is unchanged
+        break; // partition maintenance, indexes and comments: the layout is unchanged
     }
   }
 
@@ -1097,7 +1170,8 @@ public final class CaptureEngine {
               reselector,
               classifier,
               settings.lobMaxBytes(),
-              settings.lobOversizeFail());
+              settings.lobOversizeFail(),
+              lobTopics);
     }
     int skip = SkipRule.eventsToSkip(start, tx);
     if (skip >= tx.size()) {

@@ -43,10 +43,11 @@ from .common import (
     run,
     write_text,
 )
-from .connect import ConnectApi, ConnectClient, ConnectError
+from .connect import ConnectApi, ConnectClient, ConnectError, connector_state
 from .kafka import KafkaTopicSource, TopicSource
 from .materialise import Materialiser, TableSpec, TableStats
 from .normalise import Column, NormaliseError, Normaliser
+from .offsets import parse_offsets
 from .oracle import OracleVerifyDatabase, SnapshotTooOld, connect
 from .records import RecordError, parse
 from .redact import MASK, Redactor, is_secret_key
@@ -111,6 +112,8 @@ def sanitise_topic(topic: str) -> str:
 
 @dataclass
 class Target:
+    record_format: str = "debezium"
+    confluent_settings: dict[str, str] = field(default_factory=dict)
     kind: str = "none"  # oso, debezium or none
     name: str | None = None
     prefix: str | None = None
@@ -178,10 +181,21 @@ def target_from_config(cfg: configio.ConnectorConfig | None) -> Target:
             " read with --confluent-topic, which verifies the keys only Confluent delivered."
         )
     cdb = bool((c.get("cdc.database.pdbs") or "").strip())
-    template = c.get("cdc.topic.template") or (
-        "${prefix}.${pdb}.${schema}.${table}" if cdb else "${prefix}.${schema}.${table}"
+    record_format = c.get("cdc.output.format", "debezium")
+    confluent_settings = {
+        k.removeprefix("cdc.output.confluent."): v
+        for k, v in c.items()
+        if k.startswith("cdc.output.confluent.")
+    }
+    default_template = (
+        ("${pdb}.${schema}.${table}" if cdb else "${database}.${schema}.${table}")
+        if record_format == "confluent"
+        else ("${prefix}.${pdb}.${schema}.${table}" if cdb else "${prefix}.${schema}.${table}")
     )
+    template = c.get("cdc.topic.template") or default_template
     return Target(
+        record_format=record_format,
+        confluent_settings=confluent_settings,
         kind="oso",
         name=cfg.name,
         prefix=c.get("cdc.topic.prefix"),
@@ -189,7 +203,8 @@ def target_from_config(cfg: configio.ConnectorConfig | None) -> Target:
         decimal_mode=(c.get("cdc.decimal.mode") or "precise").lower(),
         temporal_mode=(c.get("cdc.temporal.mode") or "adaptive").lower(),
         placeholder=c.get("cdc.unavailable.placeholder") or OSO_PLACEHOLDER,
-        lob_skip=(c.get("cdc.lob.mode") or "skip").lower() == "skip",
+        lob_skip=record_format == "confluent"
+        or (c.get("cdc.lob.mode") or "skip").lower() == "skip",
         cdb=cdb,
         key_overrides=_key_overrides(c.get("cdc.key.columns")),
     )
@@ -264,6 +279,7 @@ class Settings:
     pdb: str | None = None
     #: OWNER.TABLE to Confluent's table topic, read first and verified by key
     confluent_topics: dict[str, str] = field(default_factory=dict)
+    confluent_baseline_scn: int | None = None
 
 
 def _spec(db: VerifyDatabase, req: TableRequest, s: Settings, database: str, pdb: str | None):
@@ -279,6 +295,13 @@ def _spec(db: VerifyDatabase, req: TableRequest, s: Settings, database: str, pdb
     for c in columns:
         if f"{req.owner}.{req.table}.{c.name}" in s.ignore_columns:
             ignored[c.name] = "--ignore-column"
+        elif s.target.record_format == "confluent" and c.kind in (
+            "binary_float",
+            "binary_double",
+            "interval_ym",
+            "interval_ds",
+        ):
+            ignored[c.name] = "type omitted by the Confluent-compatible record format"
         elif c.kind == "unsupported":
             ignored[c.name] = f"type {c.data_type} is not compared"
         elif c.kind == "xml":
@@ -291,6 +314,8 @@ def _spec(db: VerifyDatabase, req: TableRequest, s: Settings, database: str, pdb
     for k in key:
         if k not in names:
             problems.append(f"key column {k} is not compared")
+    if not key and s.target.record_format == "confluent":
+        problems.append("flat topics require a stable key for value verification")
     topic = req.topic or s.target.topic(req.owner, req.table, pdb, database)
     if not topic:
         raise ToolError(
@@ -371,7 +396,11 @@ def _samples(c: Comparison, spec: TableSpec, show_values: bool) -> list[dict[str
 def verify(
     db: VerifyDatabase, topics: TopicSource, store: RowStore, s: Settings
 ) -> list[TableResult]:
-    normaliser = Normaliser(s.target.decimal_mode, s.target.temporal_mode)
+    normaliser = (
+        confluent_topics.FlatNormaliser(s.target.confluent_settings)
+        if s.target.record_format == "confluent"
+        else Normaliser(s.target.decimal_mode, s.target.temporal_mode)
+    )
     database = db.database_name()
     pdb = s.pdb or (db.container_name() if s.target.cdb else None)
     resolved = []
@@ -396,11 +425,18 @@ def verify(
                 )
             except RecordError as e:
                 materialiser.stats[sp.name].error(old_topic, str(e))
+    flat_parser = confluent_topics.FlatParser(
+        s.target.confluent_settings, specs, s.confluent_baseline_scn
+    )
     for topic in sorted({sp.topic for sp in specs}):
         LOG.info("Reading %s", topic)
         for record in topics.read(topic):
             try:
-                materialiser.apply(parse(record))
+                materialiser.apply(
+                    flat_parser.parse(record)
+                    if s.target.record_format == "confluent"
+                    else parse(record)
+                )
             except RecordError as e:
                 for sp in materialiser.by_topic.get(topic, []):
                     materialiser.stats[sp.name].error(
@@ -657,6 +693,12 @@ def build_parser():
         help="Confluent's table topic for a table cut over from Confluent's connector (JSON"
         " converter); read before the new connector's topics and verified by key",
     )
+    p.add_argument(
+        "--confluent-baseline-connector",
+        metavar="NAME",
+        help="stopped Confluent connector that wrote historical records to the same flat topics;"
+        " checks STOPPED and unchanged offsets before and after verification",
+    )
     p.add_argument("--decimal-mode", choices=("precise", "string", "double"))
     p.add_argument("--temporal-mode", choices=("adaptive", "iso_string"))
     p.add_argument("--unavailable-placeholder", metavar="TEXT")
@@ -798,6 +840,25 @@ def main(
                 **confirm_position(client, connector, check_scn, args.wait_seconds, sleep),
             }
 
+        baseline = None
+        baseline_offsets = None
+        if args.confluent_baseline_connector:
+            if target.record_format != "confluent" or client is None:
+                raise ToolError(
+                    "--confluent-baseline-connector needs Confluent output and --connect-url."
+                )
+            if connector_state(client, args.confluent_baseline_connector) != "STOPPED":
+                raise ToolError(
+                    "The Confluent baseline connector must be STOPPED, not paused or running."
+                )
+            baseline_offsets = client.offsets(args.confluent_baseline_connector)
+            baseline = parse_offsets(baseline_offsets, "confluent").last_commit_scn
+            if baseline is None or baseline > check_scn:
+                raise ToolError(
+                    "The stopped Confluent commit fence must exist"
+                    " and be at or below the check SCN."
+                )
+
         settings = Settings(
             check_scn=check_scn,
             tables=[parse_table(t) for t in args.table],
@@ -807,6 +868,7 @@ def main(
             ignore_columns={c.upper() for c in args.ignore_column},
             pdb=args.pdb,
             confluent_topics=_confluent_topics(args.confluent_topic, args.table),
+            confluent_baseline_scn=baseline,
         )
         with tempfile.TemporaryDirectory(dir=args.work_dir) as work:
             store = RowStore(str(Path(work) / "rows.sqlite"))
@@ -814,11 +876,21 @@ def main(
                 results = verify(database, source, store, settings)
             finally:
                 store.close()
+        if args.confluent_baseline_connector and (
+            connector_state(client, args.confluent_baseline_connector) != "STOPPED"
+            or client.offsets(args.confluent_baseline_connector) != baseline_offsets
+        ):
+            raise ToolError(
+                "The Confluent baseline moved during verification; stop it and repeat the check."
+            )
         inputs = {
             "database": {"dsn": args.db_dsn, "user": args.db_user},
             "bootstrap_servers": args.bootstrap_servers,
             "connector_config": args.input,
             "connector_kind": target.kind,
+            "record_format": target.record_format,
+            "confluent_baseline_connector": args.confluent_baseline_connector,
+            "confluent_baseline_commit_scn": baseline,
             "tables": [f"{t.owner}.{t.table}" for t in settings.tables],
             "check_scn": check_scn,
             "check_scn_source": how,

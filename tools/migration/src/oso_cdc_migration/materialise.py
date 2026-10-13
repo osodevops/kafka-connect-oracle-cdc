@@ -149,8 +149,7 @@ class Materialiser:
 
     def _tombstone(self, rec: ChangeRecord, part: tuple[str, int], where: str) -> None:
         last = self._last.get(part)
-        specs = self.by_topic.get(rec.topic, [])
-        spec = specs[0] if len(specs) == 1 else (last.spec if last else None)
+        spec = self._spec_for(rec) or (last.spec if last else None)
         if spec is None:
             return
         stats = self.stats[spec.name]

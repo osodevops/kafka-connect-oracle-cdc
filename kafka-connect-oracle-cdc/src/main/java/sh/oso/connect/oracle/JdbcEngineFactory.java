@@ -143,10 +143,11 @@ public final class JdbcEngineFactory implements EngineFactory {
       return new LogMinerEventSource(
           inventory,
           new JdbcLogMinerSession(
-              mining,
-              core.getInt(CoreConfig.MINING_FETCH_SIZE),
-              Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS)),
-              rangeMode),
+                  mining,
+                  core.getInt(CoreConfig.MINING_FETCH_SIZE),
+                  Duration.ofMillis(core.getLong(CoreConfig.MINING_QUERY_TIMEOUT_MS)),
+                  rangeMode)
+              .withVerbatimSql(config.keepsSqlText()),
           objects,
           objects.filter(excludedUsers, inlistMax),
           DictionaryMode.ONLINE_CATALOG);
@@ -281,6 +282,12 @@ public final class JdbcEngineFactory implements EngineFactory {
               core.pdbs(),
               config.tablesCaseSensitive());
       objects = resolver.resolve();
+      if (core.lobMode() == CoreConfig.LobMode.TOPIC) {
+        for (sh.oso.connect.oracle.core.model.TableId table : objects.tables()) {
+          sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(
+              config.columnFilter().project(schemas.current(table)));
+        }
+      }
       LOG.info(
           "Capturing {} tables ({} object ids) for owners {}",
           objects.tables().size(),
@@ -328,6 +335,12 @@ public final class JdbcEngineFactory implements EngineFactory {
               () -> {
                 Set<sh.oso.connect.oracle.core.model.TableId> before = objects.tables();
                 objects = resolver.resolve();
+                if (core.lobMode() == CoreConfig.LobMode.TOPIC) {
+                  for (sh.oso.connect.oracle.core.model.TableId table : objects.tables()) {
+                    sh.oso.connect.oracle.core.schema.LobTopicRequirements.requireKey(
+                        config.columnFilter().project(schemas.current(table)));
+                  }
+                }
                 source.update(objects, objects.filter(excludedUsers, inlistMax));
                 LOG.info(
                     "Object ids refreshed after DDL: {} tables ({} ids) for owners {}",
@@ -364,13 +377,19 @@ public final class JdbcEngineFactory implements EngineFactory {
       engine.withCapturedTables(t -> objects.tables().contains(t));
       // SRC-SEL-2: excluded columns are dropped while decoding
       engine.withColumnFilter(config.columnFilter());
+      engine.withSqlText(config.keepsSqlText());
+      engine.withTruncate(config.truncateEmit());
+      engine.withLobTopics(core.lobMode() == CoreConfig.LobMode.TOPIC);
+      engine.withLobTracking(
+          config.outputFormat() == OracleCdcSourceConnectorConfig.OutputFormat.CONFLUENT);
       // CORE-MINE-6: 0 means the number of cores minus one, at most 8
       int threads = core.getInt(CoreConfig.MINING_DECODE_THREADS);
       engine.withDecodeThreads(
           threads > 0
               ? threads
               : Math.min(8, Math.max(1, Runtime.getRuntime().availableProcessors() - 1)));
-      if (core.lobMode() == CoreConfig.LobMode.RESELECT) {
+      if (core.lobMode() == CoreConfig.LobMode.RESELECT
+          || core.lobMode() == CoreConfig.LobMode.TOPIC) {
         // CORE-DEC-7: AS OF queries on a connection of their own, which switches container
         engine.withReselector(
             new sh.oso.connect.oracle.core.engine.JdbcLobReselector(

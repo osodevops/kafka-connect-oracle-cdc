@@ -61,6 +61,7 @@ class TranslatorSpec:
     description: str
     extra_options: Callable | None = None
     prepare: Callable | None = None
+    record_formats: tuple[str, ...] = ()
     epilog: str = field(
         default=(
             "example:\n"
@@ -92,8 +93,14 @@ def build_parser(spec: TranslatorSpec):
     )
     p.add_argument(
         "--format",
-        choices=("json", "properties"),
-        help="format of --output (default: from the file extension, else json)",
+        choices=(*spec.record_formats, "json", "properties"),
+        help=(
+            "record format (default: "
+            + spec.record_formats[0]
+            + "); json/properties remain legacy output-file aliases"
+            if spec.record_formats
+            else "format of --output (default: from the file extension, else json)"
+        ),
     )
     p.add_argument(
         "--connect-url",
@@ -113,6 +120,12 @@ def build_parser(spec: TranslatorSpec):
         help="the takeover SCN from takeover_scn.py, written as cdc.start.scn; without it the"
         " report asks you to run takeover_scn.py",
     )
+    if spec.record_formats:
+        p.add_argument(
+            "--output-format",
+            choices=("json", "properties"),
+            help="serialization of the output configuration file",
+        )
     if spec.extra_options:
         spec.extra_options(p)
     return p
@@ -145,8 +158,10 @@ def translator_main(
         if client is None and args.connect_url:
             client = ConnectClient(args.connect_url, auth)
         check = check_exactly_once(client)
-        fmt = args.format or (
-            "properties" if args.output and args.output.endswith(".properties") else "json"
+        fmt = (
+            getattr(args, "output_format", None)
+            or (args.format if args.format in ("json", "properties") else None)
+            or ("properties" if args.output and args.output.endswith(".properties") else "json")
         )
         state = spec.prepare(args) if spec.prepare else {}
         state["start_scn"] = args.start_scn

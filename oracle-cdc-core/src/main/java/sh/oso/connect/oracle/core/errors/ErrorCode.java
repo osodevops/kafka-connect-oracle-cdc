@@ -146,7 +146,8 @@ public enum ErrorCode {
       false,
       "Two columns of a table adjust to the same field name under"
           + " cdc.field.name.adjustment.mode, or two tables route to the same topic only because"
-          + " characters Kafka does not allow became underscores."),
+          + " characters Kafka does not allow became underscores, or a column has the name of"
+          + " a metadata field of the Confluent-compatible format."),
   /** A COMMIT arrived for a transaction that orphan detection had released. */
   ORPHAN_RELEASE_VIOLATION(
       "CDC-7001",

@@ -206,6 +206,32 @@ class CaptureEngineTest {
   }
 
   @Test
+  void sqlTextIsOptInAndNeverRetainedWhenColumnFilteringMayTouchTheTable() throws Exception {
+    for (int mode = 0; mode < 3; mode++) {
+      Harness h = new Harness();
+      TxKey tx = h.fake.tx(1, 1, 1);
+      h.fake.start(tx, "APP").insert(tx, T, "insert test row").commit(tx);
+      h.safeEnd = h.fake.nextScn();
+      CaptureEngine engine = h.engine(h.initial(), DecodeErrorAction.FAIL);
+      if (mode > 0) {
+        engine.withSqlText(true);
+      }
+      if (mode == 2) {
+        engine.withColumnFilter(
+            sh.oso.connect.oracle.core.schema.ColumnFilter.of(
+                List.of(T.fqn().replace(".", "\\.") + "\\.SECRET"), false));
+      }
+      h.runUntilIdle(engine);
+      RowChange change = h.sink.committed.get(0).events().get(0);
+      if (mode == 1) {
+        assertThat(change.sql().redo()).isEqualTo("insert test row");
+      } else {
+        assertThat(change.sql()).isNull();
+      }
+    }
+  }
+
+  @Test
   void multiRowTransactionRollbackAndSavepointThroughTheWholeLoop() throws Exception {
     Harness h = new Harness();
     TxKey a = h.fake.tx(1, 1, 1);

@@ -102,6 +102,20 @@ class SqlRedoParserTest {
   }
 
   @Test
+  void verbatimModeAcceptsOneDelimiterAndKeepsRowidButNeverMultipleStatements() {
+    String sql = "update \"S\".\"T\" set \"A\" = 'x' where \"A\" = 'old' and ROWID = 'R1';";
+    assertThat(SqlRedoParser.parseVerbatim(sql).rowId()).isEqualTo("R1");
+    assertThat(SqlRedoParser.parseVerbatim(sql.substring(0, sql.length() - 1)).rowId())
+        .isEqualTo("R1");
+    assertThatThrownBy(() -> SqlRedoParser.parse(sql)).isInstanceOf(DecodeException.class);
+    assertThatThrownBy(() -> SqlRedoParser.parseVerbatim(sql + sql))
+        .isInstanceOf(DecodeException.class);
+    assertThatThrownBy(() -> SqlRedoParser.parseVerbatim(sql + ";"))
+        .isInstanceOf(DecodeException.class);
+    assertThatThrownBy(() -> SqlRedoParser.parseVerbatim(null)).isInstanceOf(DecodeException.class);
+  }
+
+  @Test
   void onlyDecodeExceptionEverEscapes() {
     for (String bad :
         List.of(

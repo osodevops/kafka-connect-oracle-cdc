@@ -107,6 +107,29 @@ class DebeziumEnvelopeTest {
   }
 
   @Test
+  void explicitTruncateHasNullKeyAndImagesAndDefaultEmissionStaysOff() {
+    Map<String, String> props = OracleCdcSourceConnectorConfigTest.minimal();
+    props.put(OracleCdcSourceConnectorConfig.TRUNCATE_EMIT, "true");
+    OracleCdcSourceConnectorConfig config = new OracleCdcSourceConnectorConfig(props);
+    DebeziumEnvelope enabled =
+        new DebeziumEnvelope(
+            config,
+            new TopicRouter(config.topicTemplate(true), config.topicPrefix(), "FREE"),
+            "FREE");
+    CommittedTransaction tx = tx(change(Operation.TRUNCATE, null, null, 801));
+    List<SourceRecord> records = enabled.records(tx, 0, 1, schema(KeySource.PRIMARY_KEY), offset());
+    assertThat(records).hasSize(1);
+    assertThat(records.get(0).key()).isNull();
+    assertThat(records.get(0).keySchema()).isNull();
+    Struct value = (Struct) records.get(0).value();
+    assertThat(value.getString("op")).isEqualTo("t");
+    assertThat(value.getStruct("before")).isNull();
+    assertThat(value.getStruct("after")).isNull();
+    assertThat(envelope(false).records(tx, 0, 1, schema(KeySource.PRIMARY_KEY), offset()))
+        .isEmpty();
+  }
+
+  @Test
   void createUpdateDeleteWithTombstoneHeadersAndSource() {
     DebeziumEnvelope e = envelope(true);
     CommittedTransaction tx =
@@ -191,6 +214,26 @@ class DebeziumEnvelopeTest {
     assertThat(none).hasSize(1);
     assertThat(none.get(0).key()).isNull();
     assertThat(none.get(0).keySchema()).isNull();
+  }
+
+  /**
+   * A key change is three records (delete, tombstone, create). Each must own its headers: the sink
+   * adds {@code cdc.split} to every record of a split transaction, and a shared instance gave each
+   * record the header once per record of the change.
+   */
+  @Test
+  void eachRecordOfAChangeOwnsItsHeaders() {
+    DebeziumEnvelope e = envelope(true);
+    CommittedTransaction tx = tx(change(Operation.UPDATE, row(1, "a", "1"), row(2, "a", "1"), 801));
+    List<SourceRecord> out = e.records(tx, 0, 1, schema(KeySource.PRIMARY_KEY), offset());
+    assertThat(out).hasSize(3);
+    for (SourceRecord r : out) {
+      r.headers().addBoolean("cdc.split", true);
+    }
+    for (SourceRecord r : out) {
+      assertThat(r.headers().allWithName("cdc.split")).toIterable().hasSize(1);
+      assertThat(r.headers().lastWithName("cdc.xid")).isNotNull();
+    }
   }
 
   @Test

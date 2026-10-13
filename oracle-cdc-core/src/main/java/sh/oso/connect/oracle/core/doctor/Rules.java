@@ -540,6 +540,24 @@ public final class Rules {
 
   static final Duration AWS_NLB_IDLE = Duration.ofSeconds(350);
 
+  private static boolean hasKeyOverride(DoctorContext ctx, CapturedTable table) {
+    for (String entry : ctx.property("cdc.key.columns", "").split(";")) {
+      int colon = entry.indexOf(':');
+      if (colon > 0 && entry.substring(0, colon).trim().equalsIgnoreCase(table.fqn())) {
+        List<String> names =
+            java.util.Arrays.stream(entry.substring(colon + 1).split(","))
+                .map(String::trim)
+                .filter(n -> !n.isEmpty())
+                .toList();
+        return !names.isEmpty()
+            && names.stream()
+                .allMatch(
+                    n -> table.columns().stream().anyMatch(c -> c.name().equalsIgnoreCase(n)));
+      }
+    }
+    return false;
+  }
+
   static Rule lobs() {
     return rule(
         "DOC-8",
@@ -563,6 +581,28 @@ public final class Rules {
             if (!lobs.isEmpty()) {
               String what = t.fqn() + " has LOB columns " + String.join(", ", lobs) + "; ";
               switch (mode) {
+                case TOPIC:
+                  if (!"confluent".equalsIgnoreCase(ctx.property("cdc.output.format", "debezium")))
+                    out.add(
+                        Finding.blocking(
+                            "DOC-8",
+                            what + "topic mode requires cdc.output.format=confluent.",
+                            "Choose the Confluent-compatible format."));
+                  if ((!t.hasPrimaryKey() && !t.hasNotNullUniqueIndex() && !hasKeyOverride(ctx, t)))
+                    out.add(
+                        Finding.blocking(
+                            "DOC-8",
+                            what + "topic mode requires a stable column key.",
+                            "Add a primary key or NOT NULL unique index before enabling separate"
+                                + " LOB topics."));
+                  else
+                    out.add(
+                        Finding.info(
+                            "DOC-8",
+                            what
+                                + "topic mode writes complete bytes to separate column topics and"
+                                + " reselects missing values AS OF the commit SCN."));
+                  break;
                 case SKIP:
                   out.add(
                       Finding.info(
@@ -590,15 +630,20 @@ public final class Rules {
             if (!xml.isEmpty()) {
               String what = t.fqn() + " has XMLTYPE columns " + String.join(", ", xml) + "; ";
               out.add(
-                  mode == LobMode.SKIP
-                      ? Finding.info(
-                          "DOC-8", what + "cdc.lob.mode=skip leaves them out of the records.")
-                      : Finding.warning(
+                  mode == LobMode.TOPIC
+                      ? Finding.blocking(
                           "DOC-8",
-                          what
-                              + "XMLTYPE values are neither assembled from redo nor reselected,"
-                              + " so records carry cdc.unavailable.placeholder for them.",
-                          null));
+                          what + "topic mode cannot publish XMLTYPE bytes.",
+                          "Exclude XMLTYPE columns or use supported LOB types.")
+                      : mode == LobMode.SKIP
+                          ? Finding.info(
+                              "DOC-8", what + "cdc.lob.mode=skip leaves them out of the records.")
+                          : Finding.warning(
+                              "DOC-8",
+                              what
+                                  + "XMLTYPE values are neither assembled from redo nor reselected,"
+                                  + " so records carry cdc.unavailable.placeholder for them.",
+                              null));
             }
             if (!longs.isEmpty()) {
               out.add(

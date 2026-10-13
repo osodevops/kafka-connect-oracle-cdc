@@ -82,6 +82,10 @@ class ConfluentCutoverQualIT {
 
   @Test
   void aTakeoverFromConfluentLosesNoCommittedRow() throws Exception {
+    assumeTrue(
+        !"true".equalsIgnoreCase(System.getenv("CI"))
+            && !"true".equalsIgnoreCase(System.getenv("GITHUB_ACTIONS")),
+        "Confluent's connector must never run in CI");
     String plugin = System.getProperty("e2e.confluent.plugin", "");
     assumeTrue(
         !plugin.isBlank() && Files.isDirectory(Path.of(plugin)),
@@ -160,6 +164,8 @@ class ConfluentCutoverQualIT {
               NEW,
               "--topic-prefix",
               PREFIX,
+              "--format",
+              "debezium",
               "--connect-url",
               cluster.restUrl());
       assertThat(migrate.exit()).as(migrate.toString()).isIn(0, 2);

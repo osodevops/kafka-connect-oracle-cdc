@@ -113,7 +113,9 @@ public record EngineSettings(
         "discard".equalsIgnoreCase(c.getString(CoreConfig.TRANSACTION_MAX_AGE_ACTION))
             ? MaxAgeAction.DISCARD
             : MaxAgeAction.FAIL,
-        LobAssembler.Mode.valueOf(c.lobMode().name()),
+        c.lobMode() == CoreConfig.LobMode.TOPIC
+            ? LobAssembler.Mode.RESELECT
+            : LobAssembler.Mode.valueOf(c.lobMode().name()),
         c.getLong(CoreConfig.LOB_MAX_BYTES),
         c.lobOversizeAction() == CoreConfig.LobOversizeAction.FAIL);
   }

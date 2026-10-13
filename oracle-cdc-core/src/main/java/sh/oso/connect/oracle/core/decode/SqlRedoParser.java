@@ -48,12 +48,21 @@ public final class SqlRedoParser {
   }
 
   public static ParsedDml parse(String sql) {
+    return parse(sql, false);
+  }
+
+  /** ADR-0028: SQL retained verbatim by LogMiner may have one terminating delimiter. */
+  public static ParsedDml parseVerbatim(String sql) {
+    return parse(sql, true);
+  }
+
+  private static ParsedDml parse(String sql, boolean terminated) {
     if (sql == null) {
       throw new DecodeException(
           "SQL_REDO is null", "Report the row with its OPERATION and STATUS.");
     }
     try {
-      return new SqlRedoParser(sql).statement();
+      return new SqlRedoParser(sql).statement(terminated);
     } catch (DecodeException e) {
       throw e;
     } catch (RuntimeException e) {
@@ -200,7 +209,7 @@ public final class SqlRedoParser {
     return true;
   }
 
-  private ParsedDml statement() {
+  private ParsedDml statement(boolean terminated) {
     String verb = word();
     ParsedDml dml;
     switch (verb.toLowerCase(Locale.ROOT)) {
@@ -215,6 +224,9 @@ public final class SqlRedoParser {
         break;
       default:
         throw sc.error("does not start with insert, update or delete", 0);
+    }
+    if (terminated) {
+      accept(Kind.SEMI);
     }
     expect(Kind.EOF, "end of statement");
     return dml;

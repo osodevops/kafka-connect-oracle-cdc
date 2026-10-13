@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "scenario": "Confluent format comparison across full run and affected-profile reruns",
+  "date": "2026-10-13",
+  "confluentVersion": "2.15.2",
+  "target": "Oracle Database Free 23ai",
+  "profiles": {
+    "default": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "default-avro": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "before-state-avro": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "key-struct": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "key-concat": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "numeric-best-fit-or-decimal": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "numeric-best-fit-or-double": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "numeric-best-fit-or-string": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "numeric-precision-only": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "date-timestamp": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "tombstones": {
+      "verdict": "PASS",
+      "revision": "bf1f0ea"
+    },
+    "lob-topics": {
+      "verdict": "PASS",
+      "revision": "96bbab4"
+    },
+    "all-fields": {
+      "verdict": "PASS",
+      "revision": "0c859c6"
+    },
+    "renamed": {
+      "verdict": "PASS",
+      "revision": "0c859c6"
+    }
+  },
+  "documentedDifferences": [
+    "Additional cdc.* headers",
+    "Resolved LOB INSERT ROWID",
+    "Complete LOB key moves",
+    "Exact FF9 SQL timestamp literals"
+  ],
+  "referenceOnly": {
+    "numeric-none-scale2": "Expected source rounding/failure observed; OSO typed no-rounding refusal protected by fixtures"
+  },
+  "verdict": "PASS",
+  "qualificationLimits": [
+    "No live non-CDB rerun",
+    "Unobserved configuration combinations not claimed",
+    "XMLTYPE LOB bytes unsupported"
+  ]
+}

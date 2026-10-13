@@ -28,10 +28,10 @@ All tools share: `--input`, `--output`, `--report` (Markdown), `--json`, and exi
 | ID | Requirement |
 |---|---|
 | MIG-1 | Every source property is classified as `mapped`, `mapped-with-change`, `dropped` (with reason) or `manual` (with instruction). Unknown properties are `manual`. The report lists every property; nothing is silently dropped. |
-| MIG-2 | Output preserves topic names: `migrate_from_confluent` converts `table.topic.name.template` variables to `cdc.topic.template` and sets `cdc.output.format=confluent`; `migrate_from_debezium` keeps `topic.prefix` naming and `cdc.output.format=debezium`. |
-| MIG-3 | Defaults that differ are pinned to the source behaviour: for example Confluent `emit.tombstone.on.delete` default false becomes `cdc.tombstones.on.delete=false`; Confluent `numeric.mapping=none` becomes `cdc.decimal.mode=precise` with a note on bytes encoding; Debezium `decimal.handling.mode=precise` stays precise. |
+| MIG-2 | Output preserves topic names: `migrate_from_confluent` defaults to `--format=confluent`, converts `table.topic.name.template` variables without adding a prefix and sets `cdc.output.format=confluent`; explicit `--format=debezium` selects new prefixed topics; `migrate_from_debezium` keeps `topic.prefix` naming and `cdc.output.format=debezium`. |
+| MIG-3 | Defaults that differ are pinned to the source behaviour: for example Confluent `emit.tombstone.on.delete` default false becomes `cdc.tombstones.on.delete=false`; Confluent numeric mapping, default scale, DATE mapping, key template and `output.*` settings map to `cdc.output.confluent.*`; any required Decimal rounding stops with CDC-3001; Debezium `decimal.handling.mode=precise` stays precise. |
 | MIG-4 | Sets `exactly.once.support=required` and `transaction.boundary=connector` when the target Connect cluster reports exactly-once enabled (checked with `--connect-url`), otherwise leaves at-least-once and adds a follow-up. |
-| MIG-5 | Confluent-specific items reported as follow-ups: redo log topic consumers (the topic will stop receiving data), LOB topics (map to `cdc.lob.mode=topic`), `confluent.license` removal, `connection.pool.*` removal, `tasks.max` reduced to one with explanation. |
+| MIG-5 | Confluent-specific items reported as follow-ups: redo log topic consumers (the topic will stop receiving data), LOB topics (map template variables to `cdc.lob.topic.template` and enable `cdc.lob.mode=topic`, with stable keys and complete values), `confluent.license` removal, `connection.pool.*` removal, `tasks.max` reduced to one with explanation. |
 | MIG-6 | Debezium-specific items: schema history topic no longer needed (keep until verified, then delete); signal table replaced by signal topic; `heartbeat.action.query` removed; non-LogMiner adapters (`xstream`, `olr`) are `manual` with guidance. |
 | MIG-7 | Secrets are never written to reports; config provider references (`${file:...}`) are preserved. |
 
@@ -61,7 +61,7 @@ Required log retention: archived logs from `cdc.start.scn` must still exist; `ta
 
 ## 6. CI requirements
 
-- A cutover test in CI (Phase 1 for Debezium, Phase 2 for Confluent fixtures) runs: workload, old-style offsets fixture, takeover, overlap, verify; uploads the evidence JSON as a `migration-evidence` workflow artefact.
+- A cutover test in CI (Debezium and committed Confluent fixtures; proprietary connector never in CI) runs: workload, old-style offsets fixture, takeover, overlap, verify; uploads the evidence JSON as a `migration-evidence` workflow artefact.
 - Golden-file tests for every property in both mapping tables.
 
 ## 7. Acceptance criteria
@@ -71,3 +71,9 @@ Required log retention: archived logs from `cdc.start.scn` must still exist; `ta
 - [ ] Debezium takeover in CI (real Debezium 3.x against Oracle Free) shows zero missing keys and `verify_cutover` PASS.
 - [ ] `takeover_scn.py` refuses when the required archived log is gone.
 - [ ] Reports contain no secrets (tested with canary values).
+
+ADR-0028 adds value verification for compatible flat topics, including per-column numeric
+normalisation, declared Decimal scales and DATE/TIMESTAMP mappings. Historical source records
+without commit metadata use a stopped Confluent baseline: the verifier checks STOPPED and unchanged
+offsets throughout the scan and fences them at its final table commit SCN. Missing commit evidence
+is INCONCLUSIVE. Live parity and same-topic Avro handover remain opt-in local qualifications.
