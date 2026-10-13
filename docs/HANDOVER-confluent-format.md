@@ -1,9 +1,9 @@
 # Handover: the Confluent-compatible record format (ADR-0028)
 
 **Written:** 13 October 2026, for whoever (person or model) continues this piece of work in a fresh
-session. **Read first:** `CLAUDE.md`, then
+session. **Read first:** `CLAUDE.md`, then this file, then
 `docs/decisions/ADR-0028-a-confluent-compatible-record-format-specified-from-documentation-and-verified-black-box.md`,
-then this file. The older `docs/HANDOVER.md` covers the Phase 1 build and is background only.
+then the memory index. The older `docs/HANDOVER.md` covers the Phase 1 build and is background only.
 
 ## 0. Goal and the decisions behind it
 
@@ -41,81 +41,45 @@ Hard rules for this work (also in `CLAUDE.md` and ADR-0028):
 
 ## 1. Where everything is right now
 
-### Main checkout (`kafka-connect-oracle-cdc`, branch `main`)
+The authorised implementation plan is complete. [PR #31](https://github.com/osodevops/kafka-connect-oracle-cdc/pull/31)
+was squash-merged into `main` at `1cfaaf5`. Main contains the format, truncate extension,
+separate LOB topics, same-topic migration tools, accepted ADR-0028 and qualification evidence.
+No enabling release has been authorised; OSO's legal check and user approval remain prerequisites.
 
-Committed in `d321d02` (test(qual): ConfluentFormatRefQualIT and the recorded Confluent reference):
+The fifteen-profile reference and step 1 follow-up are committed at `38e5f71`. Fixtures contain
+only the suite's own test data and normalised volatile values. The reference-only scale-two
+profile is complete: snapshots establish HALF_EVEN rounding, exact streaming 0.12 succeeds and
+streaming 0.125 stops Confluent. OSO's intentional no-rounding refusal is protected by fixtures
+and typed-failure regressions in both snapshot and streaming paths.
 
-| Path | What it is |
-|---|---|
-| `e2e-tests/src/test/java/sh/oso/connect/oracle/e2e/qual/ConfluentFormatRefQualIT.java` | The reference spike. Starts a Confluent Platform worker (`confluentinc/cp-server-connect:7.9.2`) with Confluent Schema Registry (`confluentinc/cp-schema-registry:7.9.2`), runs Confluent's connector once per profile against Oracle Database Free, and writes normalised fixtures |
-| `e2e-tests/src/test/java/sh/oso/connect/oracle/e2e/support/ConnectCluster.java` | Adds `withConfluentSchemaRegistry()`, `confluentSchemaRegistryUrl()` and `CONFLUENT_SCHEMA_REGISTRY_URL` (earlier commits added `confluentPlatform(image)`, `workerReaches` and `topics()`) |
-| `kafka-connect-oracle-cdc/src/test/resources/confluent-reference/<profile>/` | The fixtures: one `<PDB>.SCHEMA.<TABLE>.jsonl` per topic (one JSON line per record: timestamp type, normalised timestamp, key, value, headers); Avro profiles also have `subjects/<subject>.v<n>.avsc` and record bodies replaced by `{"avro":true,"magic":0}` |
-
-The full run of all 14 profiles finished on 13 October 2026 (build success, about 33 minutes).
-`confluent-reference/` holds these 14 directories: `default`,
-`default-avro`, `before-state-avro`, `renamed`, `key-struct`, `key-concat`,
-`numeric-best-fit-or-decimal`, `numeric-best-fit-or-double`, `numeric-best-fit-or-string`,
-`numeric-precision-only`, `numeric-none-scale2`, `date-timestamp`, `tombstones` and `lob-topics`.
-The step 1 follow-up completed on 13 October 2026, with all 11 selected profiles passing the
-reference suite. There are now 15 profile directories, including `all-fields`, and NUMS and LOBS2
-fixtures in the rerun profiles. Avro records also identify their subject and schema version.
-**`numeric-none-scale2` is complete:** it records the snapshots and an exact-scale streaming insert,
-then asserts the expected task failure on a value needing rounding. Its diagnostics remain local.
-A first numeric follow-up hit Confluent's JDBC short overflow on NUMBER(3,-2) value 99900;
-regular input now fits its mapped integer widths. The independent reference is
-`oracle-cdc-core/src/main/resources/reference/confluent-record-format.md`. The run deletes and rewrites the
-whole `confluent-reference` directory only when it is started with the `rm -rf` shown in
-section 4. A subset run rewrites only its own profiles.
-
-### Feature worktree (`../kafka-connect-oracle-cdc-fmt`, branch `feat/confluent-format`)
-
-The branch is rebased on `38e5f71` and backed up through `96bbab4`. Implementation is complete;
-final qualification is complete and ADR-0028 is accepted. The feature PR is the next action; no
-enabling release has been authorised. Debezium is still the default and its existing regressions remain green.
-
-| Step | Implementation | Verification checkpoint |
+| Completed step | Implementation checkpoints | Final verification |
 |---|---|---|
-| 2: flat format | `f9eb5ce`, safety review `51a4535` | Fixtures, generated references and full clean gate |
-| 3: truncate | `5bc0236`, identifier correction `be11ce8` | Full gate, engine and connector tiers; unchanged transient regressions passed focused reruns |
-| 4: LOB topics | `a3c7dc3`, savepoint correction `3294f56`, null bytes `96bbab4` | Full gate, both live SQL-output variants and LOB parity; final engine/connector tiers green |
-| 5: same-topic migration | `8c1cd3a`, keyless/Avro correction `328ad10` | 340 Python tests, lint/format, generated references and fixture-backed connector test |
-| 6: live comparison | `c0f744b`, strengthened cutover `7510fe9`, wire framing `bf1f0ea` | Eleven profiles passed at `bf1f0ea`; LOB profile and strengthened Avro cutover passed at `96bbab4`; SQL profiles passed at `0c859c6` |
-| 7: website and PRDs | `28f974b` plus subsequent corrections | Website build passed; ADR accepted; PR next |
+| 2: flat format | `f9eb5ce`, safety review `51a4535` | JSON/Avro fixtures, generated references and clean gate |
+| 3: truncate | `5bc0236`, identifier correction `be11ce8` | Reference, ordering/acknowledgement regressions and full tiers |
+| 4: LOB topics | `a3c7dc3`, savepoint recovery `3294f56`, null bytes `96bbab4` | Both live SQL variants, LOB parity and full tiers |
+| 5: same-topic migration | `8c1cd3a`, keyless/Avro correction `328ad10` | 340 Python tests, lint/format, golden cases and real worker |
+| 6: live comparison | `bf1f0ea`, `96bbab4`, `0c859c6` | All fourteen profiles across the recorded full run and affected-profile reruns; same-topic Avro cutover |
+| 7: acceptance and documentation | `666d9b0`, PR #31 | Clean gate with generated references, website build and all PR checks |
+| 8: housekeeping | After PR #31 merge | Task-only temporary worktrees/stashes removed; unrelated work preserved |
 
-Current behaviour:
+The final production revision `96bbab4` passed all 59 engine and 32 connector tests. All-fields
+and renamed passed at `0c859c6`, asserting exact nine-digit OSO SQL literals from the independent
+workload and recording Confluent's three-digit SQL as a difference. Same-topic Avro cutover
+passed with 24 committed rows and zero missing rows, final database values, both unchanged
+reader schemas/subject versions, rollback exclusion and stop/resume internal Avro readback.
+Evidence is in `docs/qualification/2026-10-13-confluent-format/`.
 
-- Flat values, scalar/struct/concatenated keys, metadata renames, headers and nesting, before-state
-  schema switching, every numeric mapping and both DATE mappings follow the recorded profiles.
-  Row SCNs, required columns, tombstone-only deletes and key-change sequences are verified.
-- Decimal rounding and integer overflow stop typed with CDC-3001. Missing declared keys,
-  incomplete supported flat images, required-column failures and unsupported key types also stop.
-- Optional SQL retention preserves old payloads when disabled and safely suppresses text wherever
-  column exclusions may apply. `1ea1d18` retains complete LogMiner LOB blocks and restores DML/DDL
-  delimiters after CSF assembly, including undo present only in an earlier fragment.
-- Confluent-only touched-LOB tracking suppresses LOB-only table updates in every Confluent mode;
-  Debezium retains its previous journal bytes. Topic mode requires stable column keys and complete
-  supported values. Null assignments publish required zero-length bytes; deletes use tombstones.
-- Merged savepoint groups can retain an earlier committed DBMS_LOB call (ADR-0015). Topic mode
-  reselects final touched values AS OF commit and emits no table row. Both live SQL-output variants
-  passed the two-append/rollback regression. Only the final record acknowledges row/snapshot progress.
-- The strengthened same-topic Avro cutover passed final values, every committed row, a transaction
-  spanning the switch, both subjects and cached reader schemas, rollback exclusion and stop/resume
-  internal Avro readback. Top-level bytes framing is protected without a proprietary dependency.
+All differences and supported-input limits are recorded in ADR-0028 and the core format reference.
+Debezium remains the default; its existing output and regressions remain unchanged. LOB-only table
+updates are suppressed only for Confluent. Merged savepoint groups reselect final touched LOBs AS
+OF commit rather than discard an earlier committed call. Null LOB assignments are required empty
+bytes; deletion and old-key cleanup are tombstones. Only the final record acknowledges progress.
 
-The final three-profile rerun at `96bbab4` passed LOB topics and same-topic Avro cutover.
-All-fields and renamed passed at `0c859c6`, asserting exact nine-digit OSO SQL timestamp literals
-against the workload while documenting Confluent's three-digit text. All other SQL, row values,
-schemas and metadata remain compared. The full clean gate, all 59 engine tests and all 32
-connector tests passed. All fourteen live profiles are qualified across the full run and affected profile reruns; the scale-two reference is deliberately protected by typed-failure fixture tests.
-Sanitised evidence is in `docs/qualification/2026-10-13-confluent-format/`. ADR-0028 is accepted;
-website and PRD documentation are current. Open the feature PR, review CI and squash-merge it.
-
-Long suites use `../kafka-connect-oracle-cdc-fmt-lab`. Never edit it while Maven runs or install
-changed modules while its Docker tier is active. `../kafka-connect-oracle-cdc-fmt-tools` and the
-three ADR-0028 task stashes hold older preparations already integrated into the feature branch;
-preserve them until the housekeeping review. The optional RDS run is not planned because no
-instance is up. The remaining cloud lab was destroyed through its workflow. Legal approval is
-still required before an enabling release; release PR #29 remains untouched.
+The feature, lab and tools worktrees have been removed after reviewing and privately preserving
+older task preparations. The three ADR-0028 task stashes are removed. The feature history remains
+available in Git. The remaining cloud lab was destroyed through its workflow and all final
+qualification containers are removed. No RDS rerun is planned; live non-CDB format parity is not
+claimed. Release PR #29, Dependabot and unrelated worktrees/development containers are untouched.
 
 ## 2. Facts established so far (Confluent 2.15.2, Oracle Database Free 23ai, 13 October 2026)
 
@@ -220,6 +184,8 @@ and `enable.large.lob.object.support=true`.
   For a composite key, `primary_key` is a required unnamed struct of the key columns.
 - The value is required `bytes`, for every LOB type. CLOB is UTF-8, NCLOB is **UTF-16BE**, and
   BLOB is the raw bytes. A 3000-character CLOB arrived whole.
+- A NULL assignment publishes required zero-length bytes, observed for NCLOB in live parity.
+  Deletes and old-key removal use tombstones.
 - Snapshot rows get one LOB record per LOB column with the current value. Inserts get one per LOB
   column with the final value (not the empty LOB).
 - An update that touches only a LOB column gives one LOB record and **no** row record. An update
@@ -228,7 +194,7 @@ and `enable.large.lob.object.support=true`.
   the tombstone setting.
 - The table topic's value never contains the LOB columns.
 - A composite row key change emits no LOB records: the old LOB key remains, and the later delete
-  tombstones only the new key. The planned OSO old-key tombstones and new-key LOB values are a
+  tombstones only the new key. OSO's implemented old-key tombstones and new-key LOB values are a
   documented difference, required to keep LOB state consistent.
 
 ### `numeric.mapping` (column types of table TYPES and EXOTIC)
@@ -419,7 +385,7 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
 ### Step 7 (C7): documentation and release
 
 - [x] ADR accepted, PRDs and website updated; full gate and website build green.
-- [ ] Feature PR opened, CI reviewed and squash-merged.
+- [x] [PR #31](https://github.com/osodevops/kafka-connect-oracle-cdc/pull/31) opened, all checks passed and squash-merged.
 - [ ] Enabling release: requires OSO's legal check and user approval; intentionally deferred.
 
 1. ADR-0028 status Accepted, recording the key namespace, the per-format truncate and tombstone
@@ -430,15 +396,15 @@ Tick these off in this file as they land. Commit messages: conventional, `git co
    - `website/docs/migration/from-confluent.md` rewritten for the same-topics path (today it
      says the format "is not built yet" and always writes new topics);
    - the intro and comparison tables.
-4. Open a PR from `feat/confluent-format`, squash-merge it, and let release-please cut the
-   release. A `feat` commit gives the next patch version before 1.0. Before release, ask OSO
-   for the legal check named in ADR-0028.
+4. Done: PR #31 squash-merges `feat/confluent-format`. Release-please can update its release
+   PR, but the enabling release is intentionally deferred. A `feat` commit gives the next patch
+   version before 1.0. Before cutting it, obtain OSO's legal check and user approval.
 
 ### Step 8: housekeeping
 
 - [x] Cloud lab destroyed through its workflow; no RDS run planned.
 - [x] Qualification containers removed after the final suite.
-- [ ] Clean up this task's temporary worktrees/stashes after merge.
+- [x] Task-only temporary worktrees and stashes removed after merge; older preparations privately preserved.
 
 - Release PR #29 (0.1.6, docs only) is open and not urgent.
 - The Dependabot backlog (Kafka 4.3, JUnit 6, Testcontainers 2 majors) is not in this goal.
@@ -486,9 +452,8 @@ cannot be read from fixtures.
 
 ## Latest live qualification checkpoint
 
-Steps 1 through 6 are complete. The final production implementation is `96bbab4`; the final
-SQL qualification is `0c859c6`. All quality gates, 59 engine tests, 32 connector tests, fourteen
-live parity profiles across their recorded runs and the strengthened same-topic Avro cutover
-passed. ADR-0028 is accepted and public evidence is committed with the final documentation.
-Open and merge the feature PR after CI passes, then complete housekeeping. The cloud lab is
-destroyed. No enabling release without OSO's legal check and user approval.
+Steps 1 through 8 are complete within the authorised scope. PR #31 is merged, ADR-0028 is
+accepted, all local and PR gates passed, evidence is committed and task housekeeping is complete.
+The cloud lab and qualification containers are removed. The only release precondition still open
+is OSO's legal check and user approval; do not merge the enabling release PR before those arrive.
+XMLTYPE LOB bytes and live non-CDB format parity remain documented limits.
