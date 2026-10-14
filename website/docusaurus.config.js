@@ -2,7 +2,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'OSO CDC Connector for Oracle Database',
+  title: 'OSO Oracle CDC',
   tagline: 'Open-source change data capture from Oracle Database to Apache Kafka through LogMiner',
   favicon: 'img/oso-favicon.svg',
   url: process.env.DOCS_URL || 'https://kafkacdcconnector.com',
