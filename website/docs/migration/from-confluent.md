@@ -1,14 +1,23 @@
 ---
-title: Migrating from Confluent Oracle CDC Source
-description: A tested cutover from Confluent's Oracle CDC Source connector, what changes for consumers, how the takeover position is chosen, and how to verify and roll back.
+title: Migrate from Confluent Oracle CDC Source
+sidebar_label: Migrating from Confluent Oracle CDC Source
+description: A tested cutover from the Confluent Oracle CDC Source connector to this open-source connector, keeping topics and the record format for existing consumers.
 ---
+
+import Faq from '@site/src/components/Faq';
 
 # Migrating from Confluent Oracle CDC Source
 
-The default migration keeps Confluent's table topics, flat records, key templates and Schema
+**Quick answer.** The default migration keeps Confluent's table topics, flat records, key templates and Schema
 Registry subjects. Stop the source connector, translate its settings and start OSO from its
 stored position. Existing consumers continue reading the same topics. This path is available
 from release 0.1.6.
+
+Confluent documents that connector as
+[`io.confluent.connect.oracle.cdc.OracleCdcSourceConnector`](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/getting-started.html).
+It reads changes through LogMiner and publishes flat table topics with configurable keys, which
+this migration keeps. The connector that takes over uses
+`sh.oso.connect.oracle.OracleCdcSourceConnector`.
 
 For configuration and record examples before planning a cutover, see
 [Confluent-compatible records](../guides/confluent-compatible-records.md).
@@ -35,7 +44,7 @@ are not shipped with OSO or run in CI. OSO is not affiliated with or endorsed by
 - Review the differences below. Confluent documents no support for RDS CDB, read replicas or
   Autonomous Database; such installations start with OSO rather than migrating from Confluent.
 
-## What stays, and the documented differences
+## What stays the same, and what changes?
 
 | Item | Default same-topic path |
 |---|---|
@@ -72,6 +81,8 @@ prefixed topics and the `before`, `after`, `source`, `op` envelope. Keep the ear
 the source topics until their retention and consumers allow retirement.
 
 ## 1. Translate the configuration
+
+Translate the saved connector configuration with the [migration tools](tools.md):
 
 ```bash
 uv run python migrate_from_confluent.py --input confluent-connector.json \
@@ -182,9 +193,44 @@ agreed rollback period, delete the stopped Confluent connector and retire its re
 internal topics when no other connector uses them. The new connector uses its own internal
 schema and transaction journal topics. Do not delete the shared table or LOB topics.
 
-## Rolling back
+## How do I roll back?
 
 Until the Confluent connector is deleted, its offset is unchanged. If verification fails, delete
 the new connector, then resume Confluent's with `PUT /connectors/{name}/resume`: it continues from
 where it stopped. On the same-topic path keep the table and LOB topics and handle overlap
 idempotently by key. Only the explicit Debezium migration has separate new topics to retire.
+
+<Faq
+  items={[
+    {
+      question: 'Can I keep my topics and record format?',
+      answer:
+        'Yes. The default migration keeps Confluent\'s table topics, flat records, key templates and Schema Registry subjects, and existing consumers continue reading the same topics. This path is available from release 0.1.6.',
+    },
+    {
+      question: 'What is the Confluent Oracle CDC connector class name, and what replaces it?',
+      answer:
+        'The Confluent Oracle CDC Source connector class is io.confluent.connect.oracle.cdc.OracleCdcSourceConnector. It reads changes through LogMiner and publishes flat table topics. This connector replaces that class with sh.oso.connect.oracle.OracleCdcSourceConnector, and Confluent\'s proprietary connector and libraries are not shipped with OSO.',
+    },
+    {
+      question: 'Which Kafka Connect version do I need for the takeover?',
+      answer:
+        'The takeover needs PUT /connectors/{name}/stop and GET /connectors/{name}/offsets, available from Kafka 3.5 and Confluent Platform 7.5.',
+    },
+    {
+      question: 'Do I need a Confluent licence to run this connector?',
+      answer:
+        'No. This connector is open source under the Apache-2.0 licence and does not ship Confluent\'s connector. The translation drops confluent.license, and Confluent\'s proprietary connector and libraries are not shipped with OSO or run in CI.',
+    },
+    {
+      question: 'Can I roll back to the Confluent connector?',
+      answer:
+        'Yes, until the Confluent connector is deleted. Its offset is unchanged, so if verification fails, delete the new connector and then resume the Confluent connector with PUT /connectors/{name}/resume. It continues from where it stopped.',
+    },
+    {
+      question: 'Is RDS for Oracle supported?',
+      answer:
+        'The earlier migration to new Debezium topics was qualified on Oracle Database Free and RDS for Oracle 19c non-CDB. The same-topic qualification uses Oracle Database Free and Confluent 2.15.2 in disposable local containers. No RDS instance was available for that additional format run. Confluent documents no support for RDS CDB, read replicas or Autonomous Database, so those installations start with OSO rather than migrating from Confluent.',
+    },
+  ]}
+/>
