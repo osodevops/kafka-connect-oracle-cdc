@@ -106,7 +106,12 @@ const sidebars = {
       label: 'Development',
       items: ['development/building', 'development/local-testing', 'development/releasing'],
     },
-    'comparison/index',
+    {
+      type: 'category',
+      label: 'Comparison',
+      link: {type: 'doc', id: 'comparison/index'},
+      items: ['comparison/confluent-oracle-cdc-logminer-or-goldengate'],
+    },
     {
       type: 'category',
       label: 'Guides',

@@ -12,6 +12,8 @@ trackers, linked below, as read on 4 and 5 October 2026 (Debezium 3.7). Statemen
 connector describe the code as it is today, not a roadmap. If you find something out of date,
 please open an issue.
 
+Whether Confluent's Oracle CDC Source connector uses GoldenGate, LogMiner or XStream is answered in [Confluent, LogMiner or GoldenGate](confluent-oracle-cdc-logminer-or-goldengate.md).
+
 This project does not publish database benchmark figures. The [harness](#measure-it-yourself) is
 published instead, so you can measure on your own database.
 
