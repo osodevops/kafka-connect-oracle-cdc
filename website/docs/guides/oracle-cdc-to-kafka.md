@@ -1,9 +1,12 @@
 ---
-title: Oracle Database change data capture to Kafka
-description: A practical guide to streaming Oracle Database changes into Apache Kafka with LogMiner, what makes it hard, and how to run it safely.
+title: Oracle CDC to Kafka with Kafka Connect
+sidebar_label: Oracle Database change data capture to Kafka
+description: Stream Oracle Database changes to Apache Kafka with a Kafka Connect source connector that reads committed inserts, updates and deletes through LogMiner.
 ---
 
-# Oracle Database change data capture to Kafka
+import Faq from '@site/src/components/Faq';
+
+# Oracle CDC to Kafka with Kafka Connect
 
 Change data capture (CDC) turns every committed insert, update and delete in a database into an
 event that other systems can consume. With Oracle Database as the source and Apache Kafka as the
@@ -12,7 +15,37 @@ without changing the applications that write to the database. This guide explain
 Oracle Database works, what makes it hard to get right, and how to run it with the OSO CDC
 Connector.
 
-## Ways to capture changes from Oracle Database
+## How do I stream Oracle changes to Kafka?
+
+**Quick answer.** Enable ARCHIVELOG mode and supplemental logging, and create a mining user with the LogMiner grants. Deploy a Kafka Connect source connector that reads committed inserts, updates and deletes through Oracle LogMiner and writes each change to a Kafka topic. One such connector is the OSO CDC Connector, which uses LogMiner only and never reads redo files directly.
+
+A minimal configuration for one table in one pluggable database is below. The connector class is
+`sh.oso.connect.oracle.OracleCdcSourceConnector`. Each `cdc.*` name is a setting of this
+connector. The [first connector](../getting-started/first-connector.md) guide explains where to
+connect, how the table pattern is matched, and what happens at the first start. The
+[configuration reference](../reference/configuration/index.md) lists every setting.
+
+```json
+{
+  "name": "orders-cdc",
+  "config": {
+    "connector.class": "sh.oso.connect.oracle.OracleCdcSourceConnector",
+    "cdc.database.host": "db.example.internal",
+    "cdc.database.port": "1521",
+    "cdc.database.service": "ORCLCDB",
+    "cdc.database.user": "c##cdc",
+    "cdc.database.password": "${file:/opt/kafka/secrets/oracle.properties:password}",
+    "cdc.database.pdbs": "ORCLPDB1",
+    "cdc.tables.include": "ORCLPDB1\\.APP\\.ORDERS",
+    "cdc.topic.prefix": "app"
+  }
+}
+```
+
+The steps in [How do I run it?](#how-do-i-run-it) cover the database, a local lab, installation,
+metrics and the runbooks.
+
+## What are the ways to capture changes from Oracle Database?
 
 | Approach | How it works | Trade-offs |
 |---|---|---|
@@ -26,7 +59,7 @@ LogMiner is the capture interface Oracle provides with the database at no extra 
 every change, including deletes, without touching the applications. The OSO CDC Connector uses
 LogMiner only and never reads redo files directly.
 
-## How LogMiner-based CDC works
+## How does LogMiner-based CDC work?
 
 Every change Oracle makes is first written to the redo log. In ARCHIVELOG mode, filled online redo
 logs are copied to archived logs before they are reused. LogMiner reads online and archived logs
@@ -42,7 +75,7 @@ A CDC connector on LogMiner mines the redo in steps, decodes each row into colum
 changes by transaction, and publishes a transaction's changes when its COMMIT arrives. The details
 of how this connector does that are in [how capture works](../concepts/how-capture-works.md).
 
-## What makes it hard
+## What makes Oracle change data capture hard?
 
 **Open transactions.** LogMiner returns changes before their transactions commit. A connector must
 hold them until the COMMIT or ROLLBACK, and must be able to restart without losing the ones it held.
@@ -81,7 +114,7 @@ choices.
 not move, and the redo it would need on restart grows old. This connector writes heartbeat records
 that carry its position, without writing anything to the source database.
 
-## Running it
+## How do I run it?
 
 1. **Prepare the database.** ARCHIVELOG mode, supplemental logging, and a mining user with the
    LogMiner grants. `oracle-cdc-doctor setup-sql` writes the script for your DBA and
@@ -96,9 +129,78 @@ that carry its position, without writing anything to the source database.
 5. **Know the runbooks.** Every condition that stops the connector has a code and a
    [runbook](../operations/runbooks/index.md) that explains the recovery.
 
-## Choosing a connector
+## Which Kafka Connect Oracle connectors exist?
+
+Confluent's Oracle CDC Source connector uses Oracle LogMiner to read the database redo log,
+querying `V$LOGMNR_CONTENTS`, and publishes each change as a record on an Apache Kafka topic. It
+is built to spread table work across tasks, to snapshot partitioned tables in parallel, and to
+write large object columns to separate topics. It supports Oracle Real Application Clusters. It is
+a Confluent Premium connector under the Confluent enterprise licence and needs an additional
+subscription. Confluent documents a trial period of 30 days without a licence key
+([overview](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/overview.html)).
+
+Debezium's Oracle connector captures row-level inserts, updates and deletes and writes them to one
+Kafka topic per table. It is licensed under Apache-2.0. LogMiner is the default adapter. It can
+also use XStream, which Debezium describes as a commercial component of Oracle GoldenGate, or
+OpenLogReplicator, which reads redo and archive logs directly. Debezium documents compatibility
+with a standalone database and with Oracle Real Application Clusters. Debezium states that the
+XStream API requires a GoldenGate licence, and Oracle states the same for the XStream APIs
+([Oracle connector](https://debezium.io/documentation/reference/stable/connectors/oracle.html),
+[licence](https://github.com/debezium/debezium/blob/main/LICENSE.txt),
+[Introduction to XStream](https://docs.oracle.com/en/database/oracle/oracle-database/19/xstrm/introduction-to-xstream.html)).
+
+The OSO CDC Connector for Oracle Database is the connector this site documents. It is an
+Apache-2.0 Kafka Connect source. It reads changes through LogMiner only, does not read redo files
+directly, and does not use GoldenGate or XStream. Oracle Real Application Clusters is not
+supported yet. See the [introduction](../intro.md) and the
+[comparison](../comparison/index.md).
+
+| Connector | Capture mechanism | Connector licence | Notes |
+|---|---|---|---|
+| Confluent Oracle CDC Source | Oracle LogMiner, through `V$LOGMNR_CONTENTS` | Confluent Premium connector, Confluent enterprise licence | Spreads table work across tasks, snapshots partitioned tables in parallel, writes large objects to separate topics, and supports Oracle Real Application Clusters |
+| Debezium Oracle connector | LogMiner by default. XStream or OpenLogReplicator are alternatives | Apache-2.0 | Row-level changes on a topic per table. Standalone databases and Oracle Real Application Clusters. XStream requires a GoldenGate licence |
+| OSO CDC Connector | Oracle LogMiner only | Apache-2.0 | Publishes committed changes to Kafka through LogMiner. Does not read redo files directly and does not use GoldenGate or XStream. Oracle Real Application Clusters is not supported yet |
 
 If you are choosing between connectors, or moving from one, the [comparison](../comparison/index.md)
 sets this connector beside Confluent's Oracle CDC Source and Debezium's Oracle connector, and the
 [benchmark harness](../comparison/index.md#measure-it-yourself) lets you measure them on your own
-database.
+database. [Confluent, LogMiner or GoldenGate](../comparison/confluent-oracle-cdc-logminer-or-goldengate.md)
+answers which Oracle API the Confluent connectors use.
+
+Sources, checked on 26 October 2026: Confluent's
+[Oracle CDC Source overview](https://docs.confluent.io/kafka-connectors/oracle-cdc/current/overview.html);
+Debezium's [Oracle connector](https://debezium.io/documentation/reference/stable/connectors/oracle.html)
+and [Apache-2.0 licence](https://github.com/debezium/debezium/blob/main/LICENSE.txt); Oracle's
+[19c licensing information](https://docs.oracle.com/en/database/oracle/oracle-database/19/dblic/Licensing-Information.html)
+and [Introduction to XStream](https://docs.oracle.com/en/database/oracle/oracle-database/19/xstrm/introduction-to-xstream.html).
+Statements about the OSO connector come from this site.
+
+<Faq
+  items={[
+    {
+      question: 'Can Kafka Connect capture changes from Oracle Database?',
+      answer:
+        'Yes. A Kafka Connect source connector can read committed inserts, updates and deletes from Oracle Database through Oracle LogMiner and write them to Kafka topics. The database needs ARCHIVELOG mode, supplemental logging and a mining user with the LogMiner grants. Oracle states that LogMiner is available with all Oracle Database offerings, unless GoldenGate supplemental logging is turned on. Source: https://docs.oracle.com/en/database/oracle/oracle-database/19/dblic/Licensing-Information.html',
+    },
+    {
+      question: 'Do I need GoldenGate to stream Oracle changes to Kafka?',
+      answer:
+        'No. Streaming through LogMiner does not require Oracle GoldenGate. Oracle states that LogMiner is available with all Oracle Database offerings, and that a GoldenGate licence is required when GoldenGate supplemental logging is turned on or when a client uses the XStream APIs. The OSO CDC Connector uses LogMiner only, and its documented setup does not set ENABLE_GOLDENGATE_REPLICATION. Sources: https://docs.oracle.com/en/database/oracle/oracle-database/19/dblic/Licensing-Information.html and https://docs.oracle.com/en/database/oracle/oracle-database/19/xstrm/introduction-to-xstream.html',
+    },
+    {
+      question: 'Which Oracle versions does the OSO connector support?',
+      answer:
+        'Oracle Database 19c and later is required, as a single instance, CDB or non-CDB. The doctor refuses older releases. The test suites run against Oracle Database Free, release 23.26.3, a CDB with three PDBs. 19c and 21c are listed in the support policy for 1.0 and are not yet qualified.',
+    },
+    {
+      question: 'Is the OSO connector open source?',
+      answer:
+        'Yes. The OSO CDC Connector for Oracle Database is published under the Apache-2.0 licence.',
+    },
+    {
+      question: 'Does it work with Confluent Platform or plain Apache Kafka Connect?',
+      answer:
+        'Yes. The installation guide lists Apache Kafka Connect 3.6 and later and Confluent Platform 7.6 and later as supported platforms. The test suites run on Apache Kafka Connect. Strimzi and Amazon MSK Connect are also listed, and exactly-once delivery on Amazon MSK Connect has not been verified.',
+    },
+  ]}
+/>
