@@ -116,7 +116,11 @@ const sidebars = {
       type: 'category',
       label: 'Guides',
       link: {type: 'doc', id: 'guides/index'},
-      items: ['guides/oracle-cdc-to-kafka', 'guides/confluent-compatible-records'],
+      items: [
+        'guides/oracle-cdc-to-kafka',
+        'guides/confluent-compatible-records',
+        'guides/confluent-oracle-cdc-properties',
+      ],
     },
     'enterprise-support',
     {

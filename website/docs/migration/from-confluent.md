@@ -21,6 +21,8 @@ this migration keeps. The connector that takes over uses
 
 For configuration and record examples before planning a cutover, see
 [Confluent-compatible records](../guides/confluent-compatible-records.md).
+Every Confluent property the migration tool maps, drops or flags is listed in
+[Confluent Oracle CDC properties](../guides/confluent-oracle-cdc-properties.md).
 
 The earlier migration to new Debezium topics was qualified on Oracle Database Free and RDS for
 Oracle 19c non-CDB. The same-topic qualification uses Oracle Database Free and Confluent 2.15.2
