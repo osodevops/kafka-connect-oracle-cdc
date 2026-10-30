@@ -12,6 +12,9 @@ problems in general terms and link to the reference pages for how this connector
   changes, how LogMiner-based capture works, what makes it hard, and how to run it.
 - [Confluent-compatible records](confluent-compatible-records.md): what the flat format adds,
   configuration and record examples, LOB topics, schema compatibility and same-topic migration.
+- [Confluent Oracle CDC properties](confluent-oracle-cdc-properties.md): how each property of
+  Confluent's Oracle CDC Source connector maps to an OSO setting, or is dropped or flagged for
+  review.
 
 Related pages that answer common questions directly:
 
