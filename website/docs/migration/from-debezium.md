@@ -1,19 +1,71 @@
 ---
-title: Migrating from Debezium Oracle
-description: Translate the Debezium configuration, take over at the Debezium offset without a gap, and verify the cutover.
+title: Migrate from the Debezium Oracle Connector
+sidebar_label: Migrating from Debezium Oracle
+description: "Move from the Debezium Oracle (LogMiner) connector: translate the configuration, take over at the Debezium offset with no gap, and verify the cutover."
 ---
 
-# Migrating from Debezium Oracle
+import Faq from '@site/src/components/Faq';
 
-The connector writes the Debezium-compatible envelope by default and the translated configuration
-keeps Debezium's topic names, so consumers of the Debezium Oracle connector keep working. The
-migration uses three of the [migration tools](tools.md): `migrate_from_debezium.py` translates the
-configuration, `takeover_scn.py` starts the new connector at the Debezium offset, and
-`verify_cutover.py` checks the result.
+# Migrate from the Debezium Oracle Connector
+
+The Debezium Oracle connector captures row-level changes in an Oracle database, including tables
+added while the connector is running, and it can limit capture to chosen schemas and tables. By
+default it reads those changes with the native LogMiner API. Set `database.connection.adapter` to
+`logminer` (the default) or to `logminer_unbuffered` when only committed changes should be
+streamed. OpenLogReplicator (`olr`) and XStream (`xstream`, a commercial component of GoldenGate)
+are alternative adapters. Debezium documents the adapters, the class
+`io.debezium.connector.oracle.OracleConnector`, and compatibility with a standalone instance and
+with Oracle Real Application Clusters in its
+[Oracle connector reference](https://debezium.io/documentation/reference/stable/connectors/oracle.html#oracle-adapter-modes),
+as read on 2 November 2026.
+
+**Quick answer.** What changes is the connector class and the configuration, which the migration tools translate. What stays is the existing Kafka topics: the translated configuration keeps Debezium's topic names and writes the Debezium-compatible envelope. The new connector continues from a takeover SCN computed from the Debezium offset, with a short overlap so nothing is skipped.
+
+The connector that takes over is `sh.oso.connect.oracle.OracleCdcSourceConnector`. It writes the
+Debezium-compatible envelope by default and the translated configuration keeps Debezium's topic
+names, so consumers of the Debezium Oracle connector keep working. The migration uses three of the
+[migration tools](tools.md): `migrate_from_debezium.py` translates the configuration,
+`takeover_scn.py` starts the new connector at the Debezium offset, and `verify_cutover.py` checks
+the result. See [cutover verification](cutover-verification.md) for the evidence file, and the
+[open source comparison](../comparison/index.md#which-open-source-oracle-cdc-options-exist) for how
+the two connectors differ on capture method.
 
 The new connector starts at the Debezium resume position (`cdc.start.scn`), so nothing is
 skipped. Changes committed between that position and Debezium's last commit are delivered a second
 time.
+
+## What changes and what stays the same?
+
+| Item | On this migration |
+|---|---|
+| Connector class | Changes, from `io.debezium.connector.oracle.OracleConnector` to `sh.oso.connect.oracle.OracleCdcSourceConnector`. |
+| Configuration keys | Change. `migrate_from_debezium.py` rewrites them as `cdc.*` properties and reports every source property as mapped, mapped with a change, dropped or manual. |
+| Offsets and start position | The new connector has its own name and no stored offset, so it starts at `cdc.start.scn`. That value is the Debezium offset's `scn`, and `cdc.snapshot.mode` is `none`. |
+| Topics | Stay. `cdc.topic.template` is `${prefix}.${schema}.${table}` (with `topic.delimiter` when set), so Debezium's topic names do not change. |
+| Record format | Stays the Debezium-compatible envelope (`cdc.output.format=debezium`). The translator pins the name-adjustment modes so record names, and the schemas registered under the existing subjects, stay the same. |
+| Schema change topic | Does not stay. Debezium publishes schema change events to a topic named from `topic.prefix`. This connector keeps schema versions in its own topic and does not publish that schema change topic. |
+| Real Application Clusters | Debezium documents compatibility with a standalone instance and with Real Application Clusters. This connector captures a single instance. Real Application Clusters are not supported yet. |
+
+Debezium's LogMiner adapter already requires the database to run in ARCHIVELOG mode, with minimal
+supplemental logging and supplemental logging on captured tables. This connector requires the
+same, and it reads changes through LogMiner only. It does not read redo or archive files
+directly. The mining user still needs the grants in
+[database setup](../database-setup/index.md), including
+[supplemental logging](../database-setup/supplemental-logging.md). Run the
+[doctor](../operations/doctor.md) against the translated configuration before the cutover and
+apply any grant it reports as missing. Debezium's preparation steps are in
+[Preparing the database](https://debezium.io/documentation/reference/stable/connectors/oracle.html#_preparing_the_database).
+
+## How does the takeover SCN avoid a gap?
+
+Debezium stores two values in the connector offset. `scn` is the low-watermark position it
+resumes from, and `commit_scn` records commits it has seen. Debezium documents both in its
+[Oracle connector FAQ](https://debezium.io/documentation/reference/stable/connectors/oracle.html#oracle-frequently-asked-questions).
+After the Debezium connector is stopped, `takeover_scn.py` reads `scn` and writes it as
+`cdc.start.scn`. The new connector starts at that SCN, so no committed change is skipped. Changes
+committed after it, up to Debezium's last commit, are delivered again. The checks the tool runs
+are [step 4](#4-compute-the-start-scn). The overlap, and what it means for consumers, is
+[step 6](#6-the-overlap).
 
 ## Before you start
 
@@ -197,3 +249,38 @@ Debezium's topics, so you can verify the existing pipeline before you start.
   differ from Debezium's.
 - Delete the old connector's offsets and internal topics after the retention agreed for the
   change.
+
+<Faq
+  items={[
+    {
+      question: "Can I keep my existing Kafka topics when migrating from Debezium?",
+      answer:
+        "Yes. The translated configuration keeps Debezium's topic names, with cdc.topic.template set to ${prefix}.${schema}.${table}, and this connector writes the Debezium-compatible envelope by default. Consumers of those topics keep working. Record names, and the schemas registered under the existing subjects, stay the same.",
+    },
+    {
+      question: "Will I lose or duplicate changes during the cutover?",
+      answer:
+        "Nothing is skipped. The new connector starts at the Debezium offset's scn, which is Debezium's resume position. Changes committed after that SCN, up to Debezium's last commit, are delivered a second time. Consumers that upsert by key are unaffected, and the cdc.xid and cdc.commit_scn headers identify the repeats. A transaction that began before the start SCN and committed during that overlap can be delivered again in part, because Debezium had already delivered it whole.",
+    },
+    {
+      question: "Does the migration tool translate Debezium configuration automatically?",
+      answer:
+        "Yes. migrate_from_debezium.py translates a Debezium Oracle connector configuration into cdc properties and reports every source property as mapped, mapped with a change, dropped, or manual. Properties left manual, because the connector has no equivalent or the names cannot be rewritten, include column.exclude.list, column.include.list, log.mining.username.include.list, and the XStream and OpenLogReplicator adapters. A literal password is never copied.",
+    },
+    {
+      question: "Do I need to change Oracle database setup (supplemental logging, privileges) when moving from Debezium's LogMiner adapter?",
+      answer:
+        "A LogMiner deployment already uses ARCHIVELOG mode and supplemental logging, which this connector also requires, and the connector reads changes through LogMiner only. You still run oracle-cdc-doctor against the translated configuration. The mining user needs the LogMiner grants in the database setup guide, including supplemental logging on captured tables, and the archived logs from the Debezium resume SCN must still exist. Real Application Clusters are not supported yet.",
+    },
+    {
+      question: "How do I verify the cutover from Debezium?",
+      answer:
+        "After the overlap has passed, run verify_cutover.py against the new connector's topics and keep the evidence file. The verifier also reads topics written by the Debezium Oracle connector, so you can check the existing pipeline before the migration starts. The cutover verification guide describes the evidence file and its limits.",
+    },
+    {
+      question: "Which Debezium adapters can this takeover use?",
+      answer:
+        "Only the LogMiner adapters, logminer and logminer_unbuffered. Debezium uses LogMiner by default. The offsets of the XStream and OpenLogReplicator adapters carry no position the takeover can use, and the database must be a single instance.",
+    },
+  ]}
+/>
