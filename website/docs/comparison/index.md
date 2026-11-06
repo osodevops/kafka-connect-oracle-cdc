@@ -115,6 +115,8 @@ already operate.
 - [Confluent, LogMiner or GoldenGate](confluent-oracle-cdc-logminer-or-goldengate.md) answers
   which Oracle API Confluent's Oracle CDC Source uses, and how Confluent's separate XStream
   connector differs.
+- [Debezium Oracle](debezium-oracle.md) compares the Debezium Oracle connector with this
+  connector on capture adapters, delivery and migration.
 - [Migrating from Confluent Oracle CDC Source](../migration/from-confluent.md) describes the
   same-topic cutover, available from release 0.1.6.
 - [Oracle CDC to Kafka](../guides/oracle-cdc-to-kafka.md) explains LogMiner-based capture and how
