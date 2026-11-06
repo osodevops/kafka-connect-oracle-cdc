@@ -45,6 +45,7 @@
 ## Comparison
 - [Comparison](https://kafkacdcconnector.com/comparison): how this connector compares with Confluent's Oracle CDC Source and Debezium's Oracle connector
 - [Confluent, LogMiner or GoldenGate](https://kafkacdcconnector.com/comparison/confluent-oracle-cdc-logminer-or-goldengate): whether Confluent's Oracle CDC Source uses LogMiner, XStream or GoldenGate
+- [Debezium Oracle](https://kafkacdcconnector.com/comparison/debezium-oracle): a fair comparison of the Debezium Oracle connector and the OSO connector
 
 ## Project
 - [GitHub](https://github.com/osodevops/kafka-connect-oracle-cdc)
