@@ -110,7 +110,10 @@ const sidebars = {
       type: 'category',
       label: 'Comparison',
       link: {type: 'doc', id: 'comparison/index'},
-      items: ['comparison/confluent-oracle-cdc-logminer-or-goldengate'],
+      items: [
+        'comparison/confluent-oracle-cdc-logminer-or-goldengate',
+        'comparison/debezium-oracle',
+      ],
     },
     {
       type: 'category',
