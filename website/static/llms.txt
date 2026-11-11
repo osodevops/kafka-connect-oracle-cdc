@@ -11,6 +11,7 @@
 - [Confluent Oracle CDC properties](https://kafkacdcconnector.com/guides/confluent-oracle-cdc-properties): how Confluent Oracle CDC Source connector properties map to OSO
 - [Blog](https://kafkacdcconnector.com/blog): articles on change data capture from Oracle Database through LogMiner
 - [Oracle GoldenGate alternatives for Kafka](https://kafkacdcconnector.com/blog/oracle-goldengate-alternatives): a fair comparison of GoldenGate, XStream, Debezium, Confluent, Striim, Qlik Replicate and the OSO connector, with licensing notes
+- [Oracle database replication methods](https://kafkacdcconnector.com/blog/oracle-database-replication-methods): Data Guard, GoldenGate, materialised views, XStream, LogMiner-based CDC and AWS DMS, and when a physical standby differs from an event stream into Kafka
 
 ## Concepts
 - [How capture works](https://kafkacdcconnector.com/concepts/how-capture-works): LogMiner steps, the redo byte address cursor, uncommitted transactions
