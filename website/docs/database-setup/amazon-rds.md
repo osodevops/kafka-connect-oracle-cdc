@@ -1,9 +1,12 @@
 ---
-title: Amazon RDS for Oracle
-description: What changes on Amazon RDS for Oracle, the setup script for the master user, archived redo retention and what the doctor checks.
+title: Oracle CDC on Amazon RDS for Oracle
+sidebar_label: Amazon RDS for Oracle
+description: "Set up Oracle CDC on Amazon RDS for Oracle as the master user: rdsadmin procedures, supplemental logging, archived redo retention and the doctor checks."
 ---
 
-# Amazon RDS for Oracle
+import Faq from '@site/src/components/Faq';
+
+# Oracle CDC on Amazon RDS for Oracle
 
 :::note Preview
 Amazon RDS for Oracle 19c passed the connector's qualification suites on 9 October 2026 in both
@@ -15,7 +18,10 @@ mid-stream, then delivered every committed row. A log purged by the retention se
 failover and releases from 21c have not been run on RDS yet, so treat RDS support as a preview.
 :::
 
-The connector mines an RDS for Oracle database with LogMiner exactly as it mines one on premises:
+**Quick answer.** As the RDS master user, run the doctor's `setup-sql --platform rds` script. It creates the capture user, then calls `rdsadmin.rdsadmin_util.grant_sys_object`, `alter_supplemental_logging` for minimal supplemental logging, and `set_configuration` for `archivelog retention hours`, which the script commits. Table supplemental logging stays a separate statement. The doctor reports fixes in that form.
+
+The connector mines an RDS for Oracle database with [LogMiner](../concepts/how-capture-works.md)
+exactly as it mines one on premises:
 LogMiner reads the online and archived redo logs on the database server, so nothing has to reach
 the files. What differs is how the database is prepared, because RDS gives the master user no
 SYSDBA, no `ALTER SYSTEM` and no `ALTER DATABASE`.
@@ -29,7 +35,7 @@ SYSDBA, no `ALTER SYSTEM` and no `ALTER DATABASE`.
 | Initialisation parameters | `ALTER SYSTEM` | The instance's DB parameter group |
 | Online redo log size | `ALTER DATABASE ADD LOGFILE` | `rdsadmin.rdsadmin_util.add_logfile` and `drop_logfile` |
 
-The doctor detects RDS (the `RDSADMIN` schema exists) and gives every fix in the form above.
+The [doctor](../operations/doctor.md) detects RDS (the `RDSADMIN` schema exists) and gives every fix in the form above.
 
 Moving from Confluent's Oracle CDC Source connector on an RDS non-CDB? The cutover in
 [Migrating from Confluent Oracle CDC Source](../migration/from-confluent.md) was run on RDS for
@@ -52,7 +58,7 @@ things differ from a non-CDB:
 Run the setup script below connected to the tenant database. Releases from 21c have not been
 through the qualification suites yet.
 
-## The setup script
+## How do I run the RDS setup script? {#the-setup-script}
 
 ```bash
 java -jar oracle-cdc-doctor-cli.jar setup-sql --platform rds --user cdc > setup-rds.sql
@@ -69,18 +75,18 @@ and keep the edited file out of version control. Review it, then run it as the m
 4. turns on minimal supplemental logging;
 5. sets `archivelog retention hours` and commits.
 
-Supplemental logging for each captured table is still a statement per table, run by its owner or
+[Supplemental logging](./supplemental-logging.md) for each captured table is still a statement per table, run by its owner or
 the master user:
 
 ```sql
 ALTER TABLE <owner>.<table> ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
 ```
 
-## Archived redo retention
+## How long does RDS keep archived redo? {#archived-redo-retention}
 
 RDS deletes archived redo from the instance once it is older than `archivelog retention hours`.
 The default is 0, so logs disappear soon after they are archived and a connector that stops for
-longer than the online logs last finds its redo gone (CDC-2002). The script sets the retention to
+longer than the online logs last finds its redo gone ([CDC-2002](../operations/runbooks/log-purged.md)). The script sets the retention to
 the journal threshold plus a day of downtime; raise it if the connector may be stopped for longer,
 and size the instance's storage for that much redo:
 
@@ -122,3 +128,38 @@ gave RDS as the service:
 ```
 
 Leave `cdc.database.pdbs` empty: a non-CDB has no pluggable databases.
+
+<Faq
+  items={[
+    {
+      question: 'Does the connector support Amazon RDS for Oracle?',
+      answer:
+        'Yes, as a preview. Amazon RDS for Oracle 19c passed the connector\'s qualification suites on 9 October 2026 in both architectures, on RDS SE2 License Included. A real Kafka Connect worker against each, killed and restarted mid-stream, then delivered every committed row. A log purged by the retention setting, Multi-AZ failover and releases from 21c have not been run on RDS yet.',
+    },
+    {
+      question: 'How do I enable supplemental logging on RDS for Oracle?',
+      answer:
+        'The setup script calls rdsadmin.rdsadmin_util.alter_supplemental_logging with the ADD action, and you run that script as the master user. That enables minimal supplemental logging at database level. Each captured table still needs ALTER TABLE owner.table ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS, run by its owner or the master user.',
+    },
+    {
+      question: 'How long does RDS keep archived redo logs for LogMiner?',
+      answer:
+        'RDS keeps archived redo for archivelog retention hours, and the default is 0, so logs disappear soon after they are archived. The setup script sets the retention to the journal threshold plus a day of downtime, and the commit is required. Doctor rule DOC-23 is blocking at 0 and a warning below cdc.txjournal.threshold.ms plus the planned maximum downtime (--max-downtime, 24 hours by default). A log purged by the retention setting has not been run on RDS yet.',
+    },
+    {
+      question: 'Why does the master user not need SYSDBA?',
+      answer:
+        'RDS does not grant the master user SYSDBA, ALTER SYSTEM or ALTER DATABASE, so the setup script does not use them. It calls rdsadmin procedures the master user can run: grant_sys_object for SYS objects, alter_supplemental_logging for minimal supplemental logging, and set_configuration for archivelog retention hours.',
+    },
+    {
+      question: 'Does it work with RDS Multi-AZ or Oracle 21c?',
+      answer:
+        'Not yet. Multi-AZ failover and releases from 21c have not been run on RDS, so treat both as untested. The preview covers Oracle Database 19c in both architectures. From release 0.1.3 the connector mines a 19c tenant database in range mode, and RDS releases from 21c use that CDB architecture, but those releases have not been through the qualification suites.',
+    },
+    {
+      question: 'Do I set cdc.database.pdbs on a non-CDB?',
+      answer:
+        'No. Leave cdc.database.pdbs empty, because a non-CDB has no pluggable databases. Point the connector at the instance endpoint, port 1521 by default, and the database name you gave RDS as the service.',
+    },
+  ]}
+/>
