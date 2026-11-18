@@ -25,7 +25,7 @@
          Central, unpacked from its own plugin archive (its runtime jars and the Oracle JDBC driver it
          ships, no Kafka or Connect jars) into a plugin directory the Connect worker mounts next to
          ours. Never on the test classpath. -->
-    <debezium.version>3.7.0.Final</debezium.version>
+    <debezium.version>3.7.1.Final</debezium.version>
     <debezium.plugin.root>${project.build.directory}/debezium-plugin</debezium.plugin.root>
     <!-- AvroConverterConnectorIT (ADR-0020): Apicurio Registry (Apache-2.0) in memory, and its Avro
          converter with the Avro serde's runtime jars from Maven Central, staged as a plugin directory
@@ -152,7 +152,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-dependency-plugin</artifactId>
-        <version>3.8.1</version>
+        <version>3.11.0</version>
         <executions>
           <execution>
             <id>debezium-plugin</id>
